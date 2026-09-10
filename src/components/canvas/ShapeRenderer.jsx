@@ -16,7 +16,11 @@ export default function ShapeRenderer({
   onTransformEnd,
   onTextDoubleClick,
 }) {
-  const draggable = tool === 'select';
+  // Text-tool priority: while the text tool is active, existing shapes
+  // neither intercept clicks (listening off → events reach the Stage,
+  // which spawns the text overlay) nor initiate drags. Dragging is
+  // additionally limited to the selected shape in select mode.
+  const textMode = tool === 'text';
 
   const registerNode = (shapeId) => (node) => {
     if (!shapeNodesRef) return;
@@ -32,7 +36,8 @@ export default function ShapeRenderer({
     const common = {
       id: shape.id,
       ref: registerNode(shape.id),
-      draggable,
+      draggable: tool === 'select' && shape.id === selectedId,
+      listening: !textMode,
       rotation: shape.rotation ?? 0,
       opacity: shape.id === selectedId ? 1 : 1,
       onClick: (e) => onShapeClick?.(e, shape.id),
@@ -55,7 +60,6 @@ export default function ShapeRenderer({
           lineCap="round"
           lineJoin="round"
           tension={0.5}
-          listening={tool === 'select' || common.draggable}
         />
       );
     }

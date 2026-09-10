@@ -134,13 +134,17 @@ export default function useCanvasDrawing({
     [scale, stagePos],
   );
 
+  // Viewport (stage container) -> world coordinates. Uses
+  // getRelativePointerPosition so the result is correct whether the
+  // pointer landed on empty canvas or on top of an existing shape.
   const getWorldFromEvent = useCallback(
     (event) => {
       const stage = event.target?.getStage?.() ?? stageRef.current;
       if (!stage) return null;
-      const pointer = stage.getPointerPosition();
-      if (!pointer) return null;
-      return toWorld(stage, pointer);
+      const relative =
+        stage.getRelativePointerPosition?.() ?? stage.getPointerPosition();
+      if (!relative) return null;
+      return toWorld(stage, relative);
     },
     [toWorld],
   );
@@ -159,7 +163,10 @@ export default function useCanvasDrawing({
       }
 
       if (tool === 'text') {
-        if (clickedOnEmpty && !textEditor) {
+        // Text places ANYWHERE — empty canvas or inside/on top of an
+        // existing shape (shapes are non-listening in text mode, and
+        // this handler ignores the event target on purpose).
+        if (!textEditor) {
           const screen = toScreen(world);
           setTextEditor({
             mode: 'create',
@@ -304,17 +311,23 @@ export default function useCanvasDrawing({
     );
   }, []);
 
-  // ---- shape interactions (selection is available in every tool) ----
+  // ---- shape interactions (selection is available in every tool
+  // EXCEPT text: the text tool owns all pointer events and delegates
+  // placement to the Stage handler above).
   // Clicking any shape always selects it and stops the event reaching
   // the Stage, so the stage never immediately deselects it again.
   // (cancelBubble on click does not block the earlier pointerdown, so
   // in-progress drawing tools keep working.)
   const handleShapeClick = useCallback(
     (event, shapeId) => {
+      if (tool === 'text') {
+        // Allow the pointer event to reach the stage / text placement.
+        return;
+      }
       event.cancelBubble = true;
       selectShape(shapeId);
     },
-    [selectShape],
+    [selectShape, tool],
   );
 
   const handleShapeDragEnd = useCallback(

@@ -48,12 +48,12 @@ export default function CanvasStage({
   // Every branch explicitly releases with nodes([]) + batchDraw() so the
   // transformer never holds a detached node after a delete — the stale
   // hook that broke all subsequent selections/deletions.
-  // Selection is available in every tool, so this follows the selection
-  // rather than the active tool.
+  // Selection is available in every tool except text (the text tool owns
+  // all pointer events), so the transformer hides while placing text.
   useEffect(() => {
     const tr = transformerRef?.current;
     if (!tr) return;
-    if (!selectedShapeId) {
+    if (!selectedShapeId || tool === 'text') {
       tr.nodes([]);
       tr.getLayer()?.batchDraw();
       return;
@@ -69,7 +69,7 @@ export default function CanvasStage({
       tr.nodes([]);
       tr.getLayer()?.batchDraw();
     }
-  }, [selectedShapeId, shapes, draftShape, shapeNodesRef, stageRef, transformerRef, size]);
+  }, [selectedShapeId, shapes, draftShape, tool, shapeNodesRef, stageRef, transformerRef, size]);
 
   const cursorForTool = () => {
     switch (tool) {
