@@ -25,8 +25,9 @@ export default function ShapeRenderer({
   };
 
   return shapes.map((shape) => {
+    // NOTE (React 19): `key` must be passed directly as a JSX prop.
+    // It is intentionally NOT part of this spread object.
     const common = {
-      key: shape.id,
       ref: registerNode(shape.id),
       draggable,
       rotation: shape.rotation ?? 0,
@@ -41,6 +42,7 @@ export default function ShapeRenderer({
     if (shape.type === 'freehand' || (shape.type === 'line' && shape.points?.length > 4)) {
       return (
         <Line
+          key={shape.id}
           {...common}
           x={shape.x ?? 0}
           y={shape.y ?? 0}
@@ -58,6 +60,7 @@ export default function ShapeRenderer({
     if (shape.type === 'rectangle') {
       return (
         <Rect
+          key={shape.id}
           {...common}
           x={shape.x}
           y={shape.y}
@@ -73,6 +76,7 @@ export default function ShapeRenderer({
     if (shape.type === 'circle') {
       return (
         <Circle
+          key={shape.id}
           {...common}
           x={shape.x}
           y={shape.y}
@@ -87,6 +91,7 @@ export default function ShapeRenderer({
     if (shape.type === 'line') {
       return (
         <Line
+          key={shape.id}
           {...common}
           x={shape.x ?? 0}
           y={shape.y ?? 0}
@@ -103,6 +108,7 @@ export default function ShapeRenderer({
     if (shape.type === 'arrow') {
       return (
         <Arrow
+          key={shape.id}
           {...common}
           x={shape.x ?? 0}
           y={shape.y ?? 0}
@@ -122,6 +128,7 @@ export default function ShapeRenderer({
     if (shape.type === 'text') {
       return (
         <Text
+          key={shape.id}
           {...common}
           x={shape.x}
           y={shape.y}

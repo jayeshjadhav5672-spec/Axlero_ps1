@@ -44,6 +44,11 @@ export function Whiteboard({
   const setColor = controlledColor !== undefined ? () => {} : setInternalColor;
   const setStrokeWidth = controlledWidth !== undefined ? () => {} : setInternalWidth;
 
+  // No explicit Select button: after each committed shape the board
+  // returns to select/move mode (uncontrolled tool state only).
+  const handleDrawingCommitted =
+    controlledTool !== undefined ? undefined : () => setInternalTool('select');
+
   const {
     visibleShapes,
     selectedId,
@@ -77,24 +82,27 @@ export function Whiteboard({
     onShapeDelete,
     onCanvasClear,
     onSelectionChange,
+    onDrawingCommitted: handleDrawingCommitted,
   });
 
   return (
     <section className="flex h-full min-h-[520px] min-w-0 flex-col overflow-hidden rounded-xl border border-teal-100 bg-teal-50 shadow-sm">
-      <Toolbar
-        tool={tool}
-        color={color}
-        strokeWidth={strokeWidth}
-        hasSelection={Boolean(selectedId)}
-        onToolChange={setTool}
-        onColorChange={setColor}
-        onStrokeWidthChange={setStrokeWidth}
-        onDelete={deleteSelected}
-        onClear={clearCanvas}
-      />
-
       <div className="min-h-0 flex-1 p-3">
         <div className="relative h-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-inner">
+          {/* Floating glassmorphism toolbar pill (overlay; canvas stays interactive around it) */}
+          <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center px-3">
+            <Toolbar
+              tool={tool}
+              color={color}
+              strokeWidth={strokeWidth}
+              hasSelection={Boolean(selectedId)}
+              onToolChange={setTool}
+              onColorChange={setColor}
+              onStrokeWidthChange={setStrokeWidth}
+              onDelete={deleteSelected}
+              onClear={clearCanvas}
+            />
+          </div>
           <CanvasStage
             shapes={visibleShapes}
             selectedId={selectedId}

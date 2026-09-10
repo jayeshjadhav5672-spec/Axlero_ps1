@@ -37,6 +37,9 @@ export default function useCanvasDrawing({
   onShapeDelete,
   onCanvasClear,
   onSelectionChange,
+  // Called after a shape is committed (draw or text). The shell uses it
+  // to return to select/move mode so no explicit Select button is needed.
+  onDrawingCommitted,
 } = {}) {
   // ---- shape store (local state + normalization + collab callbacks) ----
   const {
@@ -45,6 +48,7 @@ export default function useCanvasDrawing({
     commitCreate,
     commitUpdate: storeCommitUpdate,
     commitDelete: storeCommitDelete,
+    deleteShape,
     selectShape,
     applyRemoteShapes,
     clearAll,
@@ -88,6 +92,15 @@ export default function useCanvasDrawing({
 
   const commitDelete = useCallback(
     (shapeId) => {
+      // Detach the Transformer BEFORE removal so it never holds a
+      // reference to a detached node (which broke later selections
+      // and forced users to hit Clear to recover).
+      const victim = shapeId ? shapeNodesRef.current.get(shapeId) : null;
+      const transformer = transformerRef.current;
+      if (transformer && victim && transformer.nodes().includes(victim)) {
+        transformer.nodes([]);
+        transformer.getLayer()?.batchDraw();
+      }
       shapeNodesRef.current.delete(shapeId);
       storeCommitDelete(shapeId);
     },
@@ -232,7 +245,8 @@ export default function useCanvasDrawing({
 
     commitCreate(finished);
     selectShape(finished.id);
-  }, [commitCreate, draftShape, selectShape]);
+    onDrawingCommitted?.();
+  }, [commitCreate, draftShape, onDrawingCommitted, selectShape]);
 
   // ---- zoom (wheel) + pan ----
   const handleWheel = useCallback((event) => {
@@ -284,11 +298,14 @@ export default function useCanvasDrawing({
     );
   }, []);
 
-  // ---- shape interactions (select mode) ----
+  // ---- shape interactions (selection is available in every tool) ----
   const handleShapeClick = useCallback(
     (event, shapeId) => {
-      if (tool !== 'select') return;
-      event.cancelBubble = true;
+      // In select mode stop the event reaching the Stage (which would
+      // otherwise instantly deselect). In drawing tools the event still
+      // bubbles so the in-progress tool keeps working, but the shape
+      // is selected so Delete/transform act on it immediately.
+      if (tool === 'select') event.cancelBubble = true;
       selectShape(shapeId);
     },
     [selectShape, tool],
@@ -359,18 +376,20 @@ export default function useCanvasDrawing({
         else commitDelete(textEditor.shapeId); // empty edit deletes
       }
       setTextEditor(null);
+      onDrawingCommitted?.();
     },
-    [color, commitCreate, commitDelete, commitUpdate, selectShape, strokeWidth, textEditor],
+    [color, commitCreate, commitDelete, commitUpdate, onDrawingCommitted, selectShape, strokeWidth, textEditor],
   );
 
   const cancelTextEditor = useCallback(() => setTextEditor(null), []);
 
   // ---- delete / clear ----
+  // deleteShape (store) removes the shape AND resets the selection to
+  // null, so Delete/Backspace works continuously with no Clear needed.
   const deleteSelected = useCallback(() => {
     if (!selectedId) return;
-    commitDelete(selectedId);
-    selectShape(null);
-  }, [commitDelete, selectShape, selectedId]);
+    deleteShape(selectedId);
+  }, [deleteShape, selectedId]);
 
   const clearCanvas = useCallback(() => {
     setDraftShape(null);

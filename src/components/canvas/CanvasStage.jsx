@@ -45,17 +45,19 @@ export default function CanvasStage({
   }, []);
 
   // Attach transformer to the selected node (or detach on deselect).
+  // Selection is available in every tool (clicking a shape selects it),
+  // so the transformer follows the selection rather than the tool.
   useEffect(() => {
     const transformer = transformerRef?.current;
     if (!transformer) return;
     const node = selectedId ? shapeNodesRef?.current?.get(selectedId) : null;
-    if (node && tool === 'select') {
+    if (node) {
       transformer.nodes([node]);
     } else {
       transformer.nodes([]);
     }
     transformer.getLayer()?.batchDraw();
-  }, [selectedId, shapes, draftShape, tool, shapeNodesRef, transformerRef, size]);
+  }, [selectedId, shapes, draftShape, shapeNodesRef, transformerRef, size]);
 
   const cursorForTool = () => {
     switch (tool) {
@@ -73,7 +75,7 @@ export default function CanvasStage({
   return (
     <div
       ref={containerRef}
-      className="relative h-full min-h-[420px] w-full touch-none overflow-hidden bg-white"
+      className="h-full min-h-[420px] w-full touch-none overflow-hidden bg-slate-50/50 bg-[radial-gradient(#e2e8f0_1px,transparent_1px)] [background-size:16px_16px]"
       style={{ cursor: cursorForTool() }}
     >
       {size.width > 0 && size.height > 0 && (
