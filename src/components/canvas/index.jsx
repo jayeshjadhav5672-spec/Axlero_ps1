@@ -5,7 +5,11 @@ import Toolbar from './Toolbar';
 import useCanvasDrawing from './useCanvasDrawing';
 
 /**
- * Canvas (Whiteboard) — Sayon, Interactive Whiteboard / Konva.js Engineer
+ * Whiteboard — Sayon, Interactive Whiteboard / Konva.js Engineer
+ *
+ * CANONICAL export of the SyncSpace whiteboard subsystem.
+ * `Canvas` remains as a backwards-compatible alias (existing `main.jsx`
+ * and Avantee shell imports keep working unchanged).
  *
  * Collaboration-ready boundary: shapes are plain serializable JSON with
  * stable `shape-<uuid>` ids. No Socket.io / Yjs imports here.
@@ -17,7 +21,7 @@ import useCanvasDrawing from './useCanvasDrawing';
  * - onShapeCreate(shape), onShapeUpdate(shapeId, changes),
  *   onShapeDelete(shapeId), onCanvasClear(), onSelectionChange(shapeId)
  */
-export default function Canvas({
+export function Whiteboard({
   shapes: controlledShapes,
   selectedShapeId: controlledSelection,
   tool: controlledTool,
@@ -121,3 +125,7 @@ export default function Canvas({
     </section>
   );
 }
+
+// P0 integration contract: Whiteboard is canonical;
+// Canvas stays as a backwards-compatible alias.
+export { Whiteboard as Canvas, Whiteboard as default };

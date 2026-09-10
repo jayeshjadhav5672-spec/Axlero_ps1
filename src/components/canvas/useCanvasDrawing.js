@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import useWhiteboardState from './hooks/useWhiteboardState.js';
 import {
   bakeDragEnd,
   bakeTransform,
   circleRadius,
   createShape,
   normalizeRect,
-  serializeShape,
-} from './shapeModel';
+} from './utils/shapes.js';
 
 const MIN_FREEHAND_STEP = 2; // px in world coords — draft optimization
 const MIN_ZOOM = 0.25;
@@ -15,12 +15,15 @@ const MAX_ZOOM = 4;
 /**
  * useCanvasDrawing — Sayon (Whiteboard / Konva.js Engineer)
  *
- * Owns local drawing state as PLAIN serializable objects (no Konva nodes).
+ * Interaction layer (tools, viewport, text overlay, keyboard) on top of
+ * `hooks/useWhiteboardState` (shape store + collab callbacks).
+ *
+ * Owns interaction state as PLAIN serializable objects (no Konva nodes).
  * All stored coordinates are WORLD coordinates; Stage scale/position
  * (viewport) never mutates shape data.
  *
  * Controlled mode: pass `shapes` prop (Yjs/Socket side owns array).
- * Uncontrolled mode: omit `shapes`, hook owns internal state.
+ * Uncontrolled mode: omit `shapes`, the store hook owns internal state.
  * Either way the collaboration callbacks always fire.
  */
 export default function useCanvasDrawing({
@@ -35,13 +38,25 @@ export default function useCanvasDrawing({
   onCanvasClear,
   onSelectionChange,
 } = {}) {
-  const isControlled = controlledShapes !== undefined;
-
-  const [internalShapes, setInternalShapes] = useState([]);
-  const [internalSelection, setInternalSelection] = useState(null);
-  const shapes = isControlled ? controlledShapes : internalShapes;
-  const selectedId =
-    controlledSelection !== undefined ? controlledSelection : internalSelection;
+  // ---- shape store (local state + normalization + collab callbacks) ----
+  const {
+    shapes,
+    selectedId,
+    commitCreate,
+    commitUpdate: storeCommitUpdate,
+    commitDelete: storeCommitDelete,
+    selectShape,
+    applyRemoteShapes,
+    clearAll,
+  } = useWhiteboardState({
+    shapes: controlledShapes,
+    selectedShapeId: controlledSelection,
+    onShapeCreate,
+    onShapeUpdate,
+    onShapeDelete,
+    onCanvasClear,
+    onSelectionChange,
+  });
 
   // Draft shape being drawn (NOT yet committed) — updating only this
   // small object on pointermove avoids re-mapping the full shapes array.
@@ -59,52 +74,24 @@ export default function useCanvasDrawing({
   const shapeNodesRef = useRef(new Map()); // shapeId -> Konva node
   const transformerRef = useRef(null);
 
-  // ---- internal commit helpers (internal state + always fire callbacks) ----
-  const commitCreate = useCallback(
-    (shape) => {
-      const clean = serializeShape(shape);
-      if (!clean) return;
-      if (!isControlled) setInternalShapes((prev) => [...prev, clean]);
-      onShapeCreate?.(clean);
-    },
-    [isControlled, onShapeCreate],
-  );
-
+  // Store wrappers: keep the in-progress draft in sync and drop dead node refs.
   const commitUpdate = useCallback(
     (shapeId, changes) => {
-      if (!shapeId || !changes || Object.keys(changes).length === 0) return;
-      const clean = serializeShape(changes);
-      if (!clean) return;
-      if (!isControlled) {
-        setInternalShapes((prev) =>
-          prev.map((s) => (s.id === shapeId ? { ...s, ...clean } : s)),
-        );
+      storeCommitUpdate(shapeId, changes);
+      if (changes && Object.keys(changes).length > 0) {
+        const clean = JSON.parse(JSON.stringify(changes));
+        setDraftShape((d) => (d && d.id === shapeId ? { ...d, ...clean } : d));
       }
-      // Keep in-progress draft in sync if it is the same shape.
-      setDraftShape((d) => (d && d.id === shapeId ? { ...d, ...clean } : d));
-      onShapeUpdate?.(shapeId, clean);
     },
-    [isControlled, onShapeUpdate],
+    [storeCommitUpdate],
   );
 
   const commitDelete = useCallback(
     (shapeId) => {
-      if (!shapeId) return;
-      if (!isControlled) {
-        setInternalShapes((prev) => prev.filter((s) => s.id !== shapeId));
-      }
       shapeNodesRef.current.delete(shapeId);
-      onShapeDelete?.(shapeId);
+      storeCommitDelete(shapeId);
     },
-    [isControlled, onShapeDelete],
-  );
-
-  const selectShape = useCallback(
-    (shapeId) => {
-      if (controlledSelection === undefined) setInternalSelection(shapeId);
-      onSelectionChange?.(shapeId);
-    },
-    [controlledSelection, onSelectionChange],
+    [storeCommitDelete],
   );
 
   // ---- coordinate helpers: viewport <-> world ----
@@ -386,15 +373,13 @@ export default function useCanvasDrawing({
   }, [commitDelete, selectShape, selectedId]);
 
   const clearCanvas = useCallback(() => {
-    if (!isControlled) setInternalShapes([]);
     setDraftShape(null);
     isDrawingRef.current = false;
     drawStartRef.current = null;
     setTextEditor(null);
     shapeNodesRef.current.clear();
-    if (controlledSelection === undefined) setInternalSelection(null);
-    onCanvasClear?.();
-  }, [controlledSelection, isControlled, onCanvasClear]);
+    clearAll();
+  }, [clearAll]);
 
   // Backspace/Delete removes the selected shape (unless typing in overlay/input).
   useEffect(() => {
@@ -441,6 +426,7 @@ export default function useCanvasDrawing({
     deleteSelected,
     clearCanvas,
     selectShape,
+    applyRemoteShapes,
     setScale,
     setStagePos,
   };
