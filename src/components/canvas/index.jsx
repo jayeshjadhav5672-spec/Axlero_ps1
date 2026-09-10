@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import CanvasStage from './CanvasStage';
 import TextEditorOverlay from './TextEditorOverlay';
 import Toolbar from './Toolbar';

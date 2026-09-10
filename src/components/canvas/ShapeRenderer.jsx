@@ -1,3 +1,4 @@
+import React from 'react';
 import { Arrow, Circle, Line, Rect, Text } from 'react-konva';
 
 /**
