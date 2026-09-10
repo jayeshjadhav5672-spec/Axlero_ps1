@@ -79,6 +79,18 @@ export default function useCanvasDrawing({
   const transformerRef = useRef(null);
 
   // Store wrappers: keep the in-progress draft in sync and drop dead node refs.
+  // Detach runs on EVERY delete path (button, keyboard, empty text edit)
+  // so the Transformer never survives its node.
+  const detachTransformerFrom = useCallback((shapeId) => {
+    const victim = shapeId ? shapeNodesRef.current.get(shapeId) : null;
+    const transformer = transformerRef.current;
+    if (transformer && victim && transformer.nodes().includes(victim)) {
+      transformer.nodes([]);
+      transformer.getLayer()?.batchDraw();
+    }
+    shapeNodesRef.current.delete(shapeId);
+  }, []);
+
   const commitUpdate = useCallback(
     (shapeId, changes) => {
       storeCommitUpdate(shapeId, changes);
@@ -95,16 +107,10 @@ export default function useCanvasDrawing({
       // Detach the Transformer BEFORE removal so it never holds a
       // reference to a detached node (which broke later selections
       // and forced users to hit Clear to recover).
-      const victim = shapeId ? shapeNodesRef.current.get(shapeId) : null;
-      const transformer = transformerRef.current;
-      if (transformer && victim && transformer.nodes().includes(victim)) {
-        transformer.nodes([]);
-        transformer.getLayer()?.batchDraw();
-      }
-      shapeNodesRef.current.delete(shapeId);
+      detachTransformerFrom(shapeId);
       storeCommitDelete(shapeId);
     },
-    [storeCommitDelete],
+    [detachTransformerFrom, storeCommitDelete],
   );
 
   // ---- coordinate helpers: viewport <-> world ----
@@ -299,16 +305,16 @@ export default function useCanvasDrawing({
   }, []);
 
   // ---- shape interactions (selection is available in every tool) ----
+  // Clicking any shape always selects it and stops the event reaching
+  // the Stage, so the stage never immediately deselects it again.
+  // (cancelBubble on click does not block the earlier pointerdown, so
+  // in-progress drawing tools keep working.)
   const handleShapeClick = useCallback(
     (event, shapeId) => {
-      // In select mode stop the event reaching the Stage (which would
-      // otherwise instantly deselect). In drawing tools the event still
-      // bubbles so the in-progress tool keeps working, but the shape
-      // is selected so Delete/transform act on it immediately.
-      if (tool === 'select') event.cancelBubble = true;
+      event.cancelBubble = true;
       selectShape(shapeId);
     },
-    [selectShape, tool],
+    [selectShape],
   );
 
   const handleShapeDragEnd = useCallback(
@@ -388,8 +394,9 @@ export default function useCanvasDrawing({
   // null, so Delete/Backspace works continuously with no Clear needed.
   const deleteSelected = useCallback(() => {
     if (!selectedId) return;
+    detachTransformerFrom(selectedId);
     deleteShape(selectedId);
-  }, [deleteShape, selectedId]);
+  }, [deleteShape, detachTransformerFrom, selectedId]);
 
   const clearCanvas = useCallback(() => {
     setDraftShape(null);
@@ -401,16 +408,24 @@ export default function useCanvasDrawing({
   }, [clearAll]);
 
   // Backspace/Delete removes the selected shape (unless typing in overlay/input).
+  // A ref mirrors the latest selection so the listener never acts on a
+  // stale closure holding an already-deleted id.
+  const selectedIdRef = useRef(selectedId);
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+
   useEffect(() => {
     const onKeyDown = (event) => {
       if (textEditor) return; // overlay handles its own keys
       const tag = document.activeElement?.tagName;
       if (tag === 'TEXTAREA' || tag === 'INPUT') return;
-      if ((event.key === 'Backspace' || event.key === 'Delete') && selectedId) {
+      const currentSelection = selectedIdRef.current;
+      if ((event.key === 'Backspace' || event.key === 'Delete') && currentSelection) {
         event.preventDefault();
         deleteSelected();
       }
-      if (event.key === 'Escape' && selectedId) selectShape(null);
+      if (event.key === 'Escape' && currentSelection) selectShape(null);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);

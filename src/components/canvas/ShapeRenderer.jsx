@@ -27,7 +27,10 @@ export default function ShapeRenderer({
   return shapes.map((shape) => {
     // NOTE (React 19): `key` must be passed directly as a JSX prop.
     // It is intentionally NOT part of this spread object.
+    // `id` IS spread: Konva needs it for findOne(`#id`) lookups
+    // (transformer attach/teardown fallback in CanvasStage).
     const common = {
+      id: shape.id,
       ref: registerNode(shape.id),
       draggable,
       rotation: shape.rotation ?? 0,

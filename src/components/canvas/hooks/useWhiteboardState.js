@@ -79,20 +79,25 @@ export default function useWhiteboardState({
   );
 
   /**
-   * Delete a shape AND reset the selection to null in one step.
-   * Resetting the selection here (rather than leaving it to callers)
-   * guarantees the board never points at a removed shape — the root
-   * cause of "subsequent deletions fail until Clear" reports.
+   * Atomic delete: remove the shape, reset the selection to null, and
+   * fire onShapeDelete in one synchronized update. Resetting the
+   * selection here (rather than leaving it to callers) guarantees the
+   * board never points at a removed shape — the root cause of
+   * "subsequent deletions fail until Clear" reports.
    * The Konva Transformer detach itself happens in the interaction
    * layer (`useCanvasDrawing`), which owns the node refs.
    */
   const deleteShape = useCallback(
-    (shapeId) => {
-      if (!shapeId) return;
-      commitDelete(shapeId);
-      selectShape(null);
+    (idToDelete) => {
+      if (!idToDelete) return;
+      if (!isControlled) {
+        setInternalShapes((prev) => prev.filter((s) => s.id !== idToDelete));
+      }
+      if (controlledSelection === undefined) setInternalSelection(null);
+      onShapeDelete?.(idToDelete);
+      onSelectionChange?.(null);
     },
-    [commitDelete, selectShape],
+    [controlledSelection, isControlled, onSelectionChange, onShapeDelete],
   );
 
   /**

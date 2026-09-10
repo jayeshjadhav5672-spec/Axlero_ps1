@@ -12,7 +12,7 @@ import ShapeRenderer from './ShapeRenderer';
 export default function CanvasStage({
   shapes,
   draftShape,
-  selectedId,
+  selectedId: selectedShapeId,
   tool,
   scale,
   stagePos,
@@ -44,20 +44,32 @@ export default function CanvasStage({
     return () => resizeObserver.disconnect();
   }, []);
 
-  // Attach transformer to the selected node (or detach on deselect).
-  // Selection is available in every tool (clicking a shape selects it),
-  // so the transformer follows the selection rather than the tool.
+  // Transformer lifecycle: attach to the selected node, detach otherwise.
+  // Every branch explicitly releases with nodes([]) + batchDraw() so the
+  // transformer never holds a detached node after a delete — the stale
+  // hook that broke all subsequent selections/deletions.
+  // Selection is available in every tool, so this follows the selection
+  // rather than the active tool.
   useEffect(() => {
-    const transformer = transformerRef?.current;
-    if (!transformer) return;
-    const node = selectedId ? shapeNodesRef?.current?.get(selectedId) : null;
-    if (node) {
-      transformer.nodes([node]);
-    } else {
-      transformer.nodes([]);
+    const tr = transformerRef?.current;
+    if (!tr) return;
+    if (!selectedShapeId) {
+      tr.nodes([]);
+      tr.getLayer()?.batchDraw();
+      return;
     }
-    transformer.getLayer()?.batchDraw();
-  }, [selectedId, shapes, draftShape, shapeNodesRef, transformerRef, size]);
+    const selectedNode =
+      shapeNodesRef?.current?.get(selectedShapeId) ??
+      stageRef?.current?.findOne?.(`#${selectedShapeId}`) ??
+      null;
+    if (selectedNode) {
+      tr.nodes([selectedNode]);
+      tr.getLayer()?.batchDraw();
+    } else {
+      tr.nodes([]);
+      tr.getLayer()?.batchDraw();
+    }
+  }, [selectedShapeId, shapes, draftShape, shapeNodesRef, stageRef, transformerRef, size]);
 
   const cursorForTool = () => {
     switch (tool) {
@@ -98,7 +110,7 @@ export default function CanvasStage({
           <Layer>
             <ShapeRenderer
               shapes={shapes}
-              selectedId={selectedId}
+              selectedId={selectedShapeId}
               tool={tool}
               shapeNodesRef={shapeNodesRef}
               onShapeClick={onShapeClick}
