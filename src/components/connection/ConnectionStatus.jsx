@@ -1,3 +1,5 @@
+import React from 'react';
+
 /**
  * ConnectionStatus — Avantee (React UI / Frontend Engineer)
  *

@@ -1,3 +1,5 @@
+import React from 'react';
+
 /**
  * CodeEditorPanel — Avantee (React UI / Frontend Engineer)
  *

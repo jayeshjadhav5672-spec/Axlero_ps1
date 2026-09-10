@@ -1,3 +1,5 @@
+import React from 'react';
+
 /**
  * PresenceList — Avantee (React UI / Frontend Engineer)
  *

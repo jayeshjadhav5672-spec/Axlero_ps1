@@ -1,3 +1,5 @@
+import React from 'react';
+
 /**
  * WhiteboardPanel — Avantee (React UI / Frontend Engineer)
  *

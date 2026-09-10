@@ -5,13 +5,20 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "dev:server": "node server/index.cjs",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "node server/index.cjs",
+    "test": "node --test test/*.test.cjs test/*.test.mjs"
   },
   "dependencies": {
+    "express": "^5.2.1",
     "konva": "^10.5.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "react-konva": "^19.2.7"
+    "react-konva": "^19.2.7",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",

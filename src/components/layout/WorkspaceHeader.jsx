@@ -1,3 +1,4 @@
+import React from 'react';
 import { ConnectionStatus } from '../connection';
 import { PresenceList } from '../presence';
 import { RoomInfo } from '../room';

@@ -1,3 +1,5 @@
+import React from 'react';
+
 /**
  * RoomInfo — Avantee (React UI / Frontend Engineer)
  *

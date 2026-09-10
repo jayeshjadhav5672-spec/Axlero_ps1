@@ -1,3 +1,4 @@
+import React from 'react';
 import WorkspaceHeader from '../layout/WorkspaceHeader';
 import WhiteboardPanel from './WhiteboardPanel';
 import CodeEditorPanel from './CodeEditorPanel';

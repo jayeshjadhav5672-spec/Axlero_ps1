@@ -1,3 +1,5 @@
+import React from 'react';
+
 /**
  * AppLayout — Avantee (React UI / Frontend Engineer)
  *
