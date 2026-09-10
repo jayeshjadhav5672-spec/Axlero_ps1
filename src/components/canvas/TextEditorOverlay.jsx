@@ -15,9 +15,11 @@ export default function TextEditorOverlay({ editor, color, onCommit, onCancel })
   }, [editor]);
 
   useEffect(() => {
-    areaRef.current?.focus();
-    areaRef.current?.select?.();
-  }, []);
+    if (editor) {
+      areaRef.current?.focus();
+      areaRef.current?.select?.();
+    }
+  }, [editor]);
 
   if (!editor) return null;
 

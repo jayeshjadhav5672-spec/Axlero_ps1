@@ -39,7 +39,7 @@ export default function ShapeRenderer({
       draggable: tool === 'select' && shape.id === selectedId,
       listening: !textMode,
       rotation: shape.rotation ?? 0,
-      opacity: shape.id === selectedId ? 1 : 1,
+      opacity: 1,
       onClick: (e) => onShapeClick?.(e, shape.id),
       onTap: (e) => onShapeClick?.(e, shape.id),
       onDragEnd: (e) => onDragEnd?.(shape.id, e.target.x(), e.target.y()),

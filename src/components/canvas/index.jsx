@@ -44,8 +44,9 @@ export function Whiteboard({
   const setColor = controlledColor !== undefined ? () => {} : setInternalColor;
   const setStrokeWidth = controlledWidth !== undefined ? () => {} : setInternalWidth;
 
-  // No explicit Select button: after each committed shape the board
-  // returns to select/move mode (uncontrolled tool state only).
+  // After each committed shape the board returns to select/move mode
+  // (uncontrolled tool state only). A Select button also exists in the
+  // toolbar so users can cancel a drawing tool without completing a shape.
   const handleDrawingCommitted =
     controlledTool !== undefined ? undefined : () => setInternalTool('select');
 

@@ -16,10 +16,17 @@ function ToolIcon({ children }) {
   );
 }
 
-// Drawing tools only — selection/movement is the default canvas
-// interaction (no separate Select button; the board returns to
-// select mode after each committed shape).
+// Drawing tools + selection. Select/move is the default canvas
+// interaction; the board also returns to select mode after each
+// committed shape, but an explicit Select button lets users cancel
+// a drawing tool without having to complete a shape first.
 const DRAW_TOOLS = [
+  {
+    value: 'select',
+    label: 'Select',
+    title: 'Select / move (default)',
+    icon: <path d="M4 3l7 18 2.5-7.5L21 11 4 3z" />,
+  },
   {
     value: 'freehand',
     label: 'Pen',
