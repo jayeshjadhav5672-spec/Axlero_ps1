@@ -1,72 +1,52 @@
-import { useState } from 'react';
 import AppLayout from './components/layout/AppLayout';
 import Workspace from './components/workspace/Workspace';
 import { Whiteboard } from './components/canvas';
 
 /* ------------------------------------------------------------------
- * DEMO-ONLY shell state (Avantee, UI development).
- * Isolated here in App.jsx — NOT production behavior. Real modules
- * replace these props: Arun (connectionStatus), Shree (users),
- * Vaishnavi (roomId/roomName), Kishan (editor child).
- * No Socket.io / Yjs / auth / sync logic is faked beyond static values.
+ * Integration shell (Avantee, UI).
+ * Static placeholder props stand in for real modules until they land:
+ * - room: Vaishnavi (MongoDB / auth / session)
+ * - users: Shree (Yjs awareness)
+ * - connectionStatus: Arun (Socket.io). 'disconnected' is the honest
+ *   default — no socket is wired yet, so the shell claims nothing live.
+ * - editor child: Kishan (Monaco collaboration)
+ * This file must stay free of Socket.io / Yjs / auth / sync logic.
  * ------------------------------------------------------------------ */
-const DEMO_ROOM_ID = 'architecture-01';
-const DEMO_ROOM_NAME = 'Architecture Review';
-const DEMO_USERS = [
-  { id: 'u-avantee', name: 'Avantee Sarve', colorClass: 'bg-teal-600', isActive: true },
-  { id: 'u-sayon', name: 'Sayon', colorClass: 'bg-indigo-600', isActive: true },
-  { id: 'u-kishan', name: 'Kishan', colorClass: 'bg-amber-600', isActive: false },
+const PLACEHOLDER_ROOM_ID = 'architecture-01';
+const PLACEHOLDER_ROOM_NAME = 'Architecture Review';
+const PLACEHOLDER_USERS = [
+  { id: 'placeholder-alex', name: 'Alex Rivera', colorClass: 'bg-teal-600', isActive: true },
+  { id: 'placeholder-sam', name: 'Sam Chen', colorClass: 'bg-indigo-600', isActive: true },
+  { id: 'placeholder-priya', name: 'Priya Nair', colorClass: 'bg-amber-600', isActive: false },
 ];
-
-const CONNECTION_OPTIONS = ['connected', 'connecting', 'reconnecting', 'disconnected', 'error'];
+const PLACEHOLDER_CONNECTION_STATUS = 'disconnected';
+const PLACEHOLDER_EDITOR_LANGUAGE = 'typescript';
 
 export default function App() {
-  const [connectionStatus, setConnectionStatus] = useState('connected');
-
   const handleShareRoom = () => {
-    const url = window.location.href;
+    // TODO(Vaishnavi): replace with real invite flow. Copies the URL only.
     if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(url).catch(() => {});
+      navigator.clipboard.writeText(window.location.href).catch(() => {});
     }
   };
 
   const handleLeaveRoom = () => {
-    // eslint-disable-next-line no-alert
-    if (window.confirm('Leave this room? (demo shell — no session is active)')) {
-      setConnectionStatus('disconnected');
-    }
+    // TODO(Vaishnavi): wire real session leave. Intentionally a no-op —
+    // the shell must not fake connectivity or session changes.
   };
 
   return (
     <AppLayout>
       <Workspace
-        roomId={DEMO_ROOM_ID}
-        roomName={DEMO_ROOM_NAME}
-        connectionStatus={connectionStatus}
-        users={DEMO_USERS}
+        roomId={PLACEHOLDER_ROOM_ID}
+        roomName={PLACEHOLDER_ROOM_NAME}
+        connectionStatus={PLACEHOLDER_CONNECTION_STATUS}
+        users={PLACEHOLDER_USERS}
         whiteboard={<Whiteboard />}
-        editorLanguage="typescript"
+        editorLanguage={PLACEHOLDER_EDITOR_LANGUAGE}
         onLeaveRoom={handleLeaveRoom}
         onShareRoom={handleShareRoom}
       />
-      {/* Demo-only status switcher for UI verification. Remove when Arun wires real socket state. */}
-      <div className="fixed bottom-3 right-3 z-50 flex items-center gap-2 rounded-lg border border-slate-200 bg-white/95 px-2.5 py-1.5 shadow-lg backdrop-blur">
-        <label htmlFor="demo-connection" className="text-xs font-medium text-slate-500">
-          Demo status
-        </label>
-        <select
-          id="demo-connection"
-          value={connectionStatus}
-          onChange={(e) => setConnectionStatus(e.target.value)}
-          className="rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
-        >
-          {CONNECTION_OPTIONS.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-      </div>
     </AppLayout>
   );
 }
