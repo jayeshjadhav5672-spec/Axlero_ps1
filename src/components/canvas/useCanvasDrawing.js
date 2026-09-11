@@ -396,6 +396,45 @@ export default function useCanvasDrawing({
     );
   }, []);
 
+  // ---- programmatic zoom (navbar zoom buttons): zoom centered on the
+  // stage viewport center, clamped to [MIN_ZOOM, MAX_ZOOM]. Mutates the
+  // live Konva stage (same as handleWheel) AND mirrors into React state
+  // so CanvasStage props and the navbar % badge stay in sync. Keeps the
+  // text editor anchored like wheel-zoom does.
+  const handleZoomChange = useCallback((nextScale) => {
+    const raw = typeof nextScale === 'number' ? nextScale : Number(nextScale);
+    if (!Number.isFinite(raw)) return;
+    const newScale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, raw));
+    const stage = stageRef.current;
+    if (!stage) {
+      setScale(newScale);
+      return;
+    }
+    const oldScale = stage.scaleX() || 1;
+    const cx = stage.width() / 2;
+    const cy = stage.height() / 2;
+    const mousePointTo = {
+      x: (cx - stage.x()) / oldScale,
+      y: (cy - stage.y()) / oldScale,
+    };
+    stage.scale({ x: newScale, y: newScale });
+    stage.position({
+      x: cx - mousePointTo.x * newScale,
+      y: cy - mousePointTo.y * newScale,
+    });
+    setScale(newScale);
+    setStagePos({ x: stage.x(), y: stage.y() });
+    setTextEditor((ed) =>
+      ed
+        ? {
+            ...ed,
+            screenX: ed.worldX * newScale + stage.x(),
+            screenY: ed.worldY * newScale + stage.y(),
+          }
+        : ed,
+    );
+  }, []);
+
   // ---- shape interactions (selection is available in every tool
   // EXCEPT text: the text tool owns all pointer events and delegates
   // placement to the Stage handler above).
@@ -584,6 +623,16 @@ export default function useCanvasDrawing({
           );
           commitCreate({ ...shape, text: trimmed, fill: color, width, align: textAlign, textAlign });
           selectShape(shape.id);
+          setTextEditor(null);
+          // The tool returns to select ONLY once text is actually placed
+          // (Enter / blur with non-empty input). It stays on 'text' while
+          // the textarea is open and after empty/cancelled placements so
+          // the next click can still place text.
+          onDrawingCommitted?.('text');
+        } else {
+          // Empty create (Enter on empty input / blur without typing):
+          // close the editor but keep the text tool active.
+          setTextEditor(null);
         }
       } else if (textEditor.shapeId) {
         if (trimmed) {
@@ -595,9 +644,10 @@ export default function useCanvasDrawing({
           );
           commitUpdate(textEditor.shapeId, { text: trimmed, width });
         } else commitDelete(textEditor.shapeId); // empty edit deletes
+        setTextEditor(null);
+        // No tool change here: re-edits originate from other tools
+        // (dblclick), so the active tool is left untouched.
       }
-      setTextEditor(null);
-      onDrawingCommitted?.();
     },
     [color, commitCreate, commitDelete, commitUpdate, fill, fontFamily, fontFamilyKey, fontSize, textAlign, onDrawingCommitted, opacity, selectShape, shapes, strokeStyle, strokeWidth, textEditor],
   );
@@ -699,6 +749,7 @@ export default function useCanvasDrawing({
     handleStageMouseUp,
     handleWheel,
     handleDragStageEnd,
+    handleZoomChange,
     handleShapeClick,
     handleShapeSelect,
     handleShapeDragStart,

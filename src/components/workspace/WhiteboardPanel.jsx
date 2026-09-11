@@ -4,9 +4,11 @@ import React from 'react';
  * WhiteboardPanel — Avantee (React UI / Frontend Engineer)
  *
  * Shell around Sayon's <Whiteboard /> (src/components/canvas).
- * Provides the panel title, responsive container, and loading / error /
- * empty states. Drawing tools and toolbar belong to Sayon's component —
- * this panel intentionally adds none.
+ * Provides the responsive container and loading / error / empty states.
+ * The WHITEBOARD label + toolbar header row belongs to Sayon's component
+ * (it owns the tool state), so this panel hides its own duplicate title
+ * row once the canvas is mounted. Drawing tools and toolbar belong to
+ * Sayon's component — this panel intentionally adds none.
  */
 export default function WhiteboardPanel({
   children,
@@ -16,12 +18,15 @@ export default function WhiteboardPanel({
   onRetry,
   className = '',
 }) {
+  const canvasMounted = !isLoading && !error && Boolean(children);
   return (
-    <section className={`flex h-full min-h-0 flex-col ${className}`} aria-label={title} role="region">
-      <div className="flex shrink-0 items-center justify-between px-1 pb-2">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{title}</h2>
-      </div>
-      <div className="relative min-h-0 flex-1">
+    <section className={`flex h-full min-h-0 w-full min-w-0 flex-1 flex-col p-2 pl-3 ${className}`} aria-label={title} role="region">
+      {!canvasMounted && (
+        <div className="flex shrink-0 items-center justify-between px-1 pb-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{title}</h2>
+        </div>
+      )}
+      <div className="relative min-h-0 w-full flex-1">
         {isLoading && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-xl border border-teal-100 bg-teal-50/80">
             <span className="h-8 w-8 animate-spin rounded-full border-[3px] border-teal-600 border-t-transparent" aria-hidden="true" />

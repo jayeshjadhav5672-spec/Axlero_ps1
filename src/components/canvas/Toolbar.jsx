@@ -121,18 +121,65 @@ const PAN_TOOL = {
   ),
 };
 
+const QUICK_COLORS = ['#1e1e1e', '#e03131', '#2f9e44', '#1971c2', '#f08c00'];
+
+const QUICK_WIDTHS = [
+  { label: 'S', width: 2 },
+  { label: 'M', width: 4 },
+  { label: 'L', width: 6 },
+];
+
+function ActionIcon({ children }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  );
+}
+
+const UNDO_ICON = (
+  <>
+    <path d="M9 14 4 9l5-5" />
+    <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+  </>
+);
+
+const REDO_ICON = (
+  <>
+    <path d="m15 14 5-5-5-5" />
+    <path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13" />
+  </>
+);
+
+const TRASH_ICON = (
+  <>
+    <polyline points="3 6 5 6 21 6" />
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+  </>
+);
 const BTN_BASE =
   'relative flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border text-[15px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-1';
 const BTN_ACTIVE = 'bg-violet-100 text-violet-700 border-violet-200 shadow-[inset_0_0_0_1px_rgba(109,88,246,0.15)]';
 const BTN_IDLE = 'border-transparent text-gray-700 hover:bg-gray-100 hover:text-gray-900';
 
 /**
- * Toolbar — Excalidraw-style floating island (top-center).
- * Tool buttons only (Selection, Rectangle, Diamond, Ellipse, Arrow, Line,
- * Pen, Text, Eraser, Pan). Back-compat: still accepts the legacy props
- * (locked, onLockedChange, color, strokeWidth, hasSelection, onColorChange,
- * onStrokeWidthChange, onDelete, onClear) and ignores them — styling moved
- * to the left property sidebar, actions to the sidebar + bottom bar.
+ * Toolbar — full-width 3-section header bar docked at the top of the
+ * whiteboard: drawing tools (left), quick style swatches (center), canvas
+ * status (shape count + zoom steppers) with history/actions + 3-dot
+ * customization toggle (right). Back-compat: still
+ * accepts the legacy props (locked, onLockedChange, hasSelection, onDelete)
+ * and ignores them. Style/actions/status props are all optional — each section
+ * degrades gracefully when its handlers are absent.
  */
 export default function Toolbar({
   tool,
@@ -140,30 +187,66 @@ export default function Toolbar({
   locked,
   onLockedChange,
   // legacy (ignored, kept for integration compat)
+  hasSelection,
+  onDelete,
+  // quick styles: prefer currentStyle/onStyleChange, fall back to the
+  // legacy color/strokeWidth + onColorChange/onStrokeWidthChange pair.
   color,
   strokeWidth,
-  hasSelection,
+  currentStyle,
   onColorChange,
   onStrokeWidthChange,
-  onDelete,
+  onStyleChange,
+  // navbar status: live zoom level + rendered shape array (wired by the
+  // Whiteboard shell; both optional so standalone use keeps working).
+  zoom = 1,
+  shapes = [],
+  onZoomChange,
+  // canvas history / actions (right section)
+  onUndo,
+  onRedo,
+  canUndo = false,
+  canRedo = false,
   onClear,
+  // 3-dot customization-panel toggle (optional)
+  showPropertiesToggle = false,
+  isPropertiesOpen = false,
+  onToggleProperties,
 }) {
   void locked;
   void onLockedChange;
-  void color;
-  void strokeWidth;
   void hasSelection;
-  void onColorChange;
-  void onStrokeWidthChange;
   void onDelete;
-  void onClear;
+
+  const activeStroke = currentStyle?.stroke ?? color;
+  const activeWidth = currentStyle?.strokeWidth ?? strokeWidth;
+  const emitStyle = (patch) => {
+    if (onStyleChange) {
+      onStyleChange(patch);
+      return;
+    }
+    if (patch.stroke !== undefined) onColorChange?.(patch.stroke);
+    if (patch.strokeWidth !== undefined) onStrokeWidthChange?.(patch.strokeWidth);
+  };
+  const showStyles = Boolean(onStyleChange || onColorChange || onStrokeWidthChange);
+  const showUndo = Boolean(onUndo);
+  const showRedo = Boolean(onRedo);
+  const showClear = Boolean(onClear);
+  // Navbar status widgets: shape-count badge always reflects the rendered
+  // array; zoom steppers delegate clamping to the shell's onZoomChange
+  // (the canvas hook owns the [MIN_ZOOM, MAX_ZOOM] range).
+  const shapeCount = Array.isArray(shapes) ? shapes.length : 0;
+  const zoomPct = Math.round((Number.isFinite(zoom) ? zoom : 1) * 100);
 
   return (
     <div
       role="toolbar"
       aria-label="Whiteboard tools"
-      className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1.5 shadow-[0_2px_8px_rgba(0,0,0,0.08)]"
+      aria-orientation="horizontal"
+      className="pointer-events-auto mb-2 flex w-full select-none items-center justify-between rounded-xl border border-gray-200 bg-white px-3 py-1.5 shadow-sm"
     >
+      {/* SECTION 1: DRAWING TOOLS (LEFT) */}
+      <div className="flex min-w-0 flex-nowrap items-center gap-1 overflow-x-auto">
       {TOOLS.map((option) => {
         const isActive = tool === option.value;
         return (
@@ -174,7 +257,7 @@ export default function Toolbar({
             aria-label={`${option.label} (${option.shortcut})`}
             aria-pressed={isActive}
             onClick={() => onToolChange(option.value)}
-            className={`${BTN_BASE} ${isActive ? BTN_ACTIVE : BTN_IDLE}`}
+            className={`${BTN_BASE} shrink-0 ${isActive ? BTN_ACTIVE : BTN_IDLE}`}
           >
             <ToolIcon>{option.icon}</ToolIcon>
             <span
@@ -189,7 +272,7 @@ export default function Toolbar({
         );
       })}
 
-      <span className="mx-1 h-6 w-px bg-gray-200" aria-hidden="true" />
+      <span className="mx-1 h-6 w-px shrink-0 bg-gray-200" aria-hidden="true" />
 
       <button
         type="button"
@@ -197,7 +280,7 @@ export default function Toolbar({
         aria-label={`${PAN_TOOL.label} (${PAN_TOOL.shortcut})`}
         aria-pressed={tool === 'pan'}
         onClick={() => onToolChange('pan')}
-        className={`${BTN_BASE} ${tool === 'pan' ? BTN_ACTIVE : BTN_IDLE}`}
+        className={`${BTN_BASE} shrink-0 ${tool === 'pan' ? BTN_ACTIVE : BTN_IDLE}`}
       >
         <ToolIcon>{PAN_TOOL.icon}</ToolIcon>
         <span
@@ -209,6 +292,153 @@ export default function Toolbar({
           {PAN_TOOL.shortcut}
         </span>
       </button>
+      </div>
+
+      {showStyles && (
+        <>
+          <div className="mx-2 h-5 w-px shrink-0 bg-gray-200" aria-hidden="true" />
+
+          {/* SECTION 2: QUICK STYLE PICKERS (CENTER) */}
+          <div className="hidden min-w-0 flex-shrink items-center gap-2 sm:flex">
+            {/* 5 quick color dots for the active stroke color */}
+            <div className="flex items-center gap-1" role="group" aria-label="Quick stroke color">
+              {QUICK_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => emitStyle({ stroke: c })}
+                  className={`h-4 w-4 shrink-0 rounded-full border transition hover:scale-110 ${
+                    activeStroke === c ? 'ring-2 ring-indigo-500 ring-offset-1' : 'border-gray-300'
+                  }`}
+                  style={{ backgroundColor: c }}
+                  title={c}
+                  aria-label={`Stroke color ${c}`}
+                  aria-pressed={activeStroke === c}
+                />
+              ))}
+            </div>
+
+            <div className="mx-1 h-4 w-px shrink-0 bg-gray-200" aria-hidden="true" />
+
+            {/* Quick stroke-width toggle (S/M/L) */}
+            <div className="flex items-center rounded-lg bg-gray-100 p-0.5" role="group" aria-label="Quick stroke width">
+              {QUICK_WIDTHS.map((w) => (
+                <button
+                  key={w.label}
+                  type="button"
+                  onClick={() => emitStyle({ strokeWidth: w.width })}
+                  className={`rounded px-1.5 py-0.5 text-xs font-semibold ${
+                    activeWidth === w.width ? 'bg-white text-indigo-600 shadow-xs' : 'text-gray-500 hover:text-gray-900'
+                  }`}
+                  title={`Stroke width ${w.label} (${w.width}px)`}
+                  aria-label={`Stroke width ${w.label}`}
+                  aria-pressed={activeWidth === w.width}
+                >
+                  {w.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      <div className="mx-2 h-5 w-px shrink-0 bg-gray-200" aria-hidden="true" />
+
+      {/* SECTION 3: STATUS + ACTIONS & MORE MENU (RIGHT) */}
+      <div className="flex shrink-0 items-center gap-1.5">
+        {/* Shape count badge */}
+        <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full whitespace-nowrap">
+          {shapeCount} {shapeCount === 1 ? 'shape' : 'shapes'}
+        </span>
+        {/* Zoom controls */}
+        {onZoomChange && (
+          <div className="flex items-center gap-1 bg-gray-100 rounded-lg px-1.5 py-0.5 text-xs text-gray-700">
+            <button
+              type="button"
+              onClick={() => onZoomChange && onZoomChange(zoom - 0.1)}
+              className="px-1 text-gray-600 hover:text-black font-bold"
+              title="Zoom out"
+              aria-label="Zoom out"
+            >
+              −
+            </button>
+            <span className="min-w-[40px] text-center font-semibold">
+              {zoomPct}%
+            </span>
+            <button
+              type="button"
+              onClick={() => onZoomChange && onZoomChange(zoom + 0.1)}
+              className="px-1 text-gray-600 hover:text-black font-bold"
+              title="Zoom in"
+              aria-label="Zoom in"
+            >
+              +
+            </button>
+          </div>
+        )}
+        {showUndo && (
+          <button
+            type="button"
+            onClick={onUndo}
+            disabled={!canUndo}
+            className="rounded p-1 text-gray-600 transition hover:bg-gray-100 disabled:opacity-40"
+            title="Undo (Cmd/Ctrl+Z)"
+            aria-label="Undo"
+          >
+            <ActionIcon>{UNDO_ICON}</ActionIcon>
+          </button>
+        )}
+        {showRedo && (
+          <button
+            type="button"
+            onClick={onRedo}
+            disabled={!canRedo}
+            className="rounded p-1 text-gray-600 transition hover:bg-gray-100 disabled:opacity-40"
+            title="Redo (Cmd/Ctrl+Y)"
+            aria-label="Redo"
+          >
+            <ActionIcon>{REDO_ICON}</ActionIcon>
+          </button>
+        )}
+        {showClear && (
+          <button
+            type="button"
+            onClick={onClear}
+            className="rounded p-1 text-gray-600 transition hover:bg-red-50 hover:text-red-600"
+            title="Clear Canvas"
+            aria-label="Clear canvas"
+          >
+            <ActionIcon>{TRASH_ICON}</ActionIcon>
+          </button>
+        )}
+
+        {(showUndo || showRedo || showClear) && showPropertiesToggle && (
+          <div className="mx-1 h-4 w-px bg-gray-200" aria-hidden="true" />
+        )}
+
+        {/* 3-dot more menu */}
+        {showPropertiesToggle && (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={onToggleProperties}
+              className={`rounded-lg p-1.5 transition ${
+                isPropertiesOpen ? 'bg-indigo-50 text-indigo-600' : 'text-gray-700 hover:bg-gray-100'
+              }`}
+              title="All Properties"
+              aria-label="Customize — more options"
+              aria-expanded={isPropertiesOpen}
+              aria-pressed={isPropertiesOpen}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <circle cx="12" cy="5" r="1.8" />
+                <circle cx="12" cy="12" r="1.8" />
+                <circle cx="12" cy="19" r="1.8" />
+              </svg>
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

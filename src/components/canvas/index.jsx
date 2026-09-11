@@ -1,16 +1,44 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Component, useCallback, useEffect, useState } from 'react';
 import CanvasStage from './CanvasStage';
 import TextEditorOverlay from './TextEditorOverlay';
 import Toolbar from './Toolbar';
-import PropertySidebar from './PropertySidebar';
-import ZoomBar from './ZoomBar';
+import PropertySidebar, { shouldShowPropertiesPanel } from './PropertySidebar';
 import useCanvasDrawing from './useCanvasDrawing';
 import { DEFAULTS, FONT_FAMILIES, duplicateShape, elbowPoints } from './utils/shapes.js';
 
-const MIN_ZOOM = 0.25;
-const MAX_ZOOM = 4;
+/**
+ * PopoverErrorBoundary — last-resort guard around the 3-dot customization
+ * popover. A render fault inside the panel must degrade to a small inline
+ * fallback, never to a full-viewport whiteout (an uncaught error would
+ * unmount the entire React tree since there is no root boundary).
+ */
+class PopoverErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
 
-const clampZoom = (s) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, s));
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error, info) {
+    // eslint-disable-next-line no-console
+    console.error('Customize popover failed to render:', error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
+          <p className="font-semibold">Customization unavailable</p>
+          <p className="mt-1 text-rose-600">Close the panel and try again.</p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 /**
  * Whiteboard — Sayon, Interactive Whiteboard / Konva.js Engineer
@@ -96,6 +124,11 @@ export function Whiteboard({
   const [internalFontFamilyKey, setInternalFontFamilyKey] = useState(DEFAULTS.fontFamilyKey);
   const [internalFontSize, setInternalFontSize] = useState(DEFAULTS.fontSize);
   const [internalTextAlign, setInternalTextAlign] = useState(DEFAULTS.textAlign);
+  // 3-dot customization popover (anchored under the toolbar's 3-dot end).
+  // The panel stays mounted while open so pickers/sliders never lose focus
+  // mid-gesture; it closes via the backdrop, the X button, Escape, or when
+  // the current tool/selection offers nothing to customize.
+  const [isCustomizeOpen, setIsCustomizeOpen] = useState(false);
 
   const tool = controlledTool ?? internalTool;
   const color = controlledColor ?? internalColor;
@@ -218,17 +251,21 @@ export function Whiteboard({
     [controlledAlign, controlledTextAlign, onAlignChange, onTextAlignChange],
   );
 
-  // The active drawing tool stays selected after each committed shape
-  // so users can draw repeated strokes without re-picking the tool.
-  // (Previously this reset to 'select' on every mouse release, forcing a
-  // manual tool re-click after each stroke.)
+  // The active tool persists after every commit — including the text
+  // tool, which stays on 'text' after each placed block so users can
+  // keep clicking to add more text without re-picking T. Tool changes
+  // happen only via explicit user action (toolbar, shortcuts).
   // Kept as a stable no-op callback to preserve the `onDrawingCommitted`
   // integration boundary with useCanvasDrawing.
-  const handleDrawingCommitted = useCallback(() => {}, []);
+  const handleDrawingCommitted = useCallback(
+    (committedTool) => {
+      // Do not auto-switch to select; let the active tool persist
+    },
+    [],
+  );
 
   const {
     visibleShapes,
-    shapes: storeShapes,
     selectedId,
     textEditor,
     scale,
@@ -241,6 +278,7 @@ export function Whiteboard({
     handleStageMouseUp,
     handleWheel,
     handleDragStageEnd,
+    handleZoomChange,
     handleShapeClick,
     handleShapeSelect,
     handleShapeDragStart,
@@ -254,8 +292,6 @@ export function Whiteboard({
     selectShape,
     commitCreate,
     commitUpdate,
-    setScale,
-    setStagePos,
     sendToBack,
     bringToFront,
     sendBackward,
@@ -292,6 +328,29 @@ export function Whiteboard({
   });
 
   const selectedShape = visibleShapes.find((s) => s.id === selectedId) ?? null;
+
+  // 3-dot popover availability mirrors the sidebar's own visibility gate.
+  // The toggle only appears when there is something to customize.
+  const panelAvailable = shouldShowPropertiesPanel({
+    activeTool: tool,
+    selectedShape,
+    hasSelection: Boolean(selectedId),
+  });
+  const toggleCustomize = useCallback(() => setIsCustomizeOpen((v) => !v), []);
+  // Auto-close when the panel has nothing to show (e.g. switched to hand
+  // or cleared the selection in select mode).
+  useEffect(() => {
+    if (!panelAvailable) setIsCustomizeOpen(false);
+  }, [panelAvailable]);
+  // Escape closes the popover (selection/deselect shortcuts keep working).
+  useEffect(() => {
+    if (!isCustomizeOpen) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setIsCustomizeOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isCustomizeOpen]);
 
   // Inspector values: reflect the live selection when present (Excalidraw
   // parity), otherwise fall back to the next-shape tool defaults.
@@ -465,8 +524,19 @@ export function Whiteboard({
     [handleTextAlignChange, selectedId, stylizeSelection],
   );
 
-  const handleDuplicate = useCallback(() => {
-    if (!selectedShape) return;
+  // Header quick-style swatches: route patch keys through the same
+  // sidebar handlers so picks update the tool defaults AND the live
+  // selection (text shapes map stroke -> fill inside handleSidebarColor).
+  const handleToolbarStyleChange = useCallback(
+    (patch) => {
+      if (!patch || typeof patch !== 'object') return;
+      if (patch.stroke !== undefined) handleSidebarColor(patch.stroke);
+      if (patch.strokeWidth !== undefined) handleSidebarWidth(patch.strokeWidth);
+    },
+    [handleSidebarColor, handleSidebarWidth],
+  );
+
+  const handleDuplicate = useCallback(() => {    if (!selectedShape) return;
     // Clone beside the original with a small (+15px x/y) offset, then
     // select the copy. commitCreate/selectShape fire the Yjs/CRDT
     // onShapeCreate + onSelectionChange triggers as usual.
@@ -504,41 +574,6 @@ export function Whiteboard({
     if (selectedId) sendBackward(selectedId);
   }, [selectedId, sendBackward]);
 
-  // ---- zoom controls (center-based; shape data stays in world coords) ----
-  const zoomBy = useCallback(
-    (factor) => {
-      const stage = stageRef.current;
-      const oldScale = stage ? stage.scaleX() : scale;
-      const newScale = clampZoom(oldScale * factor);
-      if (newScale === oldScale) return;
-      if (stage) {
-        const center = { x: stage.width() / 2, y: stage.height() / 2 };
-        const world = {
-          x: (center.x - stage.x()) / oldScale,
-          y: (center.y - stage.y()) / oldScale,
-        };
-        stage.scale({ x: newScale, y: newScale });
-        stage.position({ x: center.x - world.x * newScale, y: center.y - world.y * newScale });
-        setScale(newScale);
-        setStagePos({ x: stage.x(), y: stage.y() });
-      } else {
-        setScale(newScale);
-      }
-    },
-    [scale, setScale, setStagePos, stageRef],
-  );
-  const handleZoomIn = useCallback(() => zoomBy(1.2), [zoomBy]);
-  const handleZoomOut = useCallback(() => zoomBy(1 / 1.2), [zoomBy]);
-  const handleResetZoom = useCallback(() => {
-    const stage = stageRef.current;
-    if (stage) {
-      stage.scale({ x: 1, y: 1 });
-      stage.position({ x: 0, y: 0 });
-    }
-    setScale(1);
-    setStagePos({ x: 0, y: 0 });
-  }, [setScale, setStagePos, stageRef]);
-
   // ---- keyboard shortcuts (ignored while typing / editing text) ----
   useEffect(() => {
     const onKeyDown = (event) => {
@@ -574,9 +609,111 @@ export function Whiteboard({
   }, [handleToolChange, textEditor]);
 
   return (
-    <section className="flex h-full min-h-[520px] min-w-0 flex-col overflow-hidden rounded-xl border border-gray-200 bg-[#f8f9fa] shadow-sm">
+    <div className="flex h-full min-h-[520px] min-w-0 w-full flex-1 flex-col">
+      {/* Header row: full-width toolbar bar. The header sits above
+      the popover backdrop (relative z-50) so tools and the 3-dot toggle
+      stay interactive while the panel is open. */}
+      <div className="relative z-50 w-full shrink-0">
+        <div className="relative w-full min-w-0">
+            <Toolbar
+              tool={tool}
+              onToolChange={handleToolChange}
+              currentStyle={{ stroke: inspectorColor, strokeWidth: inspectorWidth }}
+              onStyleChange={handleToolbarStyleChange}
+              zoom={scale}
+              shapes={visibleShapes}
+              onZoomChange={handleZoomChange}
+              onUndo={undo}
+              onRedo={redo}
+              canUndo={canUndo}
+              canRedo={canRedo}
+              onClear={clearCanvas}
+              showPropertiesToggle={panelAvailable}
+              isPropertiesOpen={isCustomizeOpen}
+              onToggleProperties={toggleCustomize}
+            />
+            {isCustomizeOpen && panelAvailable && (
+              <>
+                {/* Invisible click-outside backdrop */}
+                <div
+                  className="fixed inset-0 z-40 bg-transparent"
+                  onClick={() => setIsCustomizeOpen(false)}
+                />
+                {/* Floating customize panel: compact card pinned under the
+                3-dot end of the toolbar (NOT fullscreen — a positioning
+                fault here must never obscure the viewport). Render faults
+                degrade to the boundary fallback, never a whiteout. */}
+                <div
+                  role="dialog"
+                  aria-label="Customize shape properties"
+                  className="absolute right-0 top-full mt-2 z-50 w-72 max-h-[75vh] overflow-y-auto bg-white rounded-2xl border border-gray-200 shadow-2xl p-4"
+                >
+                  <div className="flex items-center justify-between pb-2 mb-3 border-b border-gray-100">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+                      Properties
+                    </span>
+                    <button
+                      onClick={() => setIsCustomizeOpen(false)}
+                      title="Close customization panel (Esc)"
+                      aria-label="Close customization panel"
+                      className="text-gray-400 hover:text-gray-700 text-sm font-bold px-1"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <PopoverErrorBoundary key={`${tool}-${selectedId ?? 'none'}`}>
+                  <PropertySidebar
+                  color={inspectorColor}
+                  fill={inspectorFill}
+                  strokeWidth={inspectorWidth}
+                  strokeStyle={inspectorStyle}
+                  opacity={inspectorOpacity}
+                  roughness={inspectorRoughness}
+                  roundness={inspectorRoundness}
+                  startArrowhead={inspectorStartArrowhead}
+                  endArrowhead={inspectorEndArrowhead}
+                  arrowType={inspectorArrowType}
+                  fontFamilyKey={inspectorFontKey}
+                  fontSize={inspectorFontSize}
+                  textAlign={inspectorAlign}
+                  align={inspectorAlign}
+                  activeTool={tool}
+                  tool={tool}
+                  hasSelection={Boolean(selectedId)}
+                  selectedShape={selectedShape}
+                  onColorChange={handleSidebarColor}
+                  onFillChange={handleSidebarFill}
+                  onStrokeWidthChange={handleSidebarWidth}
+                  onStrokeStyleChange={handleSidebarStyle}
+                  onOpacityChange={handleSidebarOpacity}
+                  onRoughnessChange={handleSidebarRoughness}
+                  onRoundnessChange={handleSidebarRoundness}
+                  onStartArrowheadChange={handleSidebarStartArrowhead}
+                  onEndArrowheadChange={handleSidebarEndArrowhead}
+                  onArrowTypeChange={handleSidebarArrowType}
+                  onFontFamilyChange={handleSidebarFontFamily}
+                  onFontSizeChange={handleSidebarFontSize}
+                  onTextAlignChange={handleSidebarTextAlign}
+                  onAlignChange={handleSidebarTextAlign}
+                  onDuplicate={handleDuplicate}
+                  onDelete={deleteSelected}
+                  onClear={clearCanvas}
+                  onStraighten={handleStraighten}
+                  onBringToFront={handleBringToFront}
+                  onSendToBack={handleSendToBack}
+                  onBringForward={handleBringForward}
+                  onSendBackward={handleSendBackward}
+                  />
+                  </PopoverErrorBoundary>
+                </div>
+              </>
+            )}
+          </div>
+      </div>
+      {/* Expanded canvas boundary: fills all remaining height/width. */}
+      <section className="flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-[#f8f9fa] shadow-sm">
       <div className="relative min-h-0 flex-1">
-        <div className="relative h-full min-h-[520px] overflow-hidden">
+        <div className="relative h-full min-h-[420px] overflow-hidden">
           <CanvasStage
             shapes={visibleShapes}
             selectedId={selectedId}
@@ -599,73 +736,6 @@ export function Whiteboard({
             onTextDoubleClick={openTextEditorForShape}
             onBendCommit={handleBendCommit}
           />
-          {/* Top-center floating tool island */}
-          <div className="pointer-events-none absolute inset-x-0 top-4 z-50 flex justify-center px-3">
-            <Toolbar
-              tool={tool}
-              onToolChange={handleToolChange}
-            />
-          </div>
-          {/* Top-left contextual property sidebar */}
-          <div className="pointer-events-none absolute left-3 top-[76px] z-40 flex">
-            <PropertySidebar
-              color={inspectorColor}
-              fill={inspectorFill}
-              strokeWidth={inspectorWidth}
-              strokeStyle={inspectorStyle}
-              opacity={inspectorOpacity}
-              roughness={inspectorRoughness}
-              roundness={inspectorRoundness}
-              startArrowhead={inspectorStartArrowhead}
-              endArrowhead={inspectorEndArrowhead}
-              arrowType={inspectorArrowType}
-              fontFamilyKey={inspectorFontKey}
-              fontSize={inspectorFontSize}
-              textAlign={inspectorAlign}
-              align={inspectorAlign}
-              activeTool={tool}
-              tool={tool}
-              hasSelection={Boolean(selectedId)}
-              selectedShape={selectedShape}
-              onColorChange={handleSidebarColor}
-              onFillChange={handleSidebarFill}
-              onStrokeWidthChange={handleSidebarWidth}
-              onStrokeStyleChange={handleSidebarStyle}
-              onOpacityChange={handleSidebarOpacity}
-              onRoughnessChange={handleSidebarRoughness}
-              onRoundnessChange={handleSidebarRoundness}
-              onStartArrowheadChange={handleSidebarStartArrowhead}
-              onEndArrowheadChange={handleSidebarEndArrowhead}
-              onArrowTypeChange={handleSidebarArrowType}
-              onFontFamilyChange={handleSidebarFontFamily}
-              onFontSizeChange={handleSidebarFontSize}
-              onTextAlignChange={handleSidebarTextAlign}
-              onAlignChange={handleSidebarTextAlign}
-              onDuplicate={handleDuplicate}
-              onDelete={deleteSelected}
-              onClear={clearCanvas}
-              onStraighten={handleStraighten}
-              onBringToFront={handleBringToFront}
-              onSendToBack={handleSendToBack}
-              onBringForward={handleBringForward}
-              onSendBackward={handleSendBackward}
-            />
-          </div>
-          {/* Bottom-left zoom + status */}
-          <div className="pointer-events-none absolute bottom-4 left-4 z-40 flex">
-            <ZoomBar
-              scale={scale}
-              shapeCount={storeShapes.length}
-              onZoomIn={handleZoomIn}
-              onZoomOut={handleZoomOut}
-              onResetZoom={handleResetZoom}
-              onUndo={undo}
-              onRedo={redo}
-              canUndo={canUndo}
-              canRedo={canRedo}
-              onClear={clearCanvas}
-            />
-          </div>
           <TextEditorOverlay
             editor={textEditor}
             color={color}
@@ -674,7 +744,8 @@ export function Whiteboard({
           />
         </div>
       </div>
-    </section>
+      </section>
+    </div>
   );
 }
 

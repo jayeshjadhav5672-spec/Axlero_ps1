@@ -44,8 +44,8 @@ export default function Workspace({
         onLeaveRoom={onLeaveRoom}
         onShareRoom={onShareRoom}
       />
-      <div id="workspace-content" className="mx-auto w-full max-w-[1600px] flex-1 px-3 py-3 sm:px-4 sm:py-4">
-        <div className="grid min-h-[calc(100vh-120px)] grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-2">
+      <div id="workspace-content" className="w-full flex-1 py-1.5 pl-2 pr-1.5 sm:py-2 sm:pl-3 sm:pr-2">
+        <div className="grid min-h-[calc(100vh-120px)] grid-cols-1 gap-2 sm:gap-2 lg:grid-cols-2">
           <WhiteboardPanel
             title="Whiteboard"
             isLoading={isWhiteboardLoading}

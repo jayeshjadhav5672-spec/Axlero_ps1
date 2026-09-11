@@ -626,7 +626,7 @@ function OpacitySection({ opacity, onOpacityChange }) {
   );
 }
 
-function LayerSection({ hasSelection, onBringToFront, onSendToBack, onBringForward, onSendBackward }) {
+function LayerSection({ hasSelection, onBringToFront = () => {}, onSendToBack = () => {}, onBringForward = () => {}, onSendBackward = () => {} }) {
   const actions = [
     {
       key: 'back',
@@ -703,7 +703,7 @@ function LayerSection({ hasSelection, onBringToFront, onSendToBack, onBringForwa
  * SelectionActionsSection — compact object actions for Selection mode.
  * No styling controls (swatches, edges, fonts, arrowheads stay hidden);
  * just Duplicate, Delete, and live width/height size badges for the
- * selected shape. Clear Canvas lives persistently in the bottom ZoomBar.
+ * selected shape. Clear Canvas lives in the top navbar.
  */
 const SELECTION_TYPE_LABELS = {
   rectangle: 'Rectangle',
@@ -716,7 +716,7 @@ const SELECTION_TYPE_LABELS = {
   text: 'Text',
 };
 
-function SelectionActionsSection({ selectedShape, onDuplicate, onDelete }) {
+function SelectionActionsSection({ selectedShape, onDuplicate = () => {}, onDelete = () => {} }) {
   const bounds = selectedShape ? getShapeBounds(selectedShape) : null;
   const label = SELECTION_TYPE_LABELS[selectedShape?.type] ?? 'Shape';
   return (
@@ -774,7 +774,31 @@ function SelectionActionsSection({ selectedShape, onDuplicate, onDelete }) {
 }
 
 /**
- * PropertySidebar — Excalidraw-style contextual property panel (top-left).
+ * Shared visibility gate for the customization panel (used by the sidebar
+ * itself and by the shell to drive the 3-dot popover toggle).
+ * Returns true when the panel has content: a creative drawing tool is
+ * active, or the Selection tool has a shape selected. Hand/pan and eraser
+ * never show it.
+ */
+export function shouldShowPropertiesPanel({ activeTool, selectedShape, hasSelection } = {}) {
+  const toolKey = typeof activeTool === 'string' ? activeTool.toLowerCase() : '';
+  const isSelectTool = toolKey === 'select' || toolKey === 'selection';
+  const isCreatableTool = [
+    'rectangle', 'rect',
+    'circle', 'ellipse',
+    'diamond', 'rhombus',
+    'arrow',
+    'line',
+    'pen', 'freehand', 'draw', 'freedraw',
+    'text',
+  ].includes(toolKey);
+  const showSelectionActions =
+    isSelectTool && (Boolean(selectedShape) || Boolean(hasSelection));
+  return isCreatableTool || showSelectionActions;
+}
+
+/**
+ * PropertySidebar — Excalidraw-style contextual property panel.
  * Context is driven by BOTH the selection and the active tool:
  * - Arrow tool active OR arrow selected: stroke color, stroke width
  *   (1/2/4), stroke style, sloppiness, arrow type, arrowheads
@@ -809,49 +833,74 @@ export default function PropertySidebar({
   fontSize = 20,
   textAlign = 'left',
   align,
-  activeTool,
+  // Crash-safety fallbacks: the popover must never throw on undefined
+  // props (an uncaught render error would whiteout the whole viewport
+  // since there is no root error boundary). Defaults resolve to the
+  // neutral select-tool state, which simply renders nothing.
+  activeTool = 'select',
   tool: toolAlias,
-  hasSelection,
-  selectedShape,
-  onColorChange,
-  onFillChange,
-  onStrokeWidthChange,
-  onStrokeStyleChange,
-  onOpacityChange,
-  onRoughnessChange,
-  onRoundnessChange,
-  onStartArrowheadChange,
-  onEndArrowheadChange,
-  onArrowTypeChange,
-  onFontFamilyChange,
-  onFontSizeChange,
-  onTextAlignChange,
-  onAlignChange,
-  onDuplicate,
-  onDelete,
-  onClear,
-  onStraighten,
-  onBringToFront,
-  onSendToBack,
-  onBringForward,
-  onSendBackward,
+  hasSelection = false,
+  selectedShape = null,
+  onColorChange = () => {},
+  onFillChange = () => {},
+  onStrokeWidthChange = () => {},
+  onStrokeStyleChange = () => {},
+  onOpacityChange = () => {},
+  onRoughnessChange = () => {},
+  onRoundnessChange = () => {},
+  onStartArrowheadChange = () => {},
+  onEndArrowheadChange = () => {},
+  onArrowTypeChange = () => {},
+  onFontFamilyChange = () => {},
+  onFontSizeChange = () => {},
+  onTextAlignChange = () => {},
+  onAlignChange = () => {},
+  onDuplicate = () => {},
+  onDelete = () => {},
+  onClear = () => {},
+  onStraighten = () => {},
+  onBringToFront = () => {},
+  onSendToBack = () => {},
+  onBringForward = () => {},
+  onSendBackward = () => {},
 }) {
   const activeToolName = activeTool ?? toolAlias ?? null;
   const type = selectedShape?.type ?? null;
+  // Contextual target: selection wins when present, otherwise the active
+  // tool drives the inspector so picking L/A/T/P previews its controls
+  // with the live defaults (Excalidraw parity). Aliases normalized:
+  // rect->rectangle, rhombus->diamond, ellipse->circle, pen/draw/freedraw->freehand.
+  const targetType = selectedShape?.type || activeToolName;
+  const _raw = typeof targetType === 'string' ? targetType.toLowerCase() : '';
+  const _alias =
+    _raw === 'rect' ? 'rectangle'
+    : _raw === 'rhombus' ? 'diamond'
+    : _raw === 'ellipse' ? 'circle'
+    : _raw === 'pen' || _raw === 'draw' || _raw === 'freedraw' ? 'freehand'
+    : _raw;
   // Selection wins when present; otherwise the active tool drives context
   // so picking the Arrow/Text tool previews its inspector with defaults.
-  const contextType = type ?? (activeToolName === 'arrow' || activeToolName === 'text' ? activeToolName : null);
-  const isText = contextType === 'text';
+  const contextType = type ?? activeToolName ?? null;
+  const _ctx = typeof contextType === 'string' ? contextType.toLowerCase() : null;
+  const _ctxNorm =
+    _ctx === 'rect' ? 'rectangle'
+    : _ctx === 'rhombus' ? 'diamond'
+    : _ctx === 'ellipse' ? 'circle'
+    : _ctx === 'pen' || _ctx === 'draw' || _ctx === 'freedraw' ? 'freehand'
+    : _ctx;
+  const isText = _ctxNorm === 'text';
   // Arrow controls render ONLY for arrows: the active Arrow tool with no
   // selection, or a selected arrow shape. Equivalent to
   // `activeTool === 'arrow' || selectedShape?.type === 'arrow'` when no
   // foreign shape is selected (selection always wins for context).
-  const isArrow = contextType === 'arrow';
-  const isLine = type === 'line' || (!type && activeToolName === 'line');
+  const isArrow = _ctxNorm === 'arrow';
+  const isLine = _alias === 'line';
   const isArrowLine = isArrow || isLine;
-  const isClosed = type === 'rectangle' || type === 'circle' || type === 'diamond';
-  const isFreehand = type === 'freehand' || type === 'pen';
-  const showDefaults = !hasSelection && !type && activeToolName !== 'arrow' && activeToolName !== 'text';
+  const isClosed =
+    _alias === 'rectangle' || _alias === 'circle' || _alias === 'diamond';
+  const isFreehand = _alias === 'freehand';
+  const isPen = isFreehand;
+  const showDefaults = !hasSelection && !type && _alias !== 'arrow' && _alias !== 'text' && !isLine && !isPen && !isClosed;
 
   // Edges (Sharp/Round corner rounding) applies ONLY to angular 2D
   // polygons — rectangles and diamonds. Freehand pen paths have no
@@ -877,21 +926,18 @@ export default function PropertySidebar({
   // the Selection tool shows a compact Actions card (Duplicate, Delete,
   // size) ONLY when a shape is selected. Inactive tools ('pan'/'hand',
   // 'eraser') render nothing, even with a selection, so the panel never
-  // blocks canvas gestures. Hand/Eraser keep only the bottom ZoomBar.
+  // blocks canvas gestures. Hand/Eraser keep only the top navbar.
+  // (Gate shared with the shell's 3-dot popover via
+  // shouldShowPropertiesPanel.)
   const toolKey = typeof activeToolName === 'string' ? activeToolName.toLowerCase() : '';
   const isSelectTool = toolKey === 'select' || toolKey === 'selection';
-  const isCreatableTool = [
-    'rectangle', 'rect',
-    'circle', 'ellipse',
-    'diamond', 'rhombus',
-    'arrow',
-    'line',
-    'pen', 'freehand', 'draw',
-    'text',
-  ].includes(toolKey);
   const showSelectionActions =
     isSelectTool && (Boolean(selectedShape) || Boolean(hasSelection));
-  const shouldShowSidebar = isCreatableTool || showSelectionActions;
+  const shouldShowSidebar = shouldShowPropertiesPanel({
+    activeTool: activeToolName,
+    selectedShape,
+    hasSelection,
+  });
 
   if (!shouldShowSidebar) {
     return null;
@@ -932,7 +978,7 @@ export default function PropertySidebar({
         // Selection mode with a selection: object actions only (Duplicate,
         // Delete, live size badges). All styling sections stay hidden;
         // the generic footer is skipped here since these buttons cover it
-        // and Clear Canvas lives persistently in the bottom ZoomBar.
+        // and Clear Canvas lives in the top navbar.
         <SelectionActionsSection
           selectedShape={selectedShape}
           onDuplicate={onDuplicate}
@@ -1001,12 +1047,10 @@ export default function PropertySidebar({
         </>
       ) : isArrowLine ? (
         <>
-          {/* Excalidraw Line parity: Stroke, Background, Stroke width,
-          Stroke style, Sloppiness, Opacity, Layers.
-          Arrowheads, Arrow type, and Edges belong elsewhere —
-          never rendered for lines. */}
+          {/* Line parity: Stroke, Stroke width, Stroke style, Sloppiness,
+          Opacity, Layers. NO Background, NO Edges, NO arrow type,
+          NO arrowheads (arrow-only controls). */}
           <StrokeSection color={color} onColorChange={safeColor} />
-          <BackgroundSection fill={fill} onFillChange={safeFill} />
           <StrokeWidthSection strokeWidth={strokeWidth} onStrokeWidthChange={safeWidth} />
           <StrokeStyleSection strokeStyle={strokeStyle} onStrokeStyleChange={safeStyle} />
           <SloppinessSection roughness={roughness} onRoughnessChange={safeRough} />
@@ -1019,7 +1063,23 @@ export default function PropertySidebar({
             onSendBackward={onSendBackward}
           />
         </>
-      ) : isClosed || isFreehand ? (
+      ) : isPen ? (
+        <>
+          {/* Pen / freehand parity: Stroke, Stroke width (thin/medium/bold),
+          Opacity, Layers. NO Background, NO Edges, NO Sloppiness,
+          NO stroke style, NO arrowheads. */}
+          <StrokeSection color={color} onColorChange={safeColor} />
+          <StrokeWidthSection strokeWidth={strokeWidth} onStrokeWidthChange={safeWidth} />
+          <OpacitySection opacity={opacity} onOpacityChange={safeOpacity} />
+          <LayerSection
+            hasSelection={hasSelection}
+            onBringToFront={onBringToFront}
+            onSendToBack={onSendToBack}
+            onBringForward={onBringForward}
+            onSendBackward={onSendBackward}
+          />
+        </>
+      ) : isClosed ? (
         <>
           <StrokeSection color={color} onColorChange={safeColor} />
           {isClosed && <BackgroundSection fill={fill} onFillChange={safeFill} />}
