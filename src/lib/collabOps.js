@@ -16,9 +16,9 @@
  *   these reducers only handle op-level safety
  */
 
-import { isValidShape } from '../components/canvas/utils/shapes.js';
+import { isValidShape, serializeShapes } from '../components/canvas/utils/shapes.js';
 
-export const WHITEBOARD_OPS = ['create', 'update', 'delete', 'clear'];
+export const WHITEBOARD_OPS = ['create', 'update', 'delete', 'clear', 'reorder'];
 
 /** Structural validation for an inbound whiteboard op. */
 export function isValidWhiteboardOp(op) {
@@ -40,6 +40,12 @@ export function isValidWhiteboardOp(op) {
       return typeof op.shapeId === 'string' && op.shapeId.length > 0;
     case 'clear':
       return true;
+    case 'reorder':
+      // Full-array sync (z-order, undo/redo restore): entries are
+      // sanitized on apply, so validity here only requires an array.
+      // Unknown-op senders (older clients) are dropped by THEIR
+      // validator, never by ours — forward/back compatible.
+      return Array.isArray(op.shapes);
     default:
       return false;
   }
@@ -70,9 +76,25 @@ export function applyWhiteboardOp(shapes, op, selfId) {
       return { shapes: list.filter((s) => !s || s.id !== op.shapeId), applied: true };
     case 'clear':
       return list.length === 0 ? { shapes: list, applied: false } : { shapes: [], applied: true };
+    case 'reorder':
+      // Replace order wholesale (invalid entries dropped, clones made so
+      // remote object identity never leaks into state). Same reference
+      // back when the order is already identical to skip re-renders.
+      return replaceOrder(list, op.shapes);
     default:
       return { shapes: list, applied: false };
   }
+}
+
+/** Order/content replace with equality fast-path; always clean clones. */
+function replaceOrder(list, nextShapes) {
+  const clean = serializeShapes(nextShapes);
+  // Full-array ops double as undo/redo restores, which can change content
+  // with identical order — so compare full JSON, not just ids.
+  if (JSON.stringify(clean) === JSON.stringify(list)) {
+    return { shapes: list, applied: false };
+  }
+  return { shapes: clean, applied: true };
 }
 
 /** Structural validation for an inbound code op (last-writer-wins by rev). */

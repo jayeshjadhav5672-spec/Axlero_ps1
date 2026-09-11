@@ -64,6 +64,17 @@ export default function useCollaborativeWhiteboard({ socket, roomId, enabled = t
     emit({ op: 'clear' });
   }, [emit]);
 
+  // Sayon PR #4: z-order + undo/redo restore forward the FULL array via
+  // onShapesReorder. Same pattern as the other handlers — local set +
+  // emit; receivers apply without re-emitting (loop-free by construction).
+  const onShapesReorder = useCallback(
+    (nextShapes) => {
+      setShapes(Array.isArray(nextShapes) ? nextShapes : []);
+      emit({ op: 'reorder', shapes: Array.isArray(nextShapes) ? nextShapes : [] });
+    },
+    [emit],
+  );
+
   useEffect(() => {
     if (!socket) return undefined;
     const handleRemote = (payload) => {
@@ -80,7 +91,7 @@ export default function useCollaborativeWhiteboard({ socket, roomId, enabled = t
   }, [socket]);
 
   return useMemo(
-    () => ({ shapes, onShapeCreate, onShapeUpdate, onShapeDelete, onCanvasClear }),
-    [shapes, onShapeCreate, onShapeUpdate, onShapeDelete, onCanvasClear],
+    () => ({ shapes, onShapeCreate, onShapeUpdate, onShapeDelete, onCanvasClear, onShapesReorder }),
+    [shapes, onShapeCreate, onShapeUpdate, onShapeDelete, onCanvasClear, onShapesReorder],
   );
 }

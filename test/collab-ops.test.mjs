@@ -53,6 +53,36 @@ test('whiteboard ops: valid ops apply, garbage is dropped', () => {
   assert.deepEqual(cleared.shapes, []);
 });
 
+test('whiteboard ops: reorder replaces order, drops garbage, suppresses echo', () => {
+  const s1 = { ...shape, id: 'shape-1' };
+  const s2 = { ...shape, id: 'shape-2', x: 99 };
+  assert.equal(isValidWhiteboardOp({ op: 'reorder', shapes: [s1, s2], actorId: 'a' }), true);
+  assert.equal(isValidWhiteboardOp({ op: 'reorder', shapes: 'nope', actorId: 'a' }), false);
+  assert.equal(isValidWhiteboardOp({ op: 'reorder', actorId: 'a' }), false);
+
+  // local reorder propagation: reversed order applies wholesale
+  const reordered = applyWhiteboardOp([s1, s2], { op: 'reorder', shapes: [s2, s1], actorId: 'a' }, 'b');
+  assert.equal(reordered.applied, true);
+  assert.deepEqual(reordered.shapes.map((s) => s.id), ['shape-2', 'shape-1']);
+
+  // identical array is a no-op (same ref → no re-render, no bounce)
+  const same = applyWhiteboardOp(reordered.shapes, { op: 'reorder', shapes: [s2, s1], actorId: 'a' }, 'b');
+  assert.equal(same.applied, false);
+  assert.equal(same.shapes, reordered.shapes);
+
+  // undo-shaped restore: same order but older content still applies
+  const moved = { ...s2, x: 5 };
+  const restored = applyWhiteboardOp([moved, s1], { op: 'reorder', shapes: [s2, s1], actorId: 'a' }, 'b');
+  assert.equal(restored.applied, true);
+  assert.equal(restored.shapes[0].x, 99);
+
+  // invalid entries are dropped, never crash; self-echo suppressed
+  const mixed = applyWhiteboardOp([], { op: 'reorder', shapes: [s1, { bad: 1 }], actorId: 'a' }, 'b');
+  assert.equal(mixed.applied, true);
+  assert.deepEqual(mixed.shapes.map((s) => s.id), ['shape-1']);
+  assert.equal(applyWhiteboardOp([], { op: 'reorder', shapes: [s1], actorId: 'b' }, 'b').applied, false);
+});
+
 test('whiteboard ops: self-echo is always suppressed', () => {
   const self = 'socket-self';
   assert.equal(applyWhiteboardOp([], { op: 'create', shape, actorId: self }, self).applied, false);

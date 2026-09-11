@@ -128,6 +128,7 @@ export default function App() {
               onShapeUpdate={whiteboardSync.onShapeUpdate}
               onShapeDelete={whiteboardSync.onShapeDelete}
               onCanvasClear={whiteboardSync.onCanvasClear}
+              onShapesReorder={whiteboardSync.onShapesReorder}
             />
           }
           editor={<CollabTextEditor value={codeSync.text} onChange={codeSync.onLocalChange} />}
