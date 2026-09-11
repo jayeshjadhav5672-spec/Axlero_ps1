@@ -23,10 +23,10 @@ export function getSocket() {
     socket = io(SERVER_URL, {
       autoConnect: false,
       reconnection: true,
-      reconnectionAttempts: 2,
-      reconnectionDelay: 1000,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 500,
       reconnectionDelayMax: 5000,
-      timeout: 3000,
+      timeout: 10000,
     });
   }
   return socket;
