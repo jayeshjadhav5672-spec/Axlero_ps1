@@ -2,8 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 
 /**
  * TextEditorOverlay — Sayon
- * HTML textarea overlay for text shapes. Positioned in SCREEN coords
- * (converted from world coords by the hook so zoom/pan stay correct).
+ * Excalidraw-styled HTML textarea overlay for text shapes. Positioned in
+ * SCREEN coords (converted from world coords by the hook so zoom/pan stay
+ * correct). Hand-drawn typography (Caveat/Virgil stack), violet focus ring.
  * Commit: Enter (no Shift) or blur. Cancel: Escape.
  */
 export default function TextEditorOverlay({ editor, color, onCommit, onCancel }) {
@@ -30,16 +31,20 @@ export default function TextEditorOverlay({ editor, color, onCommit, onCancel })
     } else if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       event.stopPropagation();
-      onCommit?.(value);
+      onCommit?.(value, areaRef.current?.scrollWidth);
     }
   };
+
+  // Mirror the shape's alignment while typing so the overlay previews
+  // exactly what the canvas will render.
+  const overlayAlign = editor.align ?? editor.textAlign ?? 'left';
 
   return (
     <textarea
       ref={areaRef}
       value={value}
       onChange={(e) => setValue(e.target.value)}
-      onBlur={() => onCommit?.(value)}
+      onBlur={() => onCommit?.(value, areaRef.current?.scrollWidth)}
       onKeyDown={handleKeyDown}
       onPointerDown={(e) => e.stopPropagation()}
       placeholder="Type text, Enter to commit"
@@ -49,18 +54,21 @@ export default function TextEditorOverlay({ editor, color, onCommit, onCancel })
         position: 'absolute',
         left: editor.screenX,
         top: editor.screenY,
-        minWidth: 160,
-        maxWidth: 320,
+        minWidth: 180,
+        maxWidth: 340,
         zIndex: 20,
-        padding: '6px 8px',
-        fontSize: 20,
-        fontFamily: 'Inter, sans-serif',
+        padding: '6px 10px',
+        fontSize: 22,
+        lineHeight: 1.35,
+        fontFamily: '"Caveat", "Segoe Print", "Bradley Hand", "Virgil", Inter, sans-serif',
+        fontWeight: 500,
+        textAlign: overlayAlign,
         color: editor.mode === 'edit' ? undefined : color,
-        border: '1px solid #0f766e',
-        borderRadius: 6,
+        border: '1.5px solid #6965db',
+        borderRadius: 8,
         outline: 'none',
         background: 'white',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+        boxShadow: '0 4px 16px rgba(105,101,219,0.18)',
         resize: 'both',
       }}
     />

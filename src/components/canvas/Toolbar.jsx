@@ -3,12 +3,12 @@ import React from 'react';
 function ToolIcon({ children }) {
   return (
     <svg
-      width="16"
-      height="16"
+      width="18"
+      height="18"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
+      strokeWidth="1.8"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -18,56 +18,75 @@ function ToolIcon({ children }) {
   );
 }
 
-// Drawing tools + selection. Select/move is the default canvas
-// interaction; the board also returns to select mode after each
-// committed shape, but an explicit Select button lets users cancel
-// a drawing tool without having to complete a shape first.
-const DRAW_TOOLS = [
+const SELECT_ICON = (
+  <>
+    <path d="M4 3l7.5 18 2.5-7.5L21.5 11 4 3z" />
+  </>
+);
+
+// Excalidraw-order tools (selection, rectangle, diamond, ellipse, arrow,
+// line, pen, text, eraser). Diamond maps to the `diamond` shape type in
+// utils/shapes.js and renders as a closed 4-point polygon.
+const TOOLS = [
   {
     value: 'select',
-    label: 'Select',
-    title: 'Select / move (default)',
-    icon: <path d="M4 3l7 18 2.5-7.5L21 11 4 3z" />,
-  },
-  {
-    value: 'freehand',
-    label: 'Pen',
-    title: 'Freehand pen',
-    icon: <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />,
+    label: 'Selection',
+    shortcut: '1',
+    title: 'Selection (1 or V)',
+    icon: SELECT_ICON,
   },
   {
     value: 'rectangle',
     label: 'Rectangle',
-    title: 'Rectangle (drag any direction)',
+    shortcut: '2',
+    title: 'Rectangle (2 or R — drag any direction)',
     icon: <rect x="3" y="3" width="18" height="18" rx="2" />,
   },
   {
     value: 'circle',
-    label: 'Circle',
-    title: 'Circle (center + radius)',
-    icon: <circle cx="12" cy="12" r="10" />,
+    label: 'Ellipse',
+    shortcut: '3',
+    title: 'Ellipse (3 or C — center + radius)',
+    icon: <ellipse cx="12" cy="12" rx="9" ry="7" />,
   },
   {
-    value: 'line',
-    label: 'Line',
-    title: 'Two-point line',
-    icon: <line x1="5" y1="19" x2="19" y2="5" />,
+    value: 'diamond',
+    label: 'Diamond',
+    shortcut: 'D',
+    title: 'Diamond (D — drag any direction)',
+    icon: <path d="M12 3 L21 12 L12 21 L3 12 Z" />,
   },
   {
     value: 'arrow',
     label: 'Arrow',
-    title: 'Arrow',
+    shortcut: 'A',
+    title: 'Arrow (A — drag, then drag the midpoint handle to bend)',
     icon: (
       <>
-        <line x1="7" y1="17" x2="17" y2="7" />
-        <polyline points="7 7 17 7 17 17" />
+        <line x1="5" y1="19" x2="19" y2="5" />
+        <polyline points="9 5 19 5 19 15" />
       </>
     ),
   },
   {
+    value: 'line',
+    label: 'Line',
+    shortcut: 'L',
+    title: 'Line (L — two points)',
+    icon: <line x1="5" y1="19" x2="19" y2="5" />,
+  },
+  {
+    value: 'freehand',
+    label: 'Pen',
+    shortcut: 'P',
+    title: 'Pen — freehand (P)',
+    icon: <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />,
+  },
+  {
     value: 'text',
     label: 'Text',
-    title: 'Text (click to place, Enter to commit)',
+    shortcut: 'T',
+    title: 'Text (T — click to place, Enter to commit)',
     icon: (
       <>
         <polyline points="4 7 4 4 20 4 20 7" />
@@ -76,135 +95,119 @@ const DRAW_TOOLS = [
       </>
     ),
   },
+  {
+    value: 'eraser',
+    label: 'Eraser',
+    shortcut: 'E',
+    title: 'Eraser (E — click a shape to delete)',
+    icon: (
+      <>
+        <path d="M20 20H8L3 15a1.5 1.5 0 0 1 0-2.1l9.2-9.2a1.5 1.5 0 0 1 2.1 0l5.2 5.2a1.5 1.5 0 0 1 0 2.1L13 18" />
+        <line x1="6" y1="21" x2="21" y2="21" />
+      </>
+    ),
+  },
 ];
 
-const WIDTH_OPTIONS = [2, 4, 8, 12];
+const PAN_TOOL = {
+  value: 'pan',
+  label: 'Pan',
+  shortcut: 'H',
+  title: 'Pan (H — drag canvas, wheel to zoom)',
+  icon: (
+    <>
+      <path d="M8 12V5.5a1.5 1.5 0 0 1 3 0V11m0-5.5v-1a1.5 1.5 0 0 1 3 0V11m0-4.5a1.5 1.5 0 0 1 3 0V12m0-3a1.5 1.5 0 0 1 3 0v4a7 7 0 0 1-7 7h-1a7 7 0 0 1-6-3.3l-2-3.4a1.5 1.5 0 0 1 2.6-1.5L8 12" />
+    </>
+  ),
+};
 
-const TOOL_BTN =
-  'flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition-all focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-1';
-const TOOL_ACTIVE = 'bg-teal-600 text-white shadow-sm font-medium';
-const TOOL_IDLE = 'text-slate-600 hover:bg-slate-100 hover:text-slate-900';
+const BTN_BASE =
+  'relative flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border text-[15px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-1';
+const BTN_ACTIVE = 'bg-violet-100 text-violet-700 border-violet-200 shadow-[inset_0_0_0_1px_rgba(109,88,246,0.15)]';
+const BTN_IDLE = 'border-transparent text-gray-700 hover:bg-gray-100 hover:text-gray-900';
 
+/**
+ * Toolbar — Excalidraw-style floating island (top-center).
+ * Tool buttons only (Selection, Rectangle, Diamond, Ellipse, Arrow, Line,
+ * Pen, Text, Eraser, Pan). Back-compat: still accepts the legacy props
+ * (locked, onLockedChange, color, strokeWidth, hasSelection, onColorChange,
+ * onStrokeWidthChange, onDelete, onClear) and ignores them — styling moved
+ * to the left property sidebar, actions to the sidebar + bottom bar.
+ */
 export default function Toolbar({
   tool,
+  onToolChange,
+  locked,
+  onLockedChange,
+  // legacy (ignored, kept for integration compat)
   color,
   strokeWidth,
   hasSelection,
-  onToolChange,
   onColorChange,
   onStrokeWidthChange,
   onDelete,
   onClear,
 }) {
+  void locked;
+  void onLockedChange;
+  void color;
+  void strokeWidth;
+  void hasSelection;
+  void onColorChange;
+  void onStrokeWidthChange;
+  void onDelete;
+  void onClear;
+
   return (
     <div
       role="toolbar"
       aria-label="Whiteboard tools"
-      className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-1 rounded-2xl border border-slate-200/80 bg-white/90 px-3 py-2 shadow-lg backdrop-blur-md"
+      className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1.5 shadow-[0_2px_8px_rgba(0,0,0,0.08)]"
     >
-      {/* Drawing tools */}
-      <div className="flex items-center gap-0.5" role="group" aria-label="Drawing tools">
-        {DRAW_TOOLS.map((option) => {
-          const isActive = tool === option.value;
-          return (
-            <button
-              key={option.value}
-              type="button"
-              title={option.title}
-              aria-label={option.label}
-              aria-pressed={isActive}
-              onClick={() => onToolChange(option.value)}
-              className={`${TOOL_BTN} ${isActive ? TOOL_ACTIVE : TOOL_IDLE}`}
+      {TOOLS.map((option) => {
+        const isActive = tool === option.value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            title={option.title}
+            aria-label={`${option.label} (${option.shortcut})`}
+            aria-pressed={isActive}
+            onClick={() => onToolChange(option.value)}
+            className={`${BTN_BASE} ${isActive ? BTN_ACTIVE : BTN_IDLE}`}
+          >
+            <ToolIcon>{option.icon}</ToolIcon>
+            <span
+              aria-hidden="true"
+              className={`pointer-events-none absolute bottom-0.5 right-1 text-[9px] font-semibold leading-none ${
+                isActive ? 'text-violet-500' : 'text-gray-400'
+              }`}
             >
-              <ToolIcon>{option.icon}</ToolIcon>
-              <span className="hidden sm:inline">{option.label}</span>
-            </button>
-          );
-        })}
-      </div>
+              {option.shortcut}
+            </span>
+          </button>
+        );
+      })}
 
-      <span className="mx-1 h-6 w-px bg-slate-200" aria-hidden="true" />
+      <span className="mx-1 h-6 w-px bg-gray-200" aria-hidden="true" />
 
-      {/* Navigation: pan toggle */}
       <button
         type="button"
-        title="Pan (drag canvas, wheel to zoom)"
-        aria-label="Pan"
+        title={PAN_TOOL.title}
+        aria-label={`${PAN_TOOL.label} (${PAN_TOOL.shortcut})`}
         aria-pressed={tool === 'pan'}
         onClick={() => onToolChange('pan')}
-        className={`${TOOL_BTN} ${tool === 'pan' ? TOOL_ACTIVE : TOOL_IDLE}`}
+        className={`${BTN_BASE} ${tool === 'pan' ? BTN_ACTIVE : BTN_IDLE}`}
       >
-        <ToolIcon>
-          <polyline points="5 9 2 12 5 15" />
-          <polyline points="9 5 12 2 15 5" />
-          <polyline points="15 19 12 22 9 19" />
-          <polyline points="19 9 22 12 19 15" />
-          <line x1="2" y1="12" x2="22" y2="12" />
-          <line x1="12" y1="2" x2="12" y2="22" />
-        </ToolIcon>
-        <span className="hidden sm:inline">Pan</span>
-      </button>
-
-      <span className="mx-1 h-6 w-px bg-slate-200" aria-hidden="true" />
-
-      {/* Styling */}
-      <label
-        title="Stroke color"
-        className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-slate-600 transition-all hover:bg-slate-100 hover:text-slate-900"
-      >
-        <input
-          type="color"
-          value={color}
-          aria-label="Stroke color"
-          onChange={(event) => onColorChange(event.target.value)}
-          className="h-6 w-6 cursor-pointer rounded-full border border-slate-300 bg-transparent p-0"
-        />
-        <span className="hidden md:inline">Color</span>
-      </label>
-
-      <label
-        title="Stroke width"
-        className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-slate-600 transition-all hover:bg-slate-100 hover:text-slate-900"
-      >
-        <span className="hidden md:inline">Width</span>
-        <select
-          value={strokeWidth}
-          aria-label="Stroke width"
-          onChange={(event) => onStrokeWidthChange(Number(event.target.value))}
-          className="cursor-pointer rounded-md bg-transparent text-sm font-medium focus:outline-none"
+        <ToolIcon>{PAN_TOOL.icon}</ToolIcon>
+        <span
+          aria-hidden="true"
+          className={`pointer-events-none absolute bottom-0.5 right-1 text-[9px] font-semibold leading-none ${
+            tool === 'pan' ? 'text-violet-500' : 'text-gray-400'
+          }`}
         >
-          {WIDTH_OPTIONS.map((w) => (
-            <option key={w} value={w}>
-              {w}px
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <span className="mx-1 h-6 w-px bg-slate-200" aria-hidden="true" />
-
-      {/* Actions */}
-      <button
-        type="button"
-        onClick={onDelete}
-        disabled={!hasSelection}
-        title={hasSelection ? 'Delete selected shape (Backspace/Delete)' : 'Select a shape to delete'}
-        className="flex min-h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-rose-200 px-3 py-1.5 text-sm font-medium text-rose-600 transition-all hover:bg-rose-50 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        <ToolIcon>
-          <polyline points="3 6 5 6 21 6" />
-          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-        </ToolIcon>
-        Delete
-      </button>
-
-      <button
-        type="button"
-        onClick={onClear}
-        title="Clear canvas"
-        className="flex min-h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-rose-200 px-3 py-1.5 text-sm font-medium text-rose-600 transition-all hover:bg-rose-50 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-1"
-      >
-        Clear
+          {PAN_TOOL.shortcut}
+        </span>
       </button>
     </div>
   );
