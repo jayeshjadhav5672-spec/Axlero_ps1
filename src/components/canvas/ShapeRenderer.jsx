@@ -1,3 +1,4 @@
+import React from 'react';
 import { Arrow, Circle, Ellipse, Line, Rect, Text } from 'react-konva';
 import {
   circleRadii,
@@ -111,11 +112,16 @@ export default function ShapeRenderer({
       rotation: isFiniteNum(shape.rotation) ? shape.rotation : 0,
       opacity: konvaOpacity(shape.opacity),
       onPointerDown: (e) => {
+        // Selection gestures only: while a creation tool (pen/rect/...)
+        // is active the event must bubble to the Stage so a draw gesture
+        // starting on top of an existing shape still begins a draft.
+        if (!selectMode) return;
         e.cancelBubble = true;
         if (shape.id !== selectedId) select(shape.id);
         onShapeClick?.(e, shape.id);
       },
       onMouseDown: (e) => {
+        if (!selectMode) return;
         e.cancelBubble = true;
         if (shape.id !== selectedId) select(shape.id);
       },

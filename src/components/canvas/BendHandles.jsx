@@ -1,5 +1,6 @@
-import { useRef } from 'react';
+import React, { useRef } from 'react';
 import { Circle } from 'react-konva';
+import { isFiniteNum } from './utils/shapes.js';
 
 // Keep in sync with EXCALIDRAW_ACCENT in CanvasStage.jsx (imported directly
 // here would create a CanvasStage <-> BendHandles module cycle).
@@ -98,6 +99,14 @@ export default function BendHandles({ shape, scale = 1, shapeNodesRef, onCommitB
     dragRef.current = null;
     if (!drag) return;
     const target = shapeNodesRef?.current?.get(drag.shapeId);
+    // Non-finite drop point (lost pointer capture): restore, commit nothing.
+    if (!isFiniteNum(worldX) || !isFiniteNum(worldY)) {
+      if (target) {
+        target.points(shape.points);
+        target.getLayer()?.batchDraw();
+      }
+      return;
+    }
     const movedPx = Math.hypot(worldX - drag.startHX, worldY - drag.startHY) * scale;
     if (movedPx < CLICK_SLACK_PX) {
       // Click without drag: restore the untouched committed points, commit nothing.
@@ -117,15 +126,19 @@ export default function BendHandles({ shape, scale = 1, shapeNodesRef, onCommitB
     );
   };
 
+  // Screen-constant handle size: the Layer is zoom-scaled, so counter-
+  // divide world units by the stage scale (at 25% zoom an unscaled 6px
+  // handle would shrink to 1.5 screen px and become ungrabbable).
+  const safeScale = typeof scale === 'number' && Number.isFinite(scale) && scale > 0 ? scale : 1;
   return (
     <Circle
       key={`${shape.id}-bend`}
       x={midX + nodeX}
       y={midY + nodeY}
-      radius={6}
+      radius={6 / safeScale}
       fill="#ffffff"
       stroke={ACCENT}
-      strokeWidth={2}
+      strokeWidth={2 / safeScale}
       draggable={true}
       onDragStart={(e) => {
         e.cancelBubble = true;

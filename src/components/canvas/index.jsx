@@ -1,4 +1,4 @@
-import { Component, useCallback, useEffect, useState } from 'react';
+import React, { Component, useCallback, useEffect, useState } from 'react';
 import CanvasStage from './CanvasStage';
 import TextEditorOverlay from './TextEditorOverlay';
 import Toolbar from './Toolbar';

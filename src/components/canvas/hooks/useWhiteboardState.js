@@ -114,6 +114,10 @@ export default function useWhiteboardState({
   const commitDelete = useCallback(
     (shapeId) => {
       if (!shapeId) return;
+      // Already gone (e.g. eraser pointerdown + click double-fire):
+      // record nothing and emit nothing — keeps history and the
+      // collaboration channel free of duplicate delete ops.
+      if (!(shapes ?? []).some((s) => s.id === shapeId)) return;
       const next = (shapes ?? []).filter((s) => s.id !== shapeId);
       if (!isControlled) setInternalShapes(next);
       recordHistory(next);
@@ -142,6 +146,8 @@ export default function useWhiteboardState({
   const deleteShape = useCallback(
     (idToDelete) => {
       if (!idToDelete) return;
+      // Same already-gone guard as commitDelete (see above).
+      if (!(shapes ?? []).some((s) => s.id === idToDelete)) return;
       const next = (shapes ?? []).filter((s) => s.id !== idToDelete);
       if (!isControlled) setInternalShapes(next);
       recordHistory(next);

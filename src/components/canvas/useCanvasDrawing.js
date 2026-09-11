@@ -64,7 +64,6 @@ export default function useCanvasDrawing({
     selectedId,
     commitCreate,
     commitUpdate: storeCommitUpdate,
-    commitDelete: storeCommitDelete,
     deleteShape,
     selectShape,
     applyRemoteShapes,
@@ -133,10 +132,12 @@ export default function useCanvasDrawing({
       // Detach the Transformer BEFORE removal so it never holds a
       // reference to a detached node (which broke later selections
       // and forced users to hit Clear to recover).
+      // Atomic store delete: resets selection to null so no stale id
+      // survives (e.g. empty-text-edit deletes).
       detachTransformerFrom(shapeId);
-      storeCommitDelete(shapeId);
+      deleteShape(shapeId);
     },
-    [detachTransformerFrom, storeCommitDelete],
+    [detachTransformerFrom, deleteShape],
   );
 
   // ---- coordinate helpers: viewport <-> world ----
@@ -351,7 +352,7 @@ export default function useCanvasDrawing({
     event.evt.preventDefault();
     const stage = stageRef.current;
     if (!stage) return;
-    const oldScale = stage.scaleX();
+    const oldScale = stage.scaleX() || 1;
     const pointer = stage.getPointerPosition();
     if (!pointer) return;
     const mousePointTo = {

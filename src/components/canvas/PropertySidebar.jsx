@@ -1,3 +1,4 @@
+import React from 'react';
 import {
   ARROWHEAD_CHOICES,
   ARROW_TYPE_CHOICES,
