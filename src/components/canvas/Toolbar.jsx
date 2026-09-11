@@ -3,8 +3,8 @@ import React from 'react';
 function ToolIcon({ children }) {
   return (
     <svg
-      width="18"
-      height="18"
+      width="22"
+      height="22"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -132,8 +132,8 @@ const QUICK_WIDTHS = [
 function ActionIcon({ children }) {
   return (
     <svg
-      width="16"
-      height="16"
+      width="20"
+      height="20"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -168,7 +168,7 @@ const TRASH_ICON = (
   </>
 );
 const BTN_BASE =
-  'relative flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border text-[15px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-1';
+  'relative flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg border text-[15px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-1';
 const BTN_ACTIVE = 'bg-violet-100 text-violet-700 border-violet-200 shadow-[inset_0_0_0_1px_rgba(109,88,246,0.15)]';
 const BTN_IDLE = 'border-transparent text-gray-700 hover:bg-gray-100 hover:text-gray-900';
 
@@ -243,10 +243,10 @@ export default function Toolbar({
       role="toolbar"
       aria-label="Whiteboard tools"
       aria-orientation="horizontal"
-      className="pointer-events-auto mb-2 flex w-full select-none items-center justify-between rounded-xl border border-gray-200 bg-white px-3 py-1.5 shadow-sm"
+      className="pointer-events-auto mb-2 flex min-h-[52px] w-full select-none items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-2.5 shadow-sm"
     >
       {/* SECTION 1: DRAWING TOOLS (LEFT) */}
-      <div className="flex min-w-0 flex-nowrap items-center gap-1 overflow-x-auto">
+      <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto">
       {TOOLS.map((option) => {
         const isActive = tool === option.value;
         return (
@@ -262,7 +262,7 @@ export default function Toolbar({
             <ToolIcon>{option.icon}</ToolIcon>
             <span
               aria-hidden="true"
-              className={`pointer-events-none absolute bottom-0.5 right-1 text-[9px] font-semibold leading-none ${
+              className={`pointer-events-none absolute bottom-0.5 right-1 text-[11px] font-semibold leading-none ${
                 isActive ? 'text-violet-500' : 'text-gray-400'
               }`}
             >
@@ -272,7 +272,7 @@ export default function Toolbar({
         );
       })}
 
-      <span className="mx-1 h-6 w-px shrink-0 bg-gray-200" aria-hidden="true" />
+      <span className="mx-1 h-7 w-px shrink-0 bg-gray-200" aria-hidden="true" />
 
       <button
         type="button"
@@ -285,7 +285,7 @@ export default function Toolbar({
         <ToolIcon>{PAN_TOOL.icon}</ToolIcon>
         <span
           aria-hidden="true"
-          className={`pointer-events-none absolute bottom-0.5 right-1 text-[9px] font-semibold leading-none ${
+          className={`pointer-events-none absolute bottom-0.5 right-1 text-[11px] font-semibold leading-none ${
             tool === 'pan' ? 'text-violet-500' : 'text-gray-400'
           }`}
         >
@@ -296,18 +296,18 @@ export default function Toolbar({
 
       {showStyles && (
         <>
-          <div className="mx-2 h-5 w-px shrink-0 bg-gray-200" aria-hidden="true" />
+          <div className="mx-2 h-7 w-px shrink-0 bg-gray-200" aria-hidden="true" />
 
           {/* SECTION 2: QUICK STYLE PICKERS (CENTER) */}
           <div className="hidden min-w-0 flex-shrink items-center gap-2 sm:flex">
             {/* 5 quick color dots for the active stroke color */}
-            <div className="flex items-center gap-1" role="group" aria-label="Quick stroke color">
+            <div className="flex items-center gap-1.5" role="group" aria-label="Quick stroke color">
               {QUICK_COLORS.map((c) => (
                 <button
                   key={c}
                   type="button"
                   onClick={() => emitStyle({ stroke: c })}
-                  className={`h-4 w-4 shrink-0 rounded-full border transition hover:scale-110 ${
+                  className={`h-6 w-6 shrink-0 rounded-full border transition hover:scale-110 ${
                     activeStroke === c ? 'ring-2 ring-indigo-500 ring-offset-1' : 'border-gray-300'
                   }`}
                   style={{ backgroundColor: c }}
@@ -318,16 +318,16 @@ export default function Toolbar({
               ))}
             </div>
 
-            <div className="mx-1 h-4 w-px shrink-0 bg-gray-200" aria-hidden="true" />
+            <div className="mx-1 h-6 w-px shrink-0 bg-gray-200" aria-hidden="true" />
 
             {/* Quick stroke-width toggle (S/M/L) */}
-            <div className="flex items-center rounded-lg bg-gray-100 p-0.5" role="group" aria-label="Quick stroke width">
+            <div className="flex items-center rounded-lg bg-gray-100 p-1" role="group" aria-label="Quick stroke width">
               {QUICK_WIDTHS.map((w) => (
                 <button
                   key={w.label}
                   type="button"
                   onClick={() => emitStyle({ strokeWidth: w.width })}
-                  className={`rounded px-1.5 py-0.5 text-xs font-semibold ${
+                  className={`rounded-md px-2.5 py-1 text-sm font-medium ${
                     activeWidth === w.width ? 'bg-white text-indigo-600 shadow-xs' : 'text-gray-500 hover:text-gray-900'
                   }`}
                   title={`Stroke width ${w.label} (${w.width}px)`}
@@ -342,33 +342,33 @@ export default function Toolbar({
         </>
       )}
 
-      <div className="mx-2 h-5 w-px shrink-0 bg-gray-200" aria-hidden="true" />
+      <div className="mx-2 h-7 w-px shrink-0 bg-gray-200" aria-hidden="true" />
 
       {/* SECTION 3: STATUS + ACTIONS & MORE MENU (RIGHT) */}
-      <div className="flex shrink-0 items-center gap-1.5">
+      <div className="flex shrink-0 items-center gap-2">
         {/* Shape count badge */}
-        <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full whitespace-nowrap">
+        <span className="text-sm font-medium text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full whitespace-nowrap">
           {shapeCount} {shapeCount === 1 ? 'shape' : 'shapes'}
         </span>
         {/* Zoom controls */}
         {onZoomChange && (
-          <div className="flex items-center gap-1 bg-gray-100 rounded-lg px-1.5 py-0.5 text-xs text-gray-700">
+          <div className="flex items-center gap-1 bg-gray-100 rounded-lg px-2 py-1 text-sm text-gray-700">
             <button
               type="button"
               onClick={() => onZoomChange && onZoomChange(zoom - 0.1)}
-              className="px-1 text-gray-600 hover:text-black font-bold"
+              className="px-2 py-0.5 text-gray-600 hover:text-black font-bold"
               title="Zoom out"
               aria-label="Zoom out"
             >
               −
             </button>
-            <span className="min-w-[40px] text-center font-semibold">
+            <span className="min-w-[48px] text-center font-semibold">
               {zoomPct}%
             </span>
             <button
               type="button"
               onClick={() => onZoomChange && onZoomChange(zoom + 0.1)}
-              className="px-1 text-gray-600 hover:text-black font-bold"
+              className="px-2 py-0.5 text-gray-600 hover:text-black font-bold"
               title="Zoom in"
               aria-label="Zoom in"
             >
@@ -381,7 +381,7 @@ export default function Toolbar({
             type="button"
             onClick={onUndo}
             disabled={!canUndo}
-            className="rounded p-1 text-gray-600 transition hover:bg-gray-100 disabled:opacity-40"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 transition hover:bg-gray-100 disabled:opacity-40"
             title="Undo (Cmd/Ctrl+Z)"
             aria-label="Undo"
           >
@@ -393,7 +393,7 @@ export default function Toolbar({
             type="button"
             onClick={onRedo}
             disabled={!canRedo}
-            className="rounded p-1 text-gray-600 transition hover:bg-gray-100 disabled:opacity-40"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 transition hover:bg-gray-100 disabled:opacity-40"
             title="Redo (Cmd/Ctrl+Y)"
             aria-label="Redo"
           >
@@ -404,7 +404,7 @@ export default function Toolbar({
           <button
             type="button"
             onClick={onClear}
-            className="rounded p-1 text-gray-600 transition hover:bg-red-50 hover:text-red-600"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 transition hover:bg-red-50 hover:text-red-600"
             title="Clear Canvas"
             aria-label="Clear canvas"
           >
@@ -413,7 +413,7 @@ export default function Toolbar({
         )}
 
         {(showUndo || showRedo || showClear) && showPropertiesToggle && (
-          <div className="mx-1 h-4 w-px bg-gray-200" aria-hidden="true" />
+          <div className="mx-1 h-6 w-px bg-gray-200" aria-hidden="true" />
         )}
 
         {/* 3-dot more menu */}
@@ -422,7 +422,7 @@ export default function Toolbar({
             <button
               type="button"
               onClick={onToggleProperties}
-              className={`rounded-lg p-1.5 transition ${
+              className={`flex h-9 w-9 items-center justify-center rounded-lg transition ${
                 isPropertiesOpen ? 'bg-indigo-50 text-indigo-600' : 'text-gray-700 hover:bg-gray-100'
               }`}
               title="All Properties"
@@ -430,7 +430,7 @@ export default function Toolbar({
               aria-expanded={isPropertiesOpen}
               aria-pressed={isPropertiesOpen}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                 <circle cx="12" cy="5" r="1.8" />
                 <circle cx="12" cy="12" r="1.8" />
                 <circle cx="12" cy="19" r="1.8" />
