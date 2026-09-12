@@ -5,7 +5,11 @@ import {
   bakeTransform,
   circleRadius,
   createShape,
+  DEFAULTS,
+  estimateTextWidth,
+  isFiniteNum,
   normalizeRect,
+  sanitizePoints,
 } from './utils/shapes.js';
 
 const MIN_FREEHAND_STEP = 2; // px in world coords — draft optimization
@@ -28,8 +32,20 @@ const MAX_ZOOM = 4;
  */
 export default function useCanvasDrawing({
   tool = 'select',
-  color = '#0f766e',
+  color = '#1e1e1e',
   strokeWidth = 4,
+  fill = 'transparent',
+  strokeStyle = 'solid',
+  opacity = 1,
+  roughness = DEFAULTS.roughness,
+  roundness = DEFAULTS.roundness,
+  startArrowhead = DEFAULTS.startArrowhead,
+  endArrowhead = DEFAULTS.endArrowhead,
+  arrowType = DEFAULTS.arrowType,
+  fontFamily = DEFAULTS.fontFamily,
+  fontFamilyKey = DEFAULTS.fontFamilyKey,
+  fontSize = DEFAULTS.fontSize,
+  textAlign = DEFAULTS.textAlign,
   shapes: controlledShapes,
   selectedShapeId: controlledSelection,
   onShapeCreate,
@@ -37,6 +53,7 @@ export default function useCanvasDrawing({
   onShapeDelete,
   onCanvasClear,
   onSelectionChange,
+  onShapesReorder,
   // Called after a shape is committed (draw or text). The shell uses it
   // to return to select/move mode so no explicit Select button is needed.
   onDrawingCommitted,
@@ -51,6 +68,14 @@ export default function useCanvasDrawing({
     selectShape,
     applyRemoteShapes,
     clearAll,
+    sendToBack,
+    bringToFront,
+    sendBackward,
+    bringForward,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
   } = useWhiteboardState({
     shapes: controlledShapes,
     selectedShapeId: controlledSelection,
@@ -59,6 +84,7 @@ export default function useCanvasDrawing({
     onShapeDelete,
     onCanvasClear,
     onSelectionChange,
+    onShapesReorder,
   });
 
   // Draft shape being drawn (NOT yet committed) — updating only this
@@ -106,8 +132,8 @@ export default function useCanvasDrawing({
       // Detach the Transformer BEFORE removal so it never holds a
       // reference to a detached node (which broke later selections
       // and forced users to hit Clear to recover).
-      // Uses the atomic store delete so selection resets to null and
-      // no stale id survives (e.g. empty-text-edit deletes).
+      // Atomic store delete: resets selection to null so no stale id
+      // survives (e.g. empty-text-edit deletes).
       detachTransformerFrom(shapeId);
       deleteShape(shapeId);
     },
@@ -135,30 +161,45 @@ export default function useCanvasDrawing({
     [scale, stagePos],
   );
 
-  // Viewport (stage container) -> world coordinates. Uses
-  // getRelativePointerPosition so the result is correct whether the
-  // pointer landed on empty canvas or on top of an existing shape.
-  const getWorldFromEvent = useCallback(
-    (event) => {
-      const stage = event.target?.getStage?.() ?? stageRef.current;
-      if (!stage) return null;
-      const relative =
-        stage.getRelativePointerPosition?.() ?? stage.getPointerPosition();
-      if (!relative) return null;
-      return toWorld(stage, relative);
-    },
-    [toWorld],
-  );
+  // Viewport (stage container) -> world coordinates.
+  //
+  // ALWAYS resolve through `stageRef.current` + `getRelativePointerPosition()`.
+  // Never use `event.target`, `e.evt.offsetX/layerX`, or target-local coords:
+  // when the pointer is over an existing shape, `event.target` is that child
+  // shape and DOM offsets are relative to it, so new shapes would spawn far
+  // from the cursor.
+  //
+  // `stage.getRelativePointerPosition()` applies the inverse of the stage's
+  // absolute transform (scale + pan offset) to the container-relative pointer,
+  // so it already returns WORLD coordinates — including correct results when
+  // zoomed/panned and identical results whether the pointer is over empty
+  // canvas or on top of an existing shape. Do NOT run it through `toWorld`
+  // again (that would double-apply scale/offset).
+  const getWorldFromEvent = useCallback(() => {
+    const stage = stageRef.current;
+    if (!stage) return null;
+    const pointer = stage.getRelativePointerPosition();
+    if (!pointer) return null;
+    const { x, y } = pointer;
+    // Pointer releases without a drag (or pointer-leave) can yield
+    // NaN/undefined coords — never let those reach shape math or Konva.
+    if (!isFiniteNum(x) || !isFiniteNum(y)) return null;
+    return { x, y };
+  }, []);
 
   // ---- Stage pointer handlers ----
   const handleStageMouseDown = useCallback(
     (event) => {
       // Click on empty area: select tool deselects; text tool places editor.
       const clickedOnEmpty = event.target === event.target.getStage();
-      const world = getWorldFromEvent(event);
+      // Stage-ref resolution: identical world point whether the pointer is
+      // over empty canvas or inside/on top of an existing shape.
+      const world = getWorldFromEvent();
       if (!world) return;
 
-      if (tool === 'select' || tool === 'pan') {
+      // 'selection' is an alias of 'select' (spec + legacy callers).
+      const isSelectTool = tool === 'select' || tool === 'selection';
+      if (isSelectTool || tool === 'pan' || tool === 'eraser') {
         if (clickedOnEmpty) selectShape(null);
         return; // dragging shapes / stage pan handled by Konva draggable
       }
@@ -177,35 +218,57 @@ export default function useCanvasDrawing({
             screenX: screen.x,
             screenY: screen.y,
             value: '',
+            align: textAlign,
+            textAlign,
           });
         }
         return;
       }
 
       // Drawing tools: begin draft (not yet in shapes array).
-      const seed = createShape(tool, world, { color, strokeWidth });
+      // 'pen' is an alias of 'freehand' (legacy callers / spec wording).
+      // All points are absolute world coords from getRelativePointerPosition().
+      const drawTool = tool === 'pen' ? 'freehand' : tool;
+      const seed = createShape(drawTool, world, {
+        color,
+        strokeWidth,
+        fill,
+        strokeStyle,
+        opacity,
+        roughness,
+        roundness,
+        startArrowhead,
+        endArrowhead,
+        arrowType,
+        fontFamily,
+        fontFamilyKey,
+        fontSize,
+        textAlign,
+      });
       if (!seed) return;
       isDrawingRef.current = true;
       drawStartRef.current = world;
       setDraftShape(seed);
-      if (tool !== 'freehand') selectShape(null);
+      if (drawTool !== 'freehand') selectShape(null);
     },
-    [color, getWorldFromEvent, selectShape, strokeWidth, textEditor, toScreen, tool],
+    [color, fill, fontFamily, fontFamilyKey, fontSize, textAlign, getWorldFromEvent, arrowType, endArrowhead, opacity, roughness, roundness, selectShape, startArrowhead, strokeStyle, strokeWidth, textEditor, toScreen, tool],
   );
 
   const handleStageMouseMove = useCallback(
     (event) => {
       if (!isDrawingRef.current || !draftShape || !drawStartRef.current) return;
-      const world = getWorldFromEvent(event);
+      const world = getWorldFromEvent();
       if (!world) return;
       const start = drawStartRef.current;
+      if (!isFiniteNum(start.x) || !isFiniteNum(start.y)) return;
 
       switch (draftShape.type) {
         case 'freehand': {
-          const pts = draftShape.points;
-          const n = pts.length;
-          const dx = world.x - pts[n - 2];
-          const dy = world.y - pts[n - 1];
+          const pts = Array.isArray(draftShape.points) ? draftShape.points : [];
+          if (pts.length < 2) return;
+          const dx = world.x - pts[pts.length - 2];
+          const dy = world.y - pts[pts.length - 1];
+          if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
           // Draft optimization: skip points closer than MIN_FREEHAND_STEP
           // and update only the small draft object (no full-array map).
           if (Math.hypot(dx, dy) < MIN_FREEHAND_STEP) return;
@@ -214,15 +277,16 @@ export default function useCanvasDrawing({
           );
           break;
         }
-        case 'rectangle': {
+        case 'rectangle':
+        case 'diamond': {
           const norm = normalizeRect(start.x, start.y, world.x, world.y);
           setDraftShape((d) => (d ? { ...d, ...norm } : d));
           break;
         }
         case 'circle': {
-          setDraftShape((d) =>
-            d ? { ...d, radius: circleRadius(start.x, start.y, world.x, world.y) } : d,
-          );
+          const r = circleRadius(start.x, start.y, world.x, world.y);
+          if (!Number.isFinite(r)) return;
+          setDraftShape((d) => (d ? { ...d, radius: r } : d));
           break;
         }
         case 'line':
@@ -246,14 +310,37 @@ export default function useCanvasDrawing({
     setDraftShape(null);
     drawStartRef.current = null;
 
-    // Discard degenerate shapes (click without drag).
-    if (finished.type === 'rectangle' && (finished.width < 2 || finished.height < 2)) return;
-    if (finished.type === 'circle' && finished.radius < 2) return;
-    if (finished.type === 'line' || finished.type === 'arrow') {
-      const [x1, y1, x2, y2] = finished.points;
-      if (Math.hypot(x2 - x1, y2 - y1) < 2) return;
+    // Discard degenerate shapes (click without drag) and anything with
+    // non-finite geometry so NaN never reaches Konva or the store.
+    if (finished.type === 'rectangle' || finished.type === 'diamond') {
+      const w = finished.width;
+      const h = finished.height;
+      if (!isFiniteNum(w) || !isFiniteNum(h)) return;
+      if (!isFiniteNum(finished.x) || !isFiniteNum(finished.y)) return;
+      if (Math.abs(w) < 2 || Math.abs(h) < 2) return;
+    } else if (finished.type === 'circle') {
+      if (!isFiniteNum(finished.x) || !isFiniteNum(finished.y)) return;
+      const radii = [finished.radius, finished.radiusX, finished.radiusY].filter((v) => v !== undefined);
+      if (radii.some((v) => !isFiniteNum(v))) return;
+      const biggest = Math.max(0, ...radii);
+      if (biggest < 2) return;
+    } else if (finished.type === 'line' || finished.type === 'arrow' || finished.type === 'freehand') {
+      // Validate line/arrow/freehand points: drop non-finite entries;
+      // abort unless at least one full (x, y) pair survives.
+      const clean = sanitizePoints(finished.points);
+      if (clean.length < 4) return;
+      if (clean.some((v) => !Number.isFinite(v))) return;
+      // Endpoints decide: arrows may carry extra bend points, so compare
+      // first vs last instead of assuming a 4-number array.
+      const dx = clean[clean.length - 2] - clean[0];
+      const dy = clean[clean.length - 1] - clean[1];
+      if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
+      if (Math.hypot(dx, dy) < 2) return;
+      commitCreate({ ...finished, points: clean });
+      selectShape(finished.id);
+      onDrawingCommitted?.();
+      return;
     }
-    if (finished.type === 'freehand' && finished.points.length < 4) return;
 
     commitCreate(finished);
     selectShape(finished.id);
@@ -265,7 +352,7 @@ export default function useCanvasDrawing({
     event.evt.preventDefault();
     const stage = stageRef.current;
     if (!stage) return;
-    const oldScale = stage.scaleX();
+    const oldScale = stage.scaleX() || 1;
     const pointer = stage.getPointerPosition();
     if (!pointer) return;
     const mousePointTo = {
@@ -310,6 +397,45 @@ export default function useCanvasDrawing({
     );
   }, []);
 
+  // ---- programmatic zoom (navbar zoom buttons): zoom centered on the
+  // stage viewport center, clamped to [MIN_ZOOM, MAX_ZOOM]. Mutates the
+  // live Konva stage (same as handleWheel) AND mirrors into React state
+  // so CanvasStage props and the navbar % badge stay in sync. Keeps the
+  // text editor anchored like wheel-zoom does.
+  const handleZoomChange = useCallback((nextScale) => {
+    const raw = typeof nextScale === 'number' ? nextScale : Number(nextScale);
+    if (!Number.isFinite(raw)) return;
+    const newScale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, raw));
+    const stage = stageRef.current;
+    if (!stage) {
+      setScale(newScale);
+      return;
+    }
+    const oldScale = stage.scaleX() || 1;
+    const cx = stage.width() / 2;
+    const cy = stage.height() / 2;
+    const mousePointTo = {
+      x: (cx - stage.x()) / oldScale,
+      y: (cy - stage.y()) / oldScale,
+    };
+    stage.scale({ x: newScale, y: newScale });
+    stage.position({
+      x: cx - mousePointTo.x * newScale,
+      y: cy - mousePointTo.y * newScale,
+    });
+    setScale(newScale);
+    setStagePos({ x: stage.x(), y: stage.y() });
+    setTextEditor((ed) =>
+      ed
+        ? {
+            ...ed,
+            screenX: ed.worldX * newScale + stage.x(),
+            screenY: ed.worldY * newScale + stage.y(),
+          }
+        : ed,
+    );
+  }, []);
+
   // ---- shape interactions (selection is available in every tool
   // EXCEPT text: the text tool owns all pointer events and delegates
   // placement to the Stage handler above).
@@ -323,24 +449,95 @@ export default function useCanvasDrawing({
         // Allow the pointer event to reach the stage / text placement.
         return;
       }
-      event.cancelBubble = true;
+      if (tool === 'eraser') {
+        // Eraser: click a shape to delete it (stays in eraser for repeats).
+        if (event) event.cancelBubble = true;
+        deleteShape(shapeId);
+        return;
+      }
+      if (event) event.cancelBubble = true;
       selectShape(shapeId);
+    },
+    [deleteShape, selectShape, tool],
+  );
+
+  // Immediate selection for pointer-down (nested-shape drag ownership):
+  // ShapeRenderer calls this synchronously on onPointerDown/onMouseDown so
+  // the pressed inner shape becomes selected BEFORE Konva resolves the
+  // drag gesture. Without this, a press-drag on an unselected inner shape
+  // would be owned by the previously-selected outer rectangle.
+  const handleShapeSelect = useCallback(
+    (shapeId) => {
+      if (tool === 'text' || tool === 'eraser') return;
+      selectShape(shapeId);
+    },
+    [selectShape, tool],
+  );
+
+  const handleShapeDragStart = useCallback(
+    (shapeId, event) => {
+      if (event) event.cancelBubble = true;
+      if (tool === 'text' || tool === 'eraser') return;
+      if (shapeId) selectShape(shapeId);
+      // Snap the Transformer to the exact node being dragged RIGHT NOW.
+      // React state (selectedId) propagates async, so without this the
+      // previous sibling's bounding box would linger under the cursor and
+      // visually block the drag. The CanvasStage effect re-attaches on the
+      // next render; this is the synchronous bridge for the current gesture.
+      const draggedNode = event?.target;
+      const transformer = transformerRef.current;
+      if (draggedNode && transformer && typeof draggedNode.getStage === 'function') {
+        transformer.nodes([draggedNode]);
+        transformer.getLayer()?.batchDraw();
+      }
     },
     [selectShape, tool],
   );
 
   const handleShapeDragEnd = useCallback(
     (shapeId, nodeX, nodeY) => {
+      if (!isFiniteNum(nodeX) || !isFiniteNum(nodeY)) return;
       const shape = shapes.find((s) => s.id === shapeId);
       if (!shape) return;
+      // nodeX/nodeY are the exact absolute node position Konva already
+      // moved to. For absolute-points shapes (freehand/pen/line/arrow)
+      // bakeDragEnd folds the offset into a fresh points array; for
+      // positioned shapes (rect/circle/diamond/text) it commits x/y
+      // directly. Deltas are never re-added, so the shape drops exactly
+      // where released with zero teleporting.
       const changes = bakeDragEnd(shape, nodeX, nodeY);
-      if (changes) commitUpdate(shapeId, changes);
-      else {
-        // Reset transient node offset for point-based shapes even if ~0.
-        const node = shapeNodesRef.current.get(shapeId);
-        if (node && (shape.type === 'freehand' || shape.type === 'line' || shape.type === 'arrow')) {
-          node.position({ x: shape.x ?? 0, y: shape.y ?? 0 });
+      const node = shapeNodesRef.current.get(shapeId);
+      const isPointBased =
+        shape.type === 'freehand' ||
+        shape.type === 'pen' ||
+        shape.type === 'line' ||
+        shape.type === 'arrow';
+      if (changes) {
+        if (node && isPointBased) {
+          // Reset the Konva node position to 0 immediately to prevent
+          // doubling: the committed points already contain the offset,
+          // and the re-render pins the node back at (0, 0).
+          node.position({ x: 0, y: 0 });
         }
+        commitUpdate(shapeId, changes);
+      } else {
+        // Reset transient node offset for point-based shapes even if ~0.
+        // Absolute-points nodes rest at (0, 0) — never at a stale
+        // shape.x/shape.y.
+        if (node && isPointBased) {
+          node.position({ x: 0, y: 0 });
+        }
+      }
+      // Refresh the Transformer immediately so its bounding box tightly
+      // hugs the newly committed position without lagging or detaching.
+      // (The CanvasStage effect re-attaches on the next render; this is
+      // the synchronous sync for the current gesture.)
+      const transformer = transformerRef.current;
+      if (transformer && node && typeof node.getStage === 'function') {
+        if (!transformer.nodes().includes(node)) transformer.nodes([node]);
+        transformer.getLayer()?.batchDraw();
+      } else {
+        transformer?.getLayer()?.batchDraw();
       }
     },
     [commitUpdate, shapes],
@@ -351,10 +548,19 @@ export default function useCanvasDrawing({
       const shape = shapes.find((s) => s.id === shapeId);
       const node = shapeNodesRef.current.get(shapeId);
       if (!shape || !node) return;
+      const sx = node.scaleX();
+      const sy = node.scaleY();
+      const rot = node.rotation();
+      // A NaN scale/rotation (e.g. collapsed to zero size) must not bake
+      // into the model — reset the node and keep stored geometry instead.
+      if (!isFiniteNum(sx) || !isFiniteNum(sy) || !isFiniteNum(rot)) {
+        node.scale({ x: 1, y: 1 });
+        return;
+      }
       const changes = bakeTransform(shape, {
-        scaleX: node.scaleX(),
-        scaleY: node.scaleY(),
-        rotation: node.rotation(),
+        scaleX: sx,
+        scaleY: sy,
+        rotation: rot,
       });
       node.scale({ x: 1, y: 1 }); // baked into model; reset node
       if (changes) commitUpdate(shapeId, changes);
@@ -365,6 +571,7 @@ export default function useCanvasDrawing({
   // ---- text editing ----
   const openTextEditorForShape = useCallback(
     (shape) => {
+      if (!isFiniteNum(shape?.x) || !isFiniteNum(shape?.y)) return;
       const screen = toScreen({ x: shape.x, y: shape.y });
       setTextEditor({
         mode: 'edit',
@@ -374,29 +581,76 @@ export default function useCanvasDrawing({
         screenX: screen.x,
         screenY: screen.y,
         value: shape.text ?? '',
+        align: shape.align ?? shape.textAlign ?? 'left',
+        textAlign: shape.textAlign ?? shape.align ?? 'left',
       });
     },
     [toScreen],
   );
 
   const commitTextEditor = useCallback(
-    (value) => {
+    (value, measuredWidth) => {
       if (!textEditor) return;
       const trimmed = (value ?? '').trim();
+      // Overlay reports CSS (screen) px; the model stores WORLD units.
+      const stageScale = stageRef.current?.scaleX?.() || 1;
+      const measuredWorld =
+        isFiniteNum(measuredWidth) && isFiniteNum(stageScale) && stageScale > 0
+          ? measuredWidth / stageScale
+          : NaN;
       if (textEditor.mode === 'create') {
         if (trimmed) {
-          const shape = createShape('text', { x: textEditor.worldX, y: textEditor.worldY }, { color, strokeWidth });
-          commitCreate({ ...shape, text: trimmed, fill: color });
+          if (!isFiniteNum(textEditor.worldX) || !isFiniteNum(textEditor.worldY)) {
+            setTextEditor(null);
+            return;
+          }
+          const shape = createShape('text', { x: textEditor.worldX, y: textEditor.worldY }, {
+            color,
+            strokeWidth,
+            fill,
+            strokeStyle,
+            opacity,
+            fontFamily,
+            fontFamilyKey,
+            fontSize,
+            textAlign,
+          });
+          // Alignment-box width: keep the widest of the rendered measure
+          // and the deterministic estimate so multi-line align has a box
+          // to work within from the first render.
+          const width = Math.max(
+            estimateTextWidth(trimmed, fontSize),
+            isFiniteNum(measuredWorld) ? measuredWorld : 0,
+          );
+          commitCreate({ ...shape, text: trimmed, fill: color, width, align: textAlign, textAlign });
           selectShape(shape.id);
+          setTextEditor(null);
+          // The tool returns to select ONLY once text is actually placed
+          // (Enter / blur with non-empty input). It stays on 'text' while
+          // the textarea is open and after empty/cancelled placements so
+          // the next click can still place text.
+          onDrawingCommitted?.('text');
+        } else {
+          // Empty create (Enter on empty input / blur without typing):
+          // close the editor but keep the text tool active.
+          setTextEditor(null);
         }
       } else if (textEditor.shapeId) {
-        if (trimmed) commitUpdate(textEditor.shapeId, { text: trimmed });
-        else commitDelete(textEditor.shapeId); // empty edit deletes
+        if (trimmed) {
+          const existing = shapes.find((s) => s.id === textEditor.shapeId);
+          const width = Math.max(
+            estimateTextWidth(trimmed, existing?.fontSize ?? fontSize),
+            isFiniteNum(measuredWorld) ? measuredWorld : 0,
+            isFiniteNum(existing?.width) ? existing.width : 0,
+          );
+          commitUpdate(textEditor.shapeId, { text: trimmed, width });
+        } else commitDelete(textEditor.shapeId); // empty edit deletes
+        setTextEditor(null);
+        // No tool change here: re-edits originate from other tools
+        // (dblclick), so the active tool is left untouched.
       }
-      setTextEditor(null);
-      onDrawingCommitted?.();
     },
-    [color, commitCreate, commitDelete, commitUpdate, onDrawingCommitted, selectShape, strokeWidth, textEditor],
+    [color, commitCreate, commitDelete, commitUpdate, fill, fontFamily, fontFamilyKey, fontSize, textAlign, onDrawingCommitted, opacity, selectShape, shapes, strokeStyle, strokeWidth, textEditor],
   );
 
   const cancelTextEditor = useCallback(() => setTextEditor(null), []);
@@ -438,10 +692,43 @@ export default function useCanvasDrawing({
         deleteSelected();
       }
       if (event.key === 'Escape' && currentSelection) selectShape(null);
+      // Z-ordering: [ = backward, ] = forward; with Shift = to back/front.
+      if ((event.key === '[' || event.key === '{') && currentSelection) {
+        event.preventDefault();
+        if (event.shiftKey) sendToBack(currentSelection);
+        else sendBackward(currentSelection);
+      }
+      if ((event.key === ']' || event.key === '}') && currentSelection) {
+        event.preventDefault();
+        if (event.shiftKey) bringToFront(currentSelection);
+        else bringForward(currentSelection);
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [deleteSelected, selectShape, selectedId, textEditor]);
+  }, [bringForward, bringToFront, deleteSelected, selectShape, selectedId, sendBackward, sendToBack, textEditor]);
+
+  // ---- undo / redo keyboard: Cmd+Z / Ctrl+Z = undo,
+  // Cmd+Shift+Z / Ctrl+Y = redo (ignored while typing / editing text) ----
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (!event.metaKey && !event.ctrlKey) return;
+      if (event.altKey) return;
+      if (textEditor) return;
+      const tag = document.activeElement?.tagName;
+      if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT') return;
+      const k = event.key.toLowerCase();
+      if (k === 'z' && !event.shiftKey) {
+        event.preventDefault();
+        undo();
+      } else if ((k === 'z' && event.shiftKey) || k === 'y') {
+        event.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [redo, textEditor, undo]);
 
   const visibleShapes = useMemo(() => (draftShape ? [...shapes, draftShape] : shapes), [shapes, draftShape]);
 
@@ -463,7 +750,10 @@ export default function useCanvasDrawing({
     handleStageMouseUp,
     handleWheel,
     handleDragStageEnd,
+    handleZoomChange,
     handleShapeClick,
+    handleShapeSelect,
+    handleShapeDragStart,
     handleShapeDragEnd,
     handleTransformEnd,
     openTextEditorForShape,
@@ -472,7 +762,19 @@ export default function useCanvasDrawing({
     deleteSelected,
     clearCanvas,
     selectShape,
+    commitCreate,
+    commitUpdate,
+    commitDelete,
+    deleteShape,
     applyRemoteShapes,
+    sendToBack,
+    bringToFront,
+    sendBackward,
+    bringForward,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
     setScale,
     setStagePos,
   };
