@@ -22,11 +22,14 @@ export default function LeftRoomState({
 }) {
   const [secondsLeft, setSecondsLeft] = useState(redirectAfterSeconds);
   const doneRef = useRef(false);
+  const timeoutRef = useRef(null);
   const onGoDashboardRef = useRef(onGoDashboard);
   onGoDashboardRef.current = onGoDashboard;
 
-  // Reset + run a single countdown per mount/room. Cleanup clears it so
-  // Rejoin/Dashboard actions never leave duplicate timers behind.
+  // Reset + run a single countdown per mount/room. Cleanup clears the
+  // interval AND any deferred navigation timeout, so Rejoin/Dashboard
+  // actions (or unmount) can never leave a stray navigation behind —
+  // including the tick→timeout window at zero seconds.
   useEffect(() => {
     setSecondsLeft(redirectAfterSeconds);
     doneRef.current = false;
@@ -37,14 +40,20 @@ export default function LeftRoomState({
           if (!doneRef.current) {
             doneRef.current = true;
             // Defer so the state update above commits before navigating.
-            setTimeout(() => onGoDashboardRef.current?.(), 0);
+            timeoutRef.current = setTimeout(() => onGoDashboardRef.current?.(), 0);
           }
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
-    return () => clearInterval(timerId);
+    return () => {
+      clearInterval(timerId);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+    };
   }, [roomId, redirectAfterSeconds]);
 
   return (

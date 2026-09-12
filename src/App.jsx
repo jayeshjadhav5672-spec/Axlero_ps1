@@ -152,6 +152,9 @@ export default function App() {
         <div className="relative flex flex-1 flex-col">
           <div
             aria-hidden={left ? true : undefined}
+            // inert keeps keyboard focus inside the left-room dialog while
+            // the workspace is dimmed (React 19 supports boolean inert).
+            inert={left ? true : undefined}
             className={left ? 'pointer-events-none select-none opacity-40 blur-[1px]' : undefined}
           >
             <Workspace
