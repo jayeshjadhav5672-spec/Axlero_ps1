@@ -17,9 +17,10 @@
  * says so and the whiteboard/editor keep working locally.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import AppLayout from './components/layout/AppLayout';
 import Workspace from './components/workspace/Workspace';
+import { LeftRoomState } from './components/room';
 import { Whiteboard } from './components/canvas';
 import CollabTextEditor from './components/editor/CollabTextEditor';
 import useRoomConnection from './hooks/useRoomConnection';
@@ -36,6 +37,11 @@ export default function App() {
   const [roomId] = useState(() => getRoomIdFromUrl());
   const [identity] = useState(() => getOrCreateIdentity());
   const [shareNote, setShareNote] = useState('');
+  // Day 1 dashboard seam (Day 2 builds the real dashboard here):
+  // a minimal in-app view entered via "Go to Dashboard" or the
+  // 10s left-room countdown. No router, no room-lifecycle changes —
+  // `?room=` stays intact so Rejoin returns to the same workspace.
+  const [dashboardView, setDashboardView] = useState(false);
 
   const { socket, status, presence, error, left, reconnect, leaveRoom } = useRoomConnection({
     roomId,
@@ -66,7 +72,7 @@ export default function App() {
   };
 
   const banner = useMemo(() => {
-    if (left) return null;
+    if (left || dashboardView) return null;
     if (error) return { tone: 'rose', text: error, showRetry: true };
     if (status === 'disconnected')
       return {
@@ -76,7 +82,18 @@ export default function App() {
       };
     if (status === 'reconnecting') return { tone: 'amber', text: 'Reconnecting to the room…', showRetry: false };
     return null;
-  }, [error, status, left]);
+  }, [error, status, left, dashboardView]);
+
+  // Existing mechanisms, reused as-is: reconnect() re-joins the same
+  // `?room=` room via useRoomConnection; leaveRoom() emits room:leave.
+  const handleRejoin = useCallback(() => {
+    setDashboardView(false);
+    reconnect();
+  }, [reconnect]);
+
+  const handleGoDashboard = useCallback(() => {
+    setDashboardView(true);
+  }, []);
 
   return (
     <AppLayout>
@@ -102,39 +119,72 @@ export default function App() {
         </div>
       )}
 
-      {left ? (
-        <div className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col items-center justify-center gap-3 px-4 py-16 text-center">
-          <p className="text-lg font-semibold text-slate-800">You left room “{roomId}”.</p>
-          <p className="text-sm text-slate-500">
-            Signed in as {identity.displayName}. Rejoin to resume collaborating.
-          </p>
-          <button
-            type="button"
-            onClick={reconnect}
-            className="rounded-lg bg-teal-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-teal-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+      {dashboardView ? (
+        <div className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col items-center justify-center px-4 py-16 text-center">
+          <section
+            aria-labelledby="dashboard-seam-title"
+            className="flex w-full max-w-md flex-col items-center rounded-2xl border border-slate-200 bg-white px-8 py-10 shadow-sm"
           >
-            Rejoin room
-          </button>
+            <span className="flex items-center gap-2">
+              <svg className="h-6 w-6 text-teal-700" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+              </svg>
+              <span className="text-base font-bold tracking-tight text-slate-900">SyncSpace</span>
+            </span>
+            <h2 id="dashboard-seam-title" className="mt-5 text-xl font-semibold text-slate-900">
+              Dashboard
+            </h2>
+            <p className="mt-2 text-sm text-slate-500">
+              Last room <span className="font-mono text-teal-700">&ldquo;{roomId}&rdquo;</span>. The full
+              dashboard lands on Day 2.
+            </p>
+            <button
+              type="button"
+              onClick={handleRejoin}
+              aria-label="Return to workspace"
+              className="mt-6 w-full rounded-lg bg-teal-700 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-teal-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
+            >
+              Return to Workspace
+            </button>
+          </section>
         </div>
       ) : (
-        <Workspace
-          roomId={roomId}
-          connectionStatus={status}
-          users={users}
-          whiteboard={
-            <Whiteboard
-              shapes={whiteboardSync.shapes}
-              onShapeCreate={whiteboardSync.onShapeCreate}
-              onShapeUpdate={whiteboardSync.onShapeUpdate}
-              onShapeDelete={whiteboardSync.onShapeDelete}
-              onCanvasClear={whiteboardSync.onCanvasClear}
-              onShapesReorder={whiteboardSync.onShapesReorder}
+        <div className="relative flex flex-1 flex-col">
+          <div
+            aria-hidden={left ? true : undefined}
+            className={left ? 'pointer-events-none select-none opacity-40 blur-[1px]' : undefined}
+          >
+            <Workspace
+              roomId={roomId}
+              connectionStatus={status}
+              users={users}
+              whiteboard={
+                <Whiteboard
+                  shapes={whiteboardSync.shapes}
+                  onShapeCreate={whiteboardSync.onShapeCreate}
+                  onShapeUpdate={whiteboardSync.onShapeUpdate}
+                  onShapeDelete={whiteboardSync.onShapeDelete}
+                  onCanvasClear={whiteboardSync.onCanvasClear}
+                  onShapesReorder={whiteboardSync.onShapesReorder}
+                />
+              }
+              editor={<CollabTextEditor value={codeSync.text} onChange={codeSync.onLocalChange} />}
+              onLeaveRoom={leaveRoom}
+              onShareRoom={handleShareRoom}
             />
-          }
-          editor={<CollabTextEditor value={codeSync.text} onChange={codeSync.onLocalChange} />}
-          onLeaveRoom={leaveRoom}
-          onShareRoom={handleShareRoom}
-        />
+          </div>
+
+          {left && (
+            <div className="absolute inset-0 flex items-start justify-center overflow-y-auto bg-slate-50/60 p-4 sm:items-center">
+              <LeftRoomState
+                roomId={roomId}
+                displayName={identity.displayName}
+                onRejoin={handleRejoin}
+                onGoDashboard={handleGoDashboard}
+              />
+            </div>
+          )}
+        </div>
       )}
 
       {shareNote && (
