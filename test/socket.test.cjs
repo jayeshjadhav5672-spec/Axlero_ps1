@@ -148,3 +148,69 @@ test("rejoining the same room is idempotent", async () => {
   const [joined] = await waitForEvent(socket, "room:joined");
   assert.equal(joined.presence.length, 1);
 });
+
+test("switching rooms leaves previous room transport and presence", async () => {
+  const mover = client();
+  const stayer = client();
+  const otherRoom = client();
+  await Promise.all([
+    waitForEvent(mover, "connect"),
+    waitForEvent(stayer, "connect"),
+    waitForEvent(otherRoom, "connect"),
+  ]);
+
+  mover.emit("room:join", { roomId: "switch-a", userId: "mover" });
+  await waitForEvent(mover, "room:joined");
+  stayer.emit("room:join", { roomId: "switch-a", userId: "stayer" });
+  await waitForEvent(stayer, "presence:update");
+  otherRoom.emit("room:join", { roomId: "switch-b", userId: "other" });
+  await waitForEvent(otherRoom, "room:joined");
+
+  // Attach listeners BEFORE the switch so no broadcast is missed.
+  const moverJoined = waitForEvent(mover, "room:joined");
+  const stayerPresence = waitForEvent(stayer, "presence:update");
+  const otherPresence = waitForEvent(otherRoom, "presence:update");
+
+  mover.emit("room:join", { roomId: "switch-b", userId: "mover" });
+
+  const [joined] = await moverJoined;
+  assert.equal(joined.roomId, "switch-b");
+  assert.equal(joined.presence.length, 2);
+
+  const [stayerPayload] = await stayerPresence;
+  assert.equal(stayerPayload.roomId, "switch-a");
+  assert.equal(stayerPayload.users.length, 1);
+  assert.equal(stayerPayload.users[0].userId, "stayer");
+
+  const [otherPayload] = await otherPresence;
+  assert.equal(otherPayload.roomId, "switch-b");
+  assert.equal(otherPayload.users.length, 2);
+
+  // Old room traffic must no longer reach the mover (transport-level leave).
+  const leakedToMover = waitForEvent(mover, "canvas:update");
+  const leakedToOther = waitForEvent(otherRoom, "canvas:update");
+  stayer.emit("canvas:update", { roomId: "switch-a", data: { shape: "stale" } });
+  await assert.rejects(
+    Promise.race([
+      leakedToMover,
+      leakedToOther,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("isolated")), 120)),
+    ]),
+    /isolated/
+  );
+
+  // New room traffic must reach the mover and existing member, but stay isolated.
+  const moverCode = waitForEvent(mover, "code:update");
+  const stayerCode = waitForEvent(stayer, "code:update");
+  otherRoom.emit("code:update", { roomId: "switch-b", data: "after-switch" });
+  const [codePayload] = await moverCode;
+  assert.equal(codePayload.data, "after-switch");
+  assert.equal(codePayload.roomId, "switch-b");
+  await assert.rejects(
+    Promise.race([
+      stayerCode,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("isolated")), 120)),
+    ]),
+    /isolated/
+  );
+});

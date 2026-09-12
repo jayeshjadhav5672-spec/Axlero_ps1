@@ -90,7 +90,11 @@ function createSocketServer(httpServer, options = {}) {
           return;
         }
 
+        const prevRoom = socket.data.roomId;
         removeFromPresence(socket);
+        if (prevRoom && prevRoom !== payload.roomId) {
+          socket.leave(prevRoom);
+        }
         socket.join(payload.roomId);
         socket.data.roomId = payload.roomId;
         addToPresence(socket, payload.roomId, { userId, displayName });
