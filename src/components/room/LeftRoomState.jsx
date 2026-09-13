@@ -24,7 +24,12 @@ export default function LeftRoomState({
   const doneRef = useRef(false);
   const timeoutRef = useRef(null);
   const onGoDashboardRef = useRef(onGoDashboard);
-  onGoDashboardRef.current = onGoDashboard;
+  // Keep render pure: sync the latest callback in an effect so the
+  // interval (deps: room/seconds only) never restarts on re-renders
+  // and stays StrictMode-safe.
+  useEffect(() => {
+    onGoDashboardRef.current = onGoDashboard;
+  });
 
   // Reset + run a single countdown per mount/room. Cleanup clears the
   // interval AND any deferred navigation timeout, so Rejoin/Dashboard

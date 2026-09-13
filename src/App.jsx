@@ -37,10 +37,11 @@ export default function App() {
   const [roomId] = useState(() => getRoomIdFromUrl());
   const [identity] = useState(() => getOrCreateIdentity());
   const [shareNote, setShareNote] = useState('');
-  // Day 1 dashboard seam (Day 2 builds the real dashboard here):
-  // a minimal in-app view entered via "Go to Dashboard" or the
-  // 10s left-room countdown. No router, no room-lifecycle changes —
-  // `?room=` stays intact so Rejoin returns to the same workspace.
+  // Day 2 dashboard seam (minimal by design — the full dashboard with
+  // Create/Join Room belongs to a later stage): a minimal in-app view
+  // entered via "Go to Dashboard" or the 10s left-room countdown.
+  // No router, no room-lifecycle changes — `?room=` stays intact so
+  // Rejoin returns to the same workspace.
   const [dashboardView, setDashboardView] = useState(false);
 
   const { socket, status, presence, error, left, reconnect, leaveRoom } = useRoomConnection({
@@ -135,8 +136,8 @@ export default function App() {
               Dashboard
             </h2>
             <p className="mt-2 text-sm text-slate-500">
-              Last room <span className="font-mono text-teal-700">&ldquo;{roomId}&rdquo;</span>. The full
-              dashboard lands on Day 2.
+              Last room <span className="font-mono text-teal-700">&ldquo;{roomId}&rdquo;</span>. Use Return
+              to Workspace to rejoin it.
             </p>
             <button
               type="button"
