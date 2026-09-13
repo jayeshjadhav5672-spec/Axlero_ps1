@@ -27,7 +27,7 @@ touching cross-module code.
               ┌────────────────┼────────────────┐
               ▼                ▼                ▼
      Vaishnavi: auth/    Shree: Yjs CRDT   Kishan: Monaco
-     Mongo persist       (pending)         (pending)
+     Mongo persist       (pending)         (landed)
 ```
 
 ## 1. Room lifecycle
@@ -87,8 +87,9 @@ use. Selection is local-only (not broadcast).
 Local keystroke → `onLocalChange(text)` → rev++ → emit
 `{ text, rev, actorId }` → remotes apply only if `rev` is strictly newer.
 Concurrent same-rev edits: last arrival wins (documented limitation until
-Y.Text lands). `CollabTextEditor` is a fallback textarea exposing
-`{ value, onChange }` — Kishan's Monaco component takes the same props.
+Y.Text lands). The editor is Monaco (`src/components/editor/CodeEditor.jsx`),
+bundled locally with its language workers wired through Vite; it exposes the
+minimal `{ value, onChange }` contract so the sync hooks stay editor-agnostic.
 
 ## 6. Persistence / replay (reserved for Vaishnavi)
 
