@@ -5,8 +5,8 @@
  * - Avantee: AppLayout / Workspace / panels (rendered as-is)
  * - Sayon: <Whiteboard /> in CONTROLLED mode (parent owns shapes)
  * - Arun: Socket.io room lifecycle + presence + canvas/code transport
- * - Kishan (pending): CollabTextEditor fallback exposes the exact
- *   { value, onChange } seam his Monaco <CodeEditor /> will fill
+ * - Kishan: Monaco <CodeEditor /> fills the { value, onChange } seam
+ *   (bundled locally, language workers wired through Vite)
  * - Shree (pending): room→doc mapping + op contract documented in
  *   docs/INTEGRATION.md; socket relay is the transport her Yjs sync
  *   provider will reuse
@@ -21,7 +21,7 @@ import React, { useMemo, useState } from 'react';
 import AppLayout from './components/layout/AppLayout';
 import Workspace from './components/workspace/Workspace';
 import { Whiteboard } from './components/canvas';
-import CollabTextEditor from './components/editor/CollabTextEditor';
+import CodeEditor from './components/editor/CodeEditor';
 import useRoomConnection from './hooks/useRoomConnection';
 import useCollaborativeWhiteboard from './hooks/useCollaborativeWhiteboard';
 import useCollaborativeCode from './hooks/useCollaborativeCode';
@@ -131,7 +131,7 @@ export default function App() {
               onShapesReorder={whiteboardSync.onShapesReorder}
             />
           }
-          editor={<CollabTextEditor value={codeSync.text} onChange={codeSync.onLocalChange} />}
+          editor={<CodeEditor value={codeSync.text} onChange={codeSync.onLocalChange} />}
           onLeaveRoom={leaveRoom}
           onShareRoom={handleShareRoom}
         />

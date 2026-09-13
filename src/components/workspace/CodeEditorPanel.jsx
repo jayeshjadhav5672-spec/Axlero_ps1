@@ -4,8 +4,8 @@ import React from 'react';
  * CodeEditorPanel — Avantee (React UI / Frontend Engineer)
  *
  * Clean container for Kishan's Monaco editor. Kishan mounts his
- * <CodeEditor /> via `children`. Until then, an integration placeholder
- * is shown. No Monaco / Yjs / collaboration logic lives here.
+ * <CodeEditor /> via `children`. No Monaco / Yjs / collaboration logic
+ * lives here.
  */
 export default function CodeEditorPanel({
   children,
