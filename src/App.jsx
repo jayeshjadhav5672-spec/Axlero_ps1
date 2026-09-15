@@ -17,10 +17,11 @@
  * says so and the whiteboard/editor keep working locally.
  */
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import AppLayout from './components/layout/AppLayout';
 import Workspace from './components/workspace/Workspace';
 import { LeftRoomState } from './components/room';
+import Dashboard from './components/dashboard/Dashboard';
 import { Whiteboard } from './components/canvas';
 import CollabTextEditor from './components/editor/CollabTextEditor';
 import useRoomConnection from './hooks/useRoomConnection';
@@ -30,19 +31,28 @@ import {
   buildRoomUrl,
   getOrCreateIdentity,
   getRoomIdFromUrl,
+  isValidRoomId,
   presenceToUsers,
+  recordRecentRoom,
 } from './lib/room';
 
 export default function App() {
   const [roomId] = useState(() => getRoomIdFromUrl());
   const [identity] = useState(() => getOrCreateIdentity());
   const [shareNote, setShareNote] = useState('');
-  // Day 2 dashboard seam (minimal by design — the full dashboard with
-  // Create/Join Room belongs to a later stage): a minimal in-app view
-  // entered via "Go to Dashboard" or the 10s left-room countdown.
-  // No router, no room-lifecycle changes — `?room=` stays intact so
-  // Rejoin returns to the same workspace.
-  const [dashboardView, setDashboardView] = useState(false);
+  // Day 3 full Dashboard: the home/start screen. Shown by default when the
+  // URL carries no explicit `?room=`, and entered later via "Go to
+  // Dashboard" or the 10s left-room countdown. No router, no
+  // room-lifecycle changes — `?room=` stays intact so Rejoin / Return to
+  // Workspace returns to the same workspace.
+  const [initialPresence] = useState(() => {
+    try {
+      return { hasRoom: isValidRoomId(new URLSearchParams(window.location.search).get('room')) };
+    } catch {
+      return { hasRoom: false };
+    }
+  });
+  const [dashboardView, setDashboardView] = useState(() => !initialPresence.hasRoom);
 
   const { socket, status, presence, error, left, reconnect, leaveRoom } = useRoomConnection({
     roomId,
@@ -85,6 +95,12 @@ export default function App() {
     return null;
   }, [error, status, left, dashboardView]);
 
+  // Browser-local recent list (display only — not backend persistence).
+  // Recorded when the workspace is visible so the Dashboard can offer it.
+  useEffect(() => {
+    if (!dashboardView && !left && isValidRoomId(roomId)) recordRecentRoom(roomId);
+  }, [dashboardView, left, roomId]);
+
   // Existing mechanisms, reused as-is: reconnect() re-joins the same
   // `?room=` room via useRoomConnection; leaveRoom() emits room:leave.
   const handleRejoin = useCallback(() => {
@@ -121,34 +137,11 @@ export default function App() {
       )}
 
       {dashboardView ? (
-        <div className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col items-center justify-center px-4 py-16 text-center">
-          <section
-            aria-labelledby="dashboard-seam-title"
-            className="flex w-full max-w-md flex-col items-center rounded-2xl border border-slate-200 bg-white px-8 py-10 shadow-sm"
-          >
-            <span className="flex items-center gap-2">
-              <svg className="h-6 w-6 text-teal-700" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-              </svg>
-              <span className="text-base font-bold tracking-tight text-slate-900">SyncSpace</span>
-            </span>
-            <h2 id="dashboard-seam-title" className="mt-5 text-xl font-semibold text-slate-900">
-              Dashboard
-            </h2>
-            <p className="mt-2 text-sm text-slate-500">
-              Last room <span className="font-mono text-teal-700">&ldquo;{roomId}&rdquo;</span>. Use Return
-              to Workspace to rejoin it.
-            </p>
-            <button
-              type="button"
-              onClick={handleRejoin}
-              aria-label="Return to workspace"
-              className="mt-6 w-full rounded-lg bg-teal-700 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-teal-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
-            >
-              Return to Workspace
-            </button>
-          </section>
-        </div>
+        <Dashboard
+          currentRoomId={roomId}
+          hasActiveRoom={initialPresence.hasRoom}
+          onReturnToWorkspace={handleRejoin}
+        />
       ) : (
         <div className="relative flex flex-1 flex-col">
           <div
