@@ -24,8 +24,8 @@ build on.
   `8cdc4891ebb82b6582be22d8e9eeefef7f5b28af`
   (`merge: integrate Avantee UI and dashboard`)
 - Final HEAD at time of writing:
-  `6c83ff18d0f1ab92f6c1509521b4b632994fc1a2`
-  (`merge: sync feature/shree-yjs with latest main (Avantee UI/dashboard)`)
+  `43cd053803cd8dc9915718f356d16fbbde73e6bb`
+  (`docs(yjs): add phase 1 implementation and handoff reports`)
 
 ## 3. Phase 1 Architecture
 
@@ -185,9 +185,9 @@ Findings from reviewing the actual implementation (not assumptions):
    (`isValidRoomId` / `ROOM_PATTERN` in `src/lib/room.js`, which mirrors the
    backend `server/socket.cjs` rule) — consistent by construction, not a
    parallel regex.
-3. `resetForTests()` destroys docs before clearing (not just dropping
-   references), so no cross-test leakage; its comment accurately describes
-   it as a test/dev escape hatch.
+3. `resetForTests()` destroys each retained doc before clearing (not just dropping
+   references), so no cross-test leakage; its header comment states exactly
+   that, and it remains a test/dev-only escape hatch.
 4. Lifecycle contract is caller-owned: forgetting `destroyYDoc()` on room
    leave retains the doc. This is documented in-code and is the known,
    accepted Phase 1 tradeoff (no background GC invented).

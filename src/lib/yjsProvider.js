@@ -76,9 +76,8 @@ export function hasYDoc(roomId) {
 }
 
 /**
- * Test/dev escape hatch — resets the internal registry without destroying
- * individual docs (tests create and discard docs freely).
- * The app itself never calls this.
+ * Test/dev escape hatch — destroys every retained doc and clears the
+ * registry so no cross-test state leaks. The app itself never calls this.
  */
 export function resetForTests() {
   for (const doc of _docs.values()) {

@@ -12,9 +12,8 @@
 - Latest `origin/main` incorporated:
   `8cdc4891ebb82b6582be22d8e9eeefef7f5b28af`
 - Final HEAD at time of writing:
-  `6c83ff18d0f1ab92f6c1509521b4b632994fc1a2`
-  (merge of latest main into the feature branch; docs commit to follow on
-  push — see Final Checklist)
+  `43cd053803cd8dc9915718f356d16fbbde73e6bb`
+  (`docs(yjs): add phase 1 implementation and handoff reports`)
 - Current PR status: updated feature branch, ready for Shravan review
   (NOT merged — merge is Shravan's decision).
 
@@ -142,12 +141,12 @@ Only actual findings (no speculation):
 ## Final Checklist
 
 - [x] Latest main synchronized (merged `origin/main@8cdc489`, zero conflicts)
-- [x] Phase 1 scope verified (4-file own diff; no unrelated changes)
+- [x] Phase 1 scope verified (6-file diff: 4 code files + these 2 docs; no unrelated changes)
 - [x] No unrelated changes (whiteboard/UI/socket/server/Monaco/auth untouched)
 - [x] Provider tests pass (23/23, part of 46/46 full suite)
 - [x] Full tests pass (46/46, 0 fail)
 - [x] Build passes (vite build succeeds)
 - [x] Documentation created (`docs/yjs-phase1-report.md` + this handoff)
-- [ ] Branch pushed (pending — push `feature/shree-yjs` only, no force)
-- [ ] PR updated (follows automatically on push)
-- [ ] Ready for Shravan review (yes after push — DO NOT merge; Shravan merges)
+- [x] Branch pushed (`feature/shree-yjs` only, no force)
+- [x] PR updated (follows automatically on push)
+- [x] Ready for Shravan review — DO NOT merge; Shravan merges
