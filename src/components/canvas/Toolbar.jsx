@@ -445,7 +445,6 @@ export default function Toolbar({
                 aria-haspopup="menu"
                 onClick={(e) => {
                   e.stopPropagation();
-                  console.log('[Export UI] Export toggle clicked, open:', !exportOpen);
                   if (exportOpen) setExportOpen(false);
                   else openExportMenu();
                 }}
@@ -471,7 +470,6 @@ export default function Toolbar({
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        console.log('[Export UI] Button clicked successfully:', opt.value);
                         setExportOpen(false);
                         onExport(opt.value);
                       }}

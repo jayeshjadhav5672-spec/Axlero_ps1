@@ -637,16 +637,12 @@ export function Whiteboard({
   }, []);
   const handleExport = useCallback(
     async (format) => {
-      console.log('[Export Debug] Clicked format:', format);
-      console.log('[Export Debug] stageRef object:', stageRef);
-      console.log('[Export Debug] stageRef.current:', stageRef?.current);
       // Deselect + hide Transformer BEFORE capture so selection outlines
       // never bake into the exported image.
       prepareStageForExport({ stageRef, transformerRef, selectShape });
       // Let the detach render flush before reading pixels.
       await new Promise((r) => setTimeout(r, 30));
       const stage = stageRef.current;
-      console.log('[Export Debug] stage resolved:', Boolean(stage));
       try {
         switch (format) {
           case 'json':
@@ -657,12 +653,10 @@ export function Whiteboard({
             // Bulletproof direct-DOM raster path: zero props, zero Konva
             // refs (survives a dead stageRef chain); hides/restores the
             // Transformer itself and bakes a white background.
-            console.log('[Export Debug] using exportCanvasDirect from src/utils/exportUtils.js');
             exportCanvasDirect('png', 'syncspace-board');
             flashExportNote('Exported PNG');
             break;
           case 'jpeg':
-            console.log('[Export Debug] using exportCanvasDirect from src/utils/exportUtils.js');
             exportCanvasDirect('jpeg', 'syncspace-board');
             flashExportNote('Exported JPEG');
             break;

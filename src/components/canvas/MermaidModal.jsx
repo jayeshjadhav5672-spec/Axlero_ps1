@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { compileMermaidToShapes, MERMAID_PLACEHOLDER } from './utils/mermaid.js';
 
 /**
@@ -9,6 +9,20 @@ import { compileMermaidToShapes, MERMAID_PLACEHOLDER } from './utils/mermaid.js'
 export default function MermaidModal({ open, onClose, onCompile, styleDefaults }) {
   const [source, setSource] = useState(MERMAID_PLACEHOLDER);
   const [error, setError] = useState('');
+
+  // Escape closes the dialog (global tool shortcuts ignore keystrokes
+  // from TEXTAREA, so no conflict with canvas shortcuts).
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        onClose?.();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [open, onClose]);
 
   if (!open) return null;
 

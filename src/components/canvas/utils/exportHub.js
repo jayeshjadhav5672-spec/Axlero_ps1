@@ -229,6 +229,41 @@ async function whitePngDataURL({ stage, domCanvas }, pixelRatio = 2) {
   return url;
 }
 
+/**
+ * Crop a full-viewport capture bitmap to content `bounds` (world coords).
+ * Done in plain 2D-canvas math from the stage's own scale/position instead
+ * of Konva's toDataURL crop options, whose x/y frame is easy to misread
+ * under zoom/pan. Returns a PNG data URL sized to the bounds box.
+ */
+async function cropPngToBounds(pngDataUrl, stage, bounds, pixelRatio = 2) {
+  const img = await loadImage(pngDataUrl);
+  const scale = (stage && Number.isFinite(stage.scaleX()) && stage.scaleX()) || 1;
+  const pos = (stage && stage.position()) || { x: 0, y: 0 };
+  const px = Number.isFinite(pos.x) ? pos.x : 0;
+  const py = Number.isFinite(pos.y) ? pos.y : 0;
+  const natW = img.naturalWidth || img.width;
+  const natH = img.naturalHeight || img.height;
+  const sx = (bounds.x * scale + px) * pixelRatio;
+  const sy = (bounds.y * scale + py) * pixelRatio;
+  const sw = bounds.width * scale * pixelRatio;
+  const sh = bounds.height * scale * pixelRatio;
+  // Clamp the crop rect into the bitmap; abort loudly on empty overlap
+  // instead of embedding a blank/degenerate page.
+  const cx = Math.max(0, sx);
+  const cy = Math.max(0, sy);
+  const cw = Math.min(natW - cx, sw - (cx - sx));
+  const ch = Math.min(natH - cy, sh - (cy - sy));
+  if (!(cw >= 1 && ch >= 1)) {
+    throw new Error('Export failed: content bounds fall outside the captured canvas.');
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(cw));
+  canvas.height = Math.max(1, Math.round(ch));
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, cx, cy, cw, ch, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/png');
+}
+
 function assertExportable(resolved) {
   if (!resolved.stage && !resolved.domCanvas) {
     throw new Error('Canvas not ready');
@@ -280,7 +315,11 @@ export async function exportAVIF(stageOrRef, filename = 'syncspace-board.avif') 
     }
   }
   const url = await whitePngDataURL(assertExportable(resolved), 2);
-  downloadDataUrl(url, 'syncspace-board.png', 'image/png');
+  const pngName =
+    typeof filename === 'string' && filename.toLowerCase().endsWith('.avif')
+      ? `${filename.slice(0, -5)}.png`
+      : 'syncspace-board.png';
+  downloadDataUrl(url, pngName, 'image/png');
   return { url, fallback: true };
 }
 
@@ -374,9 +413,13 @@ export function exportSVG(shapes, filename = 'syncspace-board.svg') {
 }
 
 /**
- * PDF: render the viewport to a white-composited PNG, embed at full
- * canvas bounds via jspdf. jspdf loads lazily so the main bundle stays
- * lean; throws a readable error when the dependency is missing.
+ * PDF: white-composited PNG embedded at content bounds via jspdf.
+ * Geometry contract: the page is sized to `exportBounds(shapes)` and the
+ * embedded bitmap is cropped to exactly those bounds (stage path), so the
+ * page and the image always agree. The DOM-canvas fallback has no viewport
+ * metadata, so it embeds the full bitmap on a bitmap-sized page instead of
+ * stretching it into a bounds-sized one. jspdf loads lazily so the main
+ * bundle stays lean; throws a readable error when missing.
  */
 export async function exportPDF(stageOrRef, shapes, filename = 'syncspace-board.pdf') {
   let jsPDFCtor;
@@ -388,11 +431,27 @@ export async function exportPDF(stageOrRef, shapes, filename = 'syncspace-board.
   }
   if (typeof jsPDFCtor !== 'function') throw new Error('jspdf module did not expose jsPDF.');
   const resolved = assertExportable(resolveStageOrCanvas(stageOrRef));
-  const bounds = exportBounds(serializeShapes(shapes));
-  const png = await whitePngDataURL(resolved, 2);
-  const landscape = bounds.width >= bounds.height;
-  const pdf = new jsPDFCtor({ unit: 'px', format: [bounds.width, bounds.height], orientation: landscape ? 'landscape' : 'portrait', hotfixes: ['px_scaling'] });
-  pdf.addImage(png, 'PNG', 0, 0, bounds.width, bounds.height);
+  let png;
+  let pageW;
+  let pageH;
+  if (resolved.stage) {
+    const bounds = exportBounds(serializeShapes(shapes));
+    const full = await whitePngDataURL(resolved, 2);
+    png = await cropPngToBounds(full, resolved.stage, bounds, 2);
+    pageW = bounds.width;
+    pageH = bounds.height;
+  } else {
+    // DOM fallback: no viewport metadata, so measure the bitmap and size
+    // the page to it (never stretch a full-canvas capture into a
+    // content-bounds page).
+    png = await whitePngDataURL(resolved, 2);
+    const img = await loadImage(png);
+    pageW = img.naturalWidth || img.width || 1600;
+    pageH = img.naturalHeight || img.height || 900;
+  }
+  const landscape = pageW >= pageH;
+  const pdf = new jsPDFCtor({ unit: 'px', format: [pageW, pageH], orientation: landscape ? 'landscape' : 'portrait', hotfixes: ['px_scaling'] });
+  pdf.addImage(png, 'PNG', 0, 0, pageW, pageH);
   pdf.save(filename);
   return true;
 }

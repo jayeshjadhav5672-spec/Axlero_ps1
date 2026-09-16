@@ -95,8 +95,6 @@ function hideTransformersSync() {
 }
 
 export const exportCanvasDirect = (format = 'png', fileName = 'syncspace-whiteboard') => {
-  console.log('[Export] Direct export initiated for format:', format);
-
   // 1. Locate the Konva canvas directly from the DOM
   const canvas = document.querySelector('.konvajs-content canvas') || document.querySelector('canvas');
   if (!canvas) {
@@ -153,7 +151,6 @@ export const exportCanvasDirect = (format = 'png', fileName = 'syncspace-whitebo
     document.body.removeChild(a);
 
     setTimeout(() => URL.revokeObjectURL(url), 1500);
-    console.log('[Export] File successfully triggered for download:', a.download);
   } catch (err) {
     console.error('[Export Error] Failed during canvas compilation:', err);
     alert('Export failed: ' + err.message);
@@ -173,7 +170,6 @@ export const exportCanvas = async (stageRef, format = 'png', fileName = 'syncspa
 
   // Fallback: If ref is missing/disconnected, grab the first registered Konva Stage instance
   if (!stage && window.Konva && window.Konva.stages?.length > 0) {
-    console.warn('[Export] stageRef.current was null, falling back to window.Konva.stages[0]');
     stage = window.Konva.stages[0];
   }
 
@@ -181,7 +177,6 @@ export const exportCanvas = async (stageRef, format = 'png', fileName = 'syncspa
   // never populates `window.Konva`, so `CanvasStage` publishes its live
   // stage here on mount (see `CanvasStage.jsx`).
   if (!stage && window.__syncspaceStages?.length > 0) {
-    console.warn('[Export] stageRef.current was null, falling back to window.__syncspaceStages');
     stage = window.__syncspaceStages[window.__syncspaceStages.length - 1];
   }
 
@@ -192,12 +187,6 @@ export const exportCanvas = async (stageRef, format = 'png', fileName = 'syncspa
     alert('Export error: Canvas stage is not ready.');
     return;
   }
-  if (stage) {
-    console.log('[Export Debug] Stage found successfully:', stage);
-  } else {
-    console.warn('[Export] No Konva stage instance, falling back to direct DOM canvas capture');
-  }
-
   if (format === 'json') {
     // Direct JSON export of shape data
     console.warn('Use exportJSON from whiteboard state for JSON format.');
@@ -268,8 +257,6 @@ export const exportCanvas = async (stageRef, format = 'png', fileName = 'syncspa
     link.click();
     document.body.removeChild(link);
     setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
-
-    console.log('[Export Success] Download initiated for:', link.download);
   } catch (error) {
     console.error('[Export Error] Failed to export canvas:', error);
     alert(`Export failed: ${error.message}`);
