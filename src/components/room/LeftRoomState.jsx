@@ -70,10 +70,10 @@ export default function LeftRoomState({
       className="flex w-full max-w-md flex-col items-center rounded-2xl border border-slate-200 bg-white px-8 py-10 text-center shadow-lg"
     >
       <span className="flex items-center gap-2">
-        <svg className="h-6 w-6 text-teal-700" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <svg className="h-6 w-6 text-[#111111]" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
         </svg>
-        <span className="text-base font-bold tracking-tight text-slate-900">SyncSpace</span>
+        <span className="text-base font-bold tracking-tight text-[#111111]">SyncSpace</span>
       </span>
 
       <h2 id="left-room-title" className="mt-5 text-xl font-semibold text-slate-900">
