@@ -200,3 +200,44 @@ export function urlForWorkspaceView(href, roomId) {
     return href;
   }
 }
+
+/**
+ * Entry state for the Landing → Dashboard flow (MEDIUM-1 reload fix).
+ *
+ * First visit to a room-free URL shows Landing; once the user enters the
+ * app, a session-scoped flag is set so a reload of a room-free URL
+ * restores the Dashboard instead of Landing. sessionStorage is used so
+ * the flag survives reloads in the same tab but a fresh tab/window
+ * still starts on Landing. Direct room URLs (`?room=…`) always bypass
+ * Landing regardless of this flag.
+ *
+ * All access is try/catch guarded so non-browser environments (tests,
+ * private mode) safely fall back to "not entered".
+ */
+export const ENTERED_APP_STORAGE_KEY = 'syncspace:entered-app';
+
+export function hasEnteredApp() {
+  try {
+    return sessionStorage.getItem(ENTERED_APP_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function markEnteredApp() {
+  try {
+    sessionStorage.setItem(ENTERED_APP_STORAGE_KEY, '1');
+  } catch {
+    // storage unavailable — view state is unaffected
+  }
+}
+
+/**
+ * Pure entry-view decision, unit-testable without a browser:
+ * a valid `?room=` never shows Landing; otherwise Landing shows only
+ * before the user has entered the app in this session.
+ */
+export function shouldShowLanding(hasRoom, entered) {
+  if (hasRoom) return false;
+  return !entered;
+}

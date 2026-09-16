@@ -32,9 +32,12 @@ import {
   buildRoomUrl,
   getOrCreateIdentity,
   getRoomIdFromUrl,
+  hasEnteredApp,
   isValidRoomId,
+  markEnteredApp,
   presenceToUsers,
   recordRecentRoom,
+  shouldShowLanding,
   urlForDashboardView,
   urlForWorkspaceView,
 } from './lib/room';
@@ -56,10 +59,14 @@ export default function App() {
     }
   });
   const [dashboardView, setDashboardView] = useState(() => !initialPresence.hasRoom);
-  // Landing page: the default entry view on "/" (no `?room=`). It wraps the
-  // existing dashboard/workspace views — with a valid `?room=`, it starts
-  // false so deep links land directly in the Workspace, exactly as before.
-  const [showLanding, setShowLanding] = useState(() => !initialPresence.hasRoom);
+  // Landing page: the default entry view on "/" (no `?room=`) for a first
+  // visit in this session. Once the user has entered the app the entry
+  // is persisted in sessionStorage, so a reload of a room-free URL
+  // restores the Dashboard instead of Landing. A valid `?room=` starts
+  // in the Workspace directly, exactly as before.
+  const [showLanding, setShowLanding] = useState(
+    () => shouldShowLanding(initialPresence.hasRoom, hasEnteredApp()),
+  );
 
   const { socket, status, presence, error, left, reconnect, leaveRoom } = useRoomConnection({
     roomId,
@@ -134,8 +141,22 @@ export default function App() {
   }, [reconnect, roomId]);
 
   const handleGoDashboard = useCallback(() => {
+    markEnteredApp();
     syncUrlForView(true);
     setDashboardView(true);
+  }, []);
+
+  // Persist "entered app" once the Landing is dismissed for any reason
+  // (entering the Dashboard, or landing directly in a Workspace via
+  // `?room=`), so a later reload of a room-free URL restores the
+  // Dashboard and "Leave workspace → /" lands on the Dashboard too.
+  useEffect(() => {
+    if (!showLanding) markEnteredApp();
+  }, [showLanding]);
+
+  const handleEnterApp = useCallback(() => {
+    markEnteredApp();
+    setShowLanding(false);
   }, []);
 
   return (
@@ -163,7 +184,7 @@ export default function App() {
       )}
 
       {showLanding ? (
-        <LandingPage onEnter={() => setShowLanding(false)} />
+        <LandingPage onEnter={handleEnterApp} />
       ) : dashboardView ? (
         <Dashboard
           currentRoomId={roomId}
