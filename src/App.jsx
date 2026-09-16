@@ -22,6 +22,7 @@ import AppLayout from './components/layout/AppLayout';
 import Workspace from './components/workspace/Workspace';
 import { LeftRoomState } from './components/room';
 import Dashboard from './components/dashboard/Dashboard';
+import LandingPage from './components/landing/LandingPage';
 import { Whiteboard } from './components/canvas';
 import CollabTextEditor from './components/editor/CollabTextEditor';
 import useRoomConnection from './hooks/useRoomConnection';
@@ -34,6 +35,8 @@ import {
   isValidRoomId,
   presenceToUsers,
   recordRecentRoom,
+  urlForDashboardView,
+  urlForWorkspaceView,
 } from './lib/room';
 
 export default function App() {
@@ -53,6 +56,10 @@ export default function App() {
     }
   });
   const [dashboardView, setDashboardView] = useState(() => !initialPresence.hasRoom);
+  // Landing page: the default entry view on "/" (no `?room=`). It wraps the
+  // existing dashboard/workspace views — with a valid `?room=`, it starts
+  // false so deep links land directly in the Workspace, exactly as before.
+  const [showLanding, setShowLanding] = useState(() => !initialPresence.hasRoom);
 
   const { socket, status, presence, error, left, reconnect, leaveRoom } = useRoomConnection({
     roomId,
@@ -103,12 +110,31 @@ export default function App() {
 
   // Existing mechanisms, reused as-is: reconnect() re-joins the same
   // `?room=` room via useRoomConnection; leaveRoom() emits room:leave.
+  //
+  // Address-bar hygiene (replaceState, no reload): the Dashboard is shown
+  // with a room-free URL so a reload/bookmark/new tab opens the Dashboard
+  // instead of re-entering the last room, while the Workspace keeps
+  // `?room=` so a refresh stays in the same room. Room state itself always
+  // comes from the `roomId` snapshot + the socket lifecycle - never by
+  // re-reading the URL - so this cannot break Rejoin / Return to Workspace.
+  const syncUrlForView = (inDashboard, id) => {
+    try {
+      const current = window.location.href;
+      const next = inDashboard ? urlForDashboardView(current) : urlForWorkspaceView(current, id);
+      if (next !== current) window.history.replaceState(null, '', next);
+    } catch {
+      // non-browser / restricted context — view state is unaffected
+    }
+  };
+
   const handleRejoin = useCallback(() => {
+    syncUrlForView(false, roomId);
     setDashboardView(false);
     reconnect();
-  }, [reconnect]);
+  }, [reconnect, roomId]);
 
   const handleGoDashboard = useCallback(() => {
+    syncUrlForView(true);
     setDashboardView(true);
   }, []);
 
@@ -136,7 +162,9 @@ export default function App() {
         </div>
       )}
 
-      {dashboardView ? (
+      {showLanding ? (
+        <LandingPage onEnter={() => setShowLanding(false)} />
+      ) : dashboardView ? (
         <Dashboard
           currentRoomId={roomId}
           hasActiveRoom={initialPresence.hasRoom}

@@ -169,3 +169,34 @@ export function recordRecentRoom(roomId) {
 export function getLastRoom() {
   return getRecentRooms()[0] ?? null;
 }
+
+/**
+ * Address-bar hygiene for the Dashboard ↔ Workspace views (no navigation).
+ * Pure string in/out so they stay unit-testable without a browser:
+ * - urlForDashboardView(href): drop `?room=` so a reload/bookmark of the
+ *   Dashboard opens the Dashboard, not the last room. Other params and
+ *   the hash are preserved.
+ * - urlForWorkspaceView(href, roomId): stamp a valid `?room=` so a refresh
+ *   while in the Workspace stays in the same room. Invalid ids leave the
+ *   URL untouched.
+ */
+export function urlForDashboardView(href) {
+  try {
+    const url = new URL(href);
+    url.searchParams.delete('room');
+    return url.toString();
+  } catch {
+    return href;
+  }
+}
+
+export function urlForWorkspaceView(href, roomId) {
+  try {
+    if (!isValidRoomId(roomId)) return href;
+    const url = new URL(href);
+    url.searchParams.set('room', roomId);
+    return url.toString();
+  } catch {
+    return href;
+  }
+}

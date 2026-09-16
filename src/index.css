@@ -36,3 +36,21 @@ select {
 .excalidraw-font {
   font-family: "Caveat", "Segoe Print", "Bradley Hand", "Virgil", Inter, sans-serif;
 }
+
+/* Landing page hero entrance: one subtle one-time rise. Defined only
+   under no-preference so reduced-motion users see the content statically. */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes landing-rise {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  .landing-rise {
+    animation: landing-rise 600ms ease-out both;
+  }
+}
