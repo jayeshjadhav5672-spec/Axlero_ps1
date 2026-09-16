@@ -6,6 +6,8 @@ export const SHAPE_TYPES = [
   'line',
   'arrow',
   'text',
+  'image',
+  'frame',
 ];
 
 /** Excalidraw-parity option lists (shared by sidebar + defaults). */
@@ -75,11 +77,68 @@ export const TEXT_ALIGN_CHOICES = [
 ];
 
 /** Stable collaborator-safe id: always `shape-<uuid>`. */
-export function createShapeId() {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return `shape-${crypto.randomUUID()}`;
-  }
-  return `shape-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+export function createShapeId(prefix = 'shape') {
+  const rand = () =>
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  return `${prefix}-${rand()}`;
+}
+
+/** Image-shape id per the Week-2 spec: `img-<ts>-<rand5>`. */
+export function createImageId() {
+  return `img-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+}
+
+/** Frame id per the Week-2 spec: `frame-<ts>[-<rand>]`. */
+export function createFrameId() {
+  return `frame-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+/**
+ * Factory for an image shape from a base64 data URL.
+ * Plain serializable JSON — no Konva nodes, no socket/Yjs deps.
+ */
+export function createImageShape(
+  src,
+  { x = 0, y = 0, width = 320, height = 240, rotation = 0 } = {},
+) {
+  if (typeof src !== 'string' || !src.startsWith('data:image')) return null;
+  if (!isFiniteNum(x) || !isFiniteNum(y)) return null;
+  const w = isFiniteNum(width) && width > 0 ? width : 320;
+  const h = isFiniteNum(height) && height > 0 ? height : 240;
+  return {
+    id: createImageId(),
+    type: 'image',
+    src,
+    x,
+    y,
+    width: w,
+    height: h,
+    rotation: isFiniteNum(rotation) ? rotation : 0,
+  };
+}
+
+/**
+ * Factory for a frame / slide-container shape (drag-to-create bounds).
+ * `count` seeds the human-readable `Frame N` title.
+ */
+export function createFrameShape({ x = 0, y = 0, width = 0, height = 0, count = 1 } = {}) {
+  if (!isFiniteNum(x) || !isFiniteNum(y)) return null;
+  const norm = normalizeRect(x, y, x + width, y + height);
+  return {
+    id: createFrameId(),
+    type: 'frame',
+    title: `Frame ${count}`,
+    x: norm.x,
+    y: norm.y,
+    width: norm.width,
+    height: norm.height,
+    fill: 'rgba(241, 245, 249, 0.35)',
+    stroke: '#94a3b8',
+    dash: [6, 6],
+    rotation: 0,
+  };
 }
 
 export const DEFAULTS = {
@@ -449,6 +508,8 @@ export function getShapeBounds(shape) {
   switch (shape.type) {
     case 'rectangle':
     case 'diamond':
+    case 'image':
+    case 'frame':
       return { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
     case 'circle': {
       const { rx, ry } = circleRadii(shape);
@@ -509,7 +570,28 @@ export function getShapeBounds(shape) {
  */
 export function normalizeShape(shape) {
   if (!isValidShape(shape)) return shape;
-  if (shape.type === 'rectangle' || shape.type === 'diamond') {
+  // Morph hygiene: a JSON-merge update (`{ ...s, ...changes }`) cannot
+  // delete keys, so a rectangle->circle morph would leave ghost
+  // `width`/`height` (and circle->rectangle a ghost `radius*`). Strip
+  // stale geometry here — every commit path normalizes — so morphed
+  // shapes stay clean even for controlled/Yjs parents that merge.
+  if (shape.type === 'circle' && (shape.width !== undefined || shape.height !== undefined)) {
+    const { width, height, ...rest } = shape;
+    void width;
+    void height;
+    return normalizeShape(rest);
+  }
+  if (
+    shape.type === 'rectangle' &&
+    (shape.radius !== undefined || shape.radiusX !== undefined || shape.radiusY !== undefined)
+  ) {
+    const { radius, radiusX, radiusY, ...rest } = shape;
+    void radius;
+    void radiusX;
+    void radiusY;
+    return normalizeShape(rest);
+  }
+  if (shape.type === 'rectangle' || shape.type === 'diamond' || shape.type === 'image' || shape.type === 'frame') {
     // Repair negatives AND non-finite geometry (NaN/Infinity from a
     // zero-distance pointer release) so Konva never sees bad attrs.
     const bad =
@@ -564,6 +646,63 @@ export function normalizeShape(shape) {
     if (t !== 'straight' && t !== 'curved' && t !== 'elbow') {
       return { ...shape, arrowType: DEFAULTS.arrowType };
     }
+  }
+  if (shape.type === 'image') {
+    const out = { ...shape };
+    let dirty = false;
+    if (typeof out.src !== 'string' || !out.src.startsWith('data:')) return shape;
+    for (const k of ['x', 'y']) {
+      if (!isFiniteNum(out[k])) {
+        out[k] = 0;
+        dirty = true;
+      }
+    }
+    for (const k of ['width', 'height']) {
+      if (!isFiniteNum(out[k]) || out[k] <= 0) {
+        out[k] = k === 'width' ? 320 : 240;
+        dirty = true;
+      }
+    }
+    if (!isFiniteNum(out.rotation)) {
+      out.rotation = 0;
+      dirty = true;
+    }
+    return dirty ? out : shape;
+  }
+  if (shape.type === 'frame') {
+    const out = { ...shape };
+    let dirty = false;
+    if (typeof out.title !== 'string' || !out.title) {
+      out.title = 'Frame';
+      dirty = true;
+    }
+    for (const k of ['x', 'y', 'width', 'height']) {
+      if (!isFiniteNum(out[k])) {
+        out[k] = 0;
+        dirty = true;
+      }
+    }
+    if (out.width < 0) {
+      out.width = Math.abs(out.width);
+      dirty = true;
+    }
+    if (out.height < 0) {
+      out.height = Math.abs(out.height);
+      dirty = true;
+    }
+    if (!out.fill) {
+      out.fill = 'rgba(241, 245, 249, 0.35)';
+      dirty = true;
+    }
+    if (!out.stroke) {
+      out.stroke = '#94a3b8';
+      dirty = true;
+    }
+    if (!Array.isArray(out.dash)) {
+      out.dash = [6, 6];
+      dirty = true;
+    }
+    return dirty ? out : shape;
   }
   if (shape.type === 'text') {
     const out = { ...shape };
@@ -635,7 +774,7 @@ export function bakeTransform(shape, { scaleX, scaleY, rotation }) {
   const sy = isFiniteNum(scaleY) ? scaleY : 1;
   if (sx === 1 && sy === 1) return Object.keys(changes).length ? changes : null;
 
-  if (shape.type === 'rectangle' || shape.type === 'diamond') {
+  if (shape.type === 'rectangle' || shape.type === 'diamond' || shape.type === 'image' || shape.type === 'frame') {
     const w = isFiniteNum(shape.width) ? shape.width : 0;
     const h = isFiniteNum(shape.height) ? shape.height : 0;
     const nw = Math.abs(w * sx);
@@ -697,6 +836,120 @@ export function bakeTransform(shape, { scaleX, scaleY, rotation }) {
   return Object.keys(changes).length ? changes : null;
 }
 
+/**
+ * Morphs a shape into a target type while preserving its visual bounding box,
+ * style properties (stroke, fill, opacity, rotation), and unique ID.
+ *
+ * Konva's geometric models differ per type (rectangles use top-left origin
+ * + width/height; circles use center origin + radius), so the morph always
+ * routes through the source's visual bounding box [x, y, width, height] —
+ * simply flipping `shape.type` would collapse or offset the shape.
+ * The result is built fresh from shared `base` props, so no stale
+ * geometry keys (`width` on circles, `radius` on rectangles) survive to
+ * pollute JSON-merge updates.
+ */
+export function morphShape(shape, targetType) {
+  if (!shape || shape.type === targetType) return shape;
+
+  // 1. Calculate the standard visual bounding box [x, y, width, height] of the source shape
+  let x = shape.x ?? 0;
+  let y = shape.y ?? 0;
+  let width = shape.width ?? 100;
+  let height = shape.height ?? 100;
+
+  if (shape.type === 'circle') {
+    const rx = shape.radiusX ?? shape.radius ?? 50;
+    const ry = shape.radiusY ?? shape.radius ?? 50;
+    x = shape.x - rx;
+    y = shape.y - ry;
+    width = rx * 2;
+    height = ry * 2;
+  }
+
+  if (
+    !isFiniteNum(x) ||
+    !isFiniteNum(y) ||
+    !isFiniteNum(width) ||
+    !isFiniteNum(height) ||
+    !(width > 0) ||
+    !(height > 0)
+  ) {
+    return shape;
+  }
+
+  // Base shared properties to keep intact
+  const base = {
+    id: shape.id,
+    type: targetType,
+    stroke: shape.stroke ?? '#1e1e1e',
+    strokeWidth: shape.strokeWidth ?? 2,
+    fill: shape.fill ?? 'transparent',
+    opacity: shape.opacity ?? 1,
+    rotation: shape.rotation ?? 0,
+    dash: shape.dash,
+    strokeStyle: shape.strokeStyle,
+  };
+
+  // 2. Build target shape structure according to Konva's renderer schema
+  switch (targetType) {
+    case 'circle': {
+      const radius = Math.max(1, Math.min(width, height) / 2);
+      return {
+        ...base,
+        x: x + width / 2,
+        y: y + height / 2,
+        radius,
+        radiusX: Math.max(1, width / 2),
+        radiusY: Math.max(1, height / 2),
+      };
+    }
+
+    case 'rectangle':
+    case 'frame': {
+      return {
+        ...base,
+        x,
+        y,
+        width,
+        height,
+        roundness: shape.roundness ?? 'sharp',
+      };
+    }
+
+    case 'diamond': {
+      return {
+        ...base,
+        x,
+        y,
+        width,
+        height,
+      };
+    }
+
+    default:
+      console.warn(`[Morph] Unsupported morph target: ${targetType}`);
+      return shape;
+  }
+}
+
+/**
+ * In-place morph between rectangle <-> circle.
+ * Thin wrapper over `morphShape` preserving the original contract:
+ * returns a NEW plain shape object, or null for unsupported conversions
+ * (use `morphShape` directly for diamond/frame targets).
+ */
+export function convertShapeType(shape, targetType) {
+  if (!shape || typeof shape !== 'object') return null;
+  const target = typeof targetType === 'string' ? targetType.toLowerCase() : '';
+  const normTarget = target === 'ellipse' ? 'circle' : target === 'rect' ? 'rectangle' : target;
+  if (normTarget !== 'rectangle' && normTarget !== 'circle') return null;
+  const source = typeof shape.type === 'string' ? shape.type.toLowerCase() : '';
+  if (source !== 'rectangle' && source !== 'circle') return null;
+  if (source === normTarget) return { ...shape, type: normTarget };
+  const morphed = morphShape(shape, normTarget);
+  return morphed === shape ? null : morphed;
+}
+
 /** Strip anything non-serializable; returns a JSON-safe clone or null. */
 export function serializeShape(shape) {
   try {
@@ -720,13 +973,64 @@ export function serializeShapes(shapes) {
 
 export function isValidShape(shape) {
   if (!shape || typeof shape !== 'object') return false;
-  if (typeof shape.id !== 'string' || !shape.id.startsWith('shape-')) return false;
+  // Canonical `shape-<uuid>` plus Week-2 `img-*` / `frame-*` ids.
+  if (typeof shape.id !== 'string' || !shape.id) return false;
+  const okId =
+    shape.id.startsWith('shape-') || shape.id.startsWith('img-') || shape.id.startsWith('frame-');
+  if (!okId) return false;
   if (!SHAPE_TYPES.includes(shape.type)) {
     // Back-compat: legacy freehand blobs were stored as type 'line',
     // and some callers emit type 'pen' for the freehand tool.
     if (shape.type !== 'line' && shape.type !== 'pen') return false;
   }
   return true;
+}
+
+/**
+ * Center point of a shape in WORLD coordinates (for frame containment).
+ * Point-path shapes use their bounding-box center; positioned shapes use
+ * their geometric center.
+ */
+export function shapeCenter(shape) {
+  if (!shape || typeof shape !== 'object') return null;
+  if (
+    shape.type === 'freehand' ||
+    shape.type === 'pen' ||
+    shape.type === 'line' ||
+    shape.type === 'arrow'
+  ) {
+    const b = getShapeBounds(shape);
+    if (!b) return null;
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  }
+  if (shape.type === 'circle') {
+    return isFiniteNum(shape.x) && isFiniteNum(shape.y) ? { x: shape.x, y: shape.y } : null;
+  }
+  if (shape.type === 'text') {
+    const b = getShapeBounds(shape);
+    if (!b) return null;
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  }
+  // rectangle / diamond / image / frame: x/y is top-left.
+  if (!isFiniteNum(shape.x) || !isFiniteNum(shape.y)) return null;
+  return {
+    x: shape.x + (isFiniteNum(shape.width) ? shape.width : 0) / 2,
+    y: shape.y + (isFiniteNum(shape.height) ? shape.height : 0) / 2,
+  };
+}
+
+/** True when a shape's center falls inside a frame's bounds. */
+export function isShapeInsideFrame(shape, frame) {
+  const c = shapeCenter(shape);
+  if (!c || !frame || frame.type !== 'frame') return false;
+  if (!isFiniteNum(frame.x) || !isFiniteNum(frame.y)) return false;
+  if (!isFiniteNum(frame.width) || !isFiniteNum(frame.height)) return false;
+  return (
+    c.x >= frame.x &&
+    c.x <= frame.x + frame.width &&
+    c.y >= frame.y &&
+    c.y <= frame.y + frame.height
+  );
 }
 
 /**

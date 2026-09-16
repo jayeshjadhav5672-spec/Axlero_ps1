@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 function ToolIcon({ children }) {
   return (
@@ -96,6 +96,18 @@ const TOOLS = [
     ),
   },
   {
+    value: 'frame',
+    label: 'Frame',
+    shortcut: 'F',
+    title: 'Frame (F — drag to create a slide container; moving it carries children)',
+    icon: (
+      <>
+        <rect x="3" y="5" width="18" height="15" rx="2" strokeDasharray="4 3" />
+        <line x1="3" y1="9" x2="21" y2="9" strokeDasharray="4 3" />
+      </>
+    ),
+  },
+  {
     value: 'eraser',
     label: 'Eraser',
     shortcut: 'E',
@@ -120,14 +132,6 @@ const PAN_TOOL = {
     </>
   ),
 };
-
-const QUICK_COLORS = ['#1e1e1e', '#e03131', '#2f9e44', '#1971c2', '#f08c00'];
-
-const QUICK_WIDTHS = [
-  { label: 'S', width: 2 },
-  { label: 'M', width: 4 },
-  { label: 'L', width: 6 },
-];
 
 function ActionIcon({ children }) {
   return (
@@ -167,30 +171,74 @@ const TRASH_ICON = (
     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
   </>
 );
+
+// Week-2 productivity icons (same 24px stroke style as the tool island).
+const IMAGE_ICON = (
+  <>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <circle cx="8.5" cy="8.5" r="1.5" />
+    <polyline points="21 15 16 10 5 21" />
+  </>
+);
+
+const WAND_ICON = (
+  <>
+    <path d="M15 4V2m0 20v-2m5-13 1.5-1.5M9.5 9.5 8 8m11 11-1.5-1.5M4.5 19.5 6 18" />
+    <path d="m14 6 2.5 2.5L8 17H5.5v-2.5L14 6z" />
+  </>
+);
+
+const MERMAID_ICON = (
+  <>
+    <rect x="3" y="3" width="7" height="7" rx="1.5" />
+    <rect x="14" y="14" width="7" height="7" rx="1.5" />
+    <path d="M10 6.5h4a2 2 0 0 1 2 2V14" />
+    <polyline points="12.5 12 14.5 14 12.5 16" />
+  </>
+);
+
+const DOWNLOAD_ICON = (
+  <>
+    <path d="M12 3v12" />
+    <polyline points="7 10 12 15 17 10" />
+    <path d="M4 21h16" />
+  </>
+);
+
+const EXPORT_OPTIONS = [
+  { value: 'json', label: 'JSON (.json)' },
+  { value: 'png', label: 'PNG (.png)' },
+  { value: 'jpeg', label: 'JPEG (.jpg)' },
+  { value: 'avif', label: 'AVIF (.avif)' },
+  { value: 'svg', label: 'SVG (.svg)' },
+  { value: 'pdf', label: 'PDF (.pdf)' },
+];
 const BTN_BASE =
   'relative flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg border text-[15px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-1';
 const BTN_ACTIVE = 'bg-violet-100 text-violet-700 border-violet-200 shadow-[inset_0_0_0_1px_rgba(109,88,246,0.15)]';
 const BTN_IDLE = 'border-transparent text-gray-700 hover:bg-gray-100 hover:text-gray-900';
 
 /**
- * Toolbar — full-width 3-section header bar docked at the top of the
- * whiteboard: drawing tools (left), quick style swatches (center), canvas
- * status (shape count + zoom steppers) with history/actions + 3-dot
- * customization toggle (right). Back-compat: still
- * accepts the legacy props (locked, onLockedChange, hasSelection, onDelete)
- * and ignores them. Style/actions/status props are all optional — each section
- * degrades gracefully when its handlers are absent.
+ * Toolbar — full-width 2-section header bar docked at the top of the
+ * whiteboard: drawing tools (left), canvas status (shape count + zoom
+ * steppers) with history/actions + 3-dot customization toggle (right).
+ * Stroke/fill color controls live exclusively in the PropertySidebar
+ * customization panel — this bar carries no color swatches by design.
+ * Back-compat: still accepts the legacy props (locked, onLockedChange,
+ * hasSelection, onDelete, color, strokeWidth, currentStyle, onColorChange,
+ * onStrokeWidthChange, onStyleChange) and ignores them. Status/action
+ * props are all optional — each section degrades gracefully when its
+ * handlers are absent.
  */
 export default function Toolbar({
   tool,
   onToolChange,
   locked,
   onLockedChange,
-  // legacy (ignored, kept for integration compat)
+  // legacy (ignored, kept for integration compat — color controls live
+  // exclusively in the PropertySidebar customization panel)
   hasSelection,
   onDelete,
-  // quick styles: prefer currentStyle/onStyleChange, fall back to the
-  // legacy color/strokeWidth + onColorChange/onStrokeWidthChange pair.
   color,
   strokeWidth,
   currentStyle,
@@ -212,26 +260,71 @@ export default function Toolbar({
   showPropertiesToggle = false,
   isPropertiesOpen = false,
   onToggleProperties,
+  // Week-2 productivity toolset (all optional; sections hide when absent)
+  onInsertImage,
+  autoDetect = false,
+  onToggleAutoDetect,
+  onOpenMermaid,
+  onExport,
 }) {
   void locked;
   void onLockedChange;
   void hasSelection;
   void onDelete;
+  void color;
+  void strokeWidth;
+  void currentStyle;
+  void onColorChange;
+  void onStrokeWidthChange;
+  void onStyleChange;
 
-  const activeStroke = currentStyle?.stroke ?? color;
-  const activeWidth = currentStyle?.strokeWidth ?? strokeWidth;
-  const emitStyle = (patch) => {
-    if (onStyleChange) {
-      onStyleChange(patch);
-      return;
-    }
-    if (patch.stroke !== undefined) onColorChange?.(patch.stroke);
-    if (patch.strokeWidth !== undefined) onStrokeWidthChange?.(patch.strokeWidth);
-  };
-  const showStyles = Boolean(onStyleChange || onColorChange || onStrokeWidthChange);
   const showUndo = Boolean(onUndo);
   const showRedo = Boolean(onRedo);
   const showClear = Boolean(onClear);
+  const showImage = Boolean(onInsertImage);
+  const showDetect = Boolean(onToggleAutoDetect);
+  const showMermaid = Boolean(onOpenMermaid);
+  const showExport = Boolean(onExport);
+  const showProductivity = showImage || showDetect || showMermaid || showExport;
+  const [exportOpen, setExportOpen] = useState(false);
+  const exportRef = useRef(null);
+  const exportBtnRef = useRef(null);
+  const exportMenuRef = useRef(null);
+  // Fixed-position menu anchor (viewport coords measured from the toggle
+  // button when the menu opens). The menu renders with `position: fixed`
+  // so it escapes the tool strip's `overflow-x-auto` clipping — an
+  // `absolute` child here would be cut off at the 52px bar (overflow-y
+  // computes to auto) and its items would never receive clicks.
+  const [exportMenuPos, setExportMenuPos] = useState({ top: 0, left: 0 });
+  const openExportMenu = useCallback(() => {
+    const rect = exportBtnRef.current?.getBoundingClientRect?.();
+    if (rect) setExportMenuPos({ top: rect.bottom + 8, left: Math.max(8, rect.left) });
+    setExportOpen(true);
+  }, []);
+  useEffect(() => {
+    if (!exportOpen) return undefined;
+    const onPointerDown = (e) => {
+      const insideBtn = exportRef.current?.contains(e.target);
+      const insideMenu = exportMenuRef.current?.contains(e.target);
+      if (!insideBtn && !insideMenu) setExportOpen(false);
+    };
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') setExportOpen(false);
+    };
+    // The menu is viewport-anchored (position: fixed): dismiss it on
+    // scroll/resize so it never floats detached from its toggle button.
+    const onViewportShift = () => setExportOpen(false);
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    window.addEventListener('scroll', onViewportShift, true);
+    window.addEventListener('resize', onViewportShift);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('scroll', onViewportShift, true);
+      window.removeEventListener('resize', onViewportShift);
+    };
+  }, [exportOpen]);
   // Navbar status widgets: shape-count badge always reflects the rendered
   // array; zoom steppers delegate clamping to the shell's onZoomChange
   // (the canvas hook owns the [MIN_ZOOM, MAX_ZOOM] range).
@@ -292,59 +385,112 @@ export default function Toolbar({
           {PAN_TOOL.shortcut}
         </span>
       </button>
-      </div>
 
-      {showStyles && (
+      {showProductivity && (
         <>
-          <div className="mx-2 h-7 w-px shrink-0 bg-gray-200" aria-hidden="true" />
-
-          {/* SECTION 2: QUICK STYLE PICKERS (CENTER) */}
-          <div className="hidden min-w-0 flex-shrink items-center gap-2 sm:flex">
-            {/* 5 quick color dots for the active stroke color */}
-            <div className="flex items-center gap-1.5" role="group" aria-label="Quick stroke color">
-              {QUICK_COLORS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => emitStyle({ stroke: c })}
-                  className={`h-6 w-6 shrink-0 rounded-full border transition hover:scale-110 ${
-                    activeStroke === c ? 'ring-2 ring-indigo-500 ring-offset-1' : 'border-gray-300'
-                  }`}
-                  style={{ backgroundColor: c }}
-                  title={c}
-                  aria-label={`Stroke color ${c}`}
-                  aria-pressed={activeStroke === c}
-                />
-              ))}
-            </div>
-
-            <div className="mx-1 h-6 w-px shrink-0 bg-gray-200" aria-hidden="true" />
-
-            {/* Quick stroke-width toggle (S/M/L) */}
-            <div className="flex items-center rounded-lg bg-gray-100 p-1" role="group" aria-label="Quick stroke width">
-              {QUICK_WIDTHS.map((w) => (
-                <button
-                  key={w.label}
-                  type="button"
-                  onClick={() => emitStyle({ strokeWidth: w.width })}
-                  className={`rounded-md px-2.5 py-1 text-sm font-medium ${
-                    activeWidth === w.width ? 'bg-white text-indigo-600 shadow-xs' : 'text-gray-500 hover:text-gray-900'
-                  }`}
-                  title={`Stroke width ${w.label} (${w.width}px)`}
-                  aria-label={`Stroke width ${w.label}`}
-                  aria-pressed={activeWidth === w.width}
+          <span className="mx-1 h-7 w-px shrink-0 bg-gray-200" aria-hidden="true" />
+          {showImage && (
+            <button
+              type="button"
+              title="Insert image (file picker, drag & drop, or Ctrl/⌘+V paste)"
+              aria-label="Insert image"
+              onClick={onInsertImage}
+              className={`${BTN_BASE} shrink-0 ${BTN_IDLE}`}
+            >
+              <ToolIcon>{IMAGE_ICON}</ToolIcon>
+            </button>
+          )}
+          {showDetect && (
+            <button
+              type="button"
+              title={
+                tool === 'pen' || tool === 'freehand'
+                  ? 'Auto-detect shapes: convert rough pen strokes to circles, rectangles, lines'
+                  : 'Auto-detect shapes (pen only — clicking switches to the Pen tool)'
+              }
+              aria-label="Auto-detect shapes"
+              aria-pressed={autoDetect}
+              onClick={() => {
+                // Auto-detect is locked to the Pen tool: engaging it from
+                // any other tool first switches to Pen, so recognition
+                // never runs under rectangle/select/etc.
+                if (tool !== 'pen' && tool !== 'freehand') onToolChange?.('freehand');
+                onToggleAutoDetect?.();
+              }}
+              className={`${BTN_BASE} shrink-0 ${autoDetect ? BTN_ACTIVE : BTN_IDLE}`}
+            >
+              <ToolIcon>{WAND_ICON}</ToolIcon>
+            </button>
+          )}
+          {showMermaid && (
+            <button
+              type="button"
+              title="Mermaid diagram: compile flowchart syntax to shapes"
+              aria-label="Mermaid diagram"
+              onClick={onOpenMermaid}
+              className={`${BTN_BASE} shrink-0 ${BTN_IDLE}`}
+            >
+              <ToolIcon>{MERMAID_ICON}</ToolIcon>
+            </button>
+          )}
+          {showExport && (
+            <div className="relative shrink-0" ref={exportRef}>
+              <button
+                ref={exportBtnRef}
+                type="button"
+                data-testid="export-button"
+                title="Export canvas (JSON, PNG, JPEG, AVIF, SVG, PDF)"
+                aria-label="Export canvas"
+                aria-expanded={exportOpen}
+                aria-haspopup="menu"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  console.log('[Export UI] Export toggle clicked, open:', !exportOpen);
+                  if (exportOpen) setExportOpen(false);
+                  else openExportMenu();
+                }}
+                className={`pointer-events-auto relative ${BTN_BASE} ${exportOpen ? BTN_ACTIVE : BTN_IDLE}`}
+              >
+                <ToolIcon>{DOWNLOAD_ICON}</ToolIcon>
+              </button>
+              {exportOpen && (
+                <div
+                  ref={exportMenuRef}
+                  role="menu"
+                  aria-label="Export formats"
+                  data-testid="export-menu"
+                  className="pointer-events-auto fixed z-[100] w-44 overflow-hidden rounded-xl border border-gray-200 bg-white py-1 shadow-xl"
+                  style={{ top: exportMenuPos.top, left: exportMenuPos.left }}
                 >
-                  {w.label}
-                </button>
-              ))}
+                  {EXPORT_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      role="menuitem"
+                      data-testid={`export-format-${opt.value}`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        console.log('[Export UI] Button clicked successfully:', opt.value);
+                        setExportOpen(false);
+                        onExport(opt.value);
+                      }}
+                      className="pointer-events-auto block w-full cursor-pointer px-4 py-2 text-left text-sm text-gray-700 hover:bg-violet-50 hover:text-violet-700"
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
+          )}
         </>
       )}
+      </div>
 
       <div className="mx-2 h-7 w-px shrink-0 bg-gray-200" aria-hidden="true" />
 
-      {/* SECTION 3: STATUS + ACTIONS & MORE MENU (RIGHT) */}
+      {/* SECTION 2: STATUS + ACTIONS & MORE MENU (RIGHT) */}
       <div className="flex shrink-0 items-center gap-2">
         {/* Shape count badge */}
         <span className="text-sm font-medium text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full whitespace-nowrap">

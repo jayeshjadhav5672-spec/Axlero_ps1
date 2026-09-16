@@ -1,5 +1,5 @@
-import React from 'react';
-import { Arrow, Circle, Ellipse, Line, Rect, Text } from 'react-konva';
+import React, { useEffect, useState } from 'react';
+import { Arrow, Circle, Ellipse, Group, Image as KonvaImage, Line, Rect, Text } from 'react-konva';
 import {
   circleRadii,
   dashForStyle,
@@ -20,6 +20,83 @@ import {
 const safeX = (v) => (isFiniteNum(v) ? v : 0);
 const safeCoord = (v) => (isFiniteNum(v) ? v : 0);
 const safeSize = (v) => (isFiniteNum(v) ? Math.max(1, v) : 1);
+
+/**
+ * ImageShape — renders `type: 'image'` via an HTML Image() instance.
+ * Hooks live here (not in the map loop) so src swaps reload cleanly.
+ */
+function ImageShape({ shape, common }) {
+  const [img, setImg] = useState(null);
+  useEffect(() => {
+    if (!shape.src || typeof shape.src !== 'string') {
+      setImg(null);
+      return undefined;
+    }
+    let cancelled = false;
+    const htmlImg = new window.Image();
+    // CORS: request remote image bytes with CORS so the canvas never
+    // becomes tainted (tainted canvas makes stage.toDataURL() throw a
+    // security DOMException on export). No-op for data:/blob: URLs —
+    // local paste/drop ingestion already stores base64 data URLs.
+    htmlImg.crossOrigin = 'anonymous';
+    htmlImg.onload = () => {
+      if (!cancelled) setImg(htmlImg);
+    };
+    htmlImg.onerror = () => {
+      if (!cancelled) setImg(null);
+    };
+    htmlImg.src = shape.src;
+    return () => {
+      cancelled = true;
+    };
+  }, [shape.src]);
+  if (!img) return null;
+  return (
+    <KonvaImage
+      key={shape.id}
+      {...common}
+      image={img}
+      x={safeX(shape.x)}
+      y={safeX(shape.y)}
+      width={safeSize(shape.width)}
+      height={safeSize(shape.height)}
+    />
+  );
+}
+
+/**
+ * FrameShape — slide-container Group: dashed bounds + title label pinned
+ * above the top-left edge. The Group owns drag/transform (registered under
+ * shape.id); children are sibling shapes moved by translation delta.
+ */
+function FrameShape({ shape, common }) {
+  const w = safeSize(shape.width);
+  const h = safeSize(shape.height);
+  return (
+    <Group key={shape.id} {...common} x={safeX(shape.x)} y={safeX(shape.y)}>
+      <Rect
+        width={w}
+        height={h}
+        fill={shape.fill ?? 'rgba(241, 245, 249, 0.35)'}
+        stroke={shape.stroke ?? '#94a3b8'}
+        strokeWidth={isFiniteNum(shape.strokeWidth) ? shape.strokeWidth : 2}
+        dash={shape.dash ?? [6, 6]}
+        cornerRadius={6}
+        listening
+      />
+      <Text
+        x={8}
+        y={-24}
+        text={shape.title ?? 'Frame'}
+        fontSize={14}
+        fontFamily="sans-serif"
+        fontStyle="600"
+        fill="#64748b"
+        listening={false}
+      />
+    </Group>
+  );
+}
 
 /**
  * ShapeRenderer — Sayon (Whiteboard / Konva.js Engineer)
@@ -419,6 +496,14 @@ export default function ShapeRenderer({
           onDblTap={() => onTextDoubleClick?.(shape)}
         />
       );
+    }
+
+    if (shape.type === 'image') {
+      return <ImageShape key={shape.id} shape={shape} common={common} />;
+    }
+
+    if (shape.type === 'frame') {
+      return <FrameShape key={shape.id} shape={shape} common={common} />;
     }
 
     return null;

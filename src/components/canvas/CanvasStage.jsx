@@ -40,6 +40,23 @@ export default function CanvasStage({
   const containerRef = useRef(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
 
+  // Publish the live Konva Stage to the whiteboard stage registry so the
+  // export utility (`src/utils/exportUtils.js`) can resolve it even if the
+  // `stageRef` prop chain ever disconnects (fail-safe fallback; the primary
+  // path stays `stageRef.current`). ESM-bundled Konva never populates
+  // `window.Konva.stages`, hence this explicit registry.
+  useEffect(() => {
+    const stage = stageRef?.current;
+    if (!stage || typeof window === 'undefined') return undefined;
+    window.__syncspaceStages = window.__syncspaceStages ?? [];
+    if (!window.__syncspaceStages.includes(stage)) window.__syncspaceStages.push(stage);
+    return () => {
+      if (window.__syncspaceStages) {
+        window.__syncspaceStages = window.__syncspaceStages.filter((s) => s !== stage);
+      }
+    };
+  }, [stageRef, size]);
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return undefined;
@@ -97,7 +114,10 @@ export default function CanvasStage({
   // Selection mode AND while the Arrow/Line tool (or any other styling
   // tool) is active. Only the text tool is excluded (it owns all pointer
   // events for text placement).
+  // Images resize proportionally (Transformer keepRatio); all other
+  // types keep freeform scaling.
   const selectedShape = shapes?.find((s) => s.id === selectedShapeId) ?? null;
+  const selectedIsImage = selectedShape?.type === 'image';
   const showBendHandles =
     tool !== 'text' &&
     (selectedShape?.type === 'arrow' || selectedShape?.type === 'line');
@@ -160,6 +180,7 @@ export default function CanvasStage({
             <Transformer
               ref={transformerRef}
               rotateEnabled
+              keepRatio={selectedIsImage}
               borderStroke={EXCALIDRAW_ACCENT}
               borderStrokeWidth={1.5}
               anchorStroke={EXCALIDRAW_ACCENT}
