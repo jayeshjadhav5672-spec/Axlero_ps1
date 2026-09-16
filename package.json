@@ -18,7 +18,8 @@
     "react-dom": "^19.3.0",
     "react-konva": "^19.2.7",
     "socket.io": "^4.8.1",
-    "socket.io-client": "^4.8.1"
+    "socket.io-client": "^4.8.1",
+    "yjs": "^13.6.32"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
