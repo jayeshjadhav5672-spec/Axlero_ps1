@@ -31,10 +31,10 @@ export default function WorkspaceHeader({
     >
       <div className="flex min-w-0 flex-1 items-center gap-4">
         <span className="flex shrink-0 items-center gap-2.5">
-          <svg className="h-7 w-7 text-teal-700" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <svg className="h-7 w-7 text-[#111111]" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
           </svg>
-          <span className="text-lg font-bold tracking-tight text-slate-900">SyncSpace</span>
+          <span className="text-lg font-bold tracking-tight text-[#111111]">SyncSpace</span>
         </span>
         <span className="hidden h-8 w-px shrink-0 bg-slate-200 sm:inline-block" aria-hidden="true" />
         <RoomInfo roomId={roomId} roomName={roomName} onLeave={onLeaveRoom} onShare={onShareRoom} />
