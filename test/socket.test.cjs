@@ -214,3 +214,31 @@ test("switching rooms leaves previous room transport and presence", async () => 
     /isolated/
   );
 });
+
+test("code:update rejects a client outside the room and never broadcasts it", async () => {
+  const sender = client();
+  const peer = client();
+  await Promise.all([waitForEvent(sender, "connect"), waitForEvent(peer, "connect")]);
+
+  sender.emit("room:join", { roomId: "code-room", userId: "sender" });
+  await waitForEvent(sender, "room:joined");
+  peer.emit("room:join", { roomId: "code-room", userId: "peer" });
+  await waitForEvent(peer, "room:joined");
+
+  // Peer must not receive the spoofed update; sender must get the error.
+  const leakedToPeer = waitForEvent(peer, "code:update");
+  const senderError = waitForEvent(sender, "connection:error");
+  sender.emit("code:update", { roomId: "different-room", data: "const hacked = true;" });
+
+  const [errPayload] = await senderError;
+  assert.equal(errPayload.event, "code:update");
+  assert.match(errPayload.message, /does not belong/);
+
+  await assert.rejects(
+    Promise.race([
+      leakedToPeer,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("not-leaked")), 150)),
+    ]),
+    /not-leaked/,
+  );
+});
