@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import useWhiteboardState from './hooks/useWhiteboardState.js';
+import { autoStraightenStroke } from './utils/shapeRecognition.js';
 import {
   bakeDragEnd,
   bakeTransform,
   circleRadius,
+  createFrameShape,
   createShape,
   DEFAULTS,
   estimateTextWidth,
   isFiniteNum,
+  isShapeInsideFrame,
   normalizeRect,
   sanitizePoints,
 } from './utils/shapes.js';
@@ -57,6 +60,9 @@ export default function useCanvasDrawing({
   // Called after a shape is committed (draw or text). The shell uses it
   // to return to select/move mode so no explicit Select button is needed.
   onDrawingCommitted,
+  // Week 2: "Draw to Shape" toggle — when true, finished freehand strokes
+  // are analyzed (circle/rect/line) and replaced by clean shapes.
+  autoDetect = false,
 } = {}) {
   // ---- shape store (local state + normalization + collab callbacks) ----
   const {
@@ -228,6 +234,23 @@ export default function useCanvasDrawing({
       // Drawing tools: begin draft (not yet in shapes array).
       // 'pen' is an alias of 'freehand' (legacy callers / spec wording).
       // All points are absolute world coords from getRelativePointerPosition().
+      // 'frame' seeds a slide-container draft (drag-to-create bounds).
+      if (tool === 'frame') {
+        const frameCount = (shapes ?? []).filter((s) => s?.type === 'frame').length;
+        const seed = createFrameShape({
+          x: world.x,
+          y: world.y,
+          width: 0,
+          height: 0,
+          count: frameCount + 1,
+        });
+        if (!seed) return;
+        isDrawingRef.current = true;
+        drawStartRef.current = world;
+        setDraftShape(seed);
+        selectShape(null);
+        return;
+      }
       const drawTool = tool === 'pen' ? 'freehand' : tool;
       const seed = createShape(drawTool, world, {
         color,
@@ -251,7 +274,7 @@ export default function useCanvasDrawing({
       setDraftShape(seed);
       if (drawTool !== 'freehand') selectShape(null);
     },
-    [color, fill, fontFamily, fontFamilyKey, fontSize, textAlign, getWorldFromEvent, arrowType, endArrowhead, opacity, roughness, roundness, selectShape, startArrowhead, strokeStyle, strokeWidth, textEditor, toScreen, tool],
+    [color, fill, fontFamily, fontFamilyKey, fontSize, textAlign, getWorldFromEvent, arrowType, endArrowhead, opacity, roughness, roundness, selectShape, shapes, startArrowhead, strokeStyle, strokeWidth, textEditor, toScreen, tool],
   );
 
   const handleStageMouseMove = useCallback(
@@ -278,7 +301,8 @@ export default function useCanvasDrawing({
           break;
         }
         case 'rectangle':
-        case 'diamond': {
+        case 'diamond':
+        case 'frame': {
           const norm = normalizeRect(start.x, start.y, world.x, world.y);
           setDraftShape((d) => (d ? { ...d, ...norm } : d));
           break;
@@ -312,7 +336,13 @@ export default function useCanvasDrawing({
 
     // Discard degenerate shapes (click without drag) and anything with
     // non-finite geometry so NaN never reaches Konva or the store.
-    if (finished.type === 'rectangle' || finished.type === 'diamond') {
+    if (finished.type === 'frame') {
+      const w = finished.width;
+      const h = finished.height;
+      if (!isFiniteNum(w) || !isFiniteNum(h)) return;
+      if (!isFiniteNum(finished.x) || !isFiniteNum(finished.y)) return;
+      if (Math.abs(w) < 10 || Math.abs(h) < 10) return;
+    } else if (finished.type === 'rectangle' || finished.type === 'diamond') {
       const w = finished.width;
       const h = finished.height;
       if (!isFiniteNum(w) || !isFiniteNum(h)) return;
@@ -336,6 +366,23 @@ export default function useCanvasDrawing({
       const dy = clean[clean.length - 1] - clean[1];
       if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
       if (Math.hypot(dx, dy) < 2) return;
+      // Week 2 "Draw to Shape": locked to the Pen tool — recognized only
+      // when the stroke was drawn with tool === 'pen'/'freehand' AND the
+      // toggle is on. Strokes finished under any other tool stay raw, and
+      // switching away from Pen bypasses recognition entirely.
+      const isPenTool = tool === 'pen' || tool === 'freehand';
+      if (autoDetect && isPenTool && finished.type === 'freehand') {
+        const recognized = autoStraightenStroke(
+          { ...finished, points: clean },
+          { color, strokeWidth, fill, strokeStyle, opacity, roughness, roundness },
+        );
+        if (recognized) {
+          commitCreate(recognized);
+          selectShape(recognized.id);
+          onDrawingCommitted?.();
+          return;
+        }
+      }
       commitCreate({ ...finished, points: clean });
       selectShape(finished.id);
       onDrawingCommitted?.();
@@ -345,7 +392,7 @@ export default function useCanvasDrawing({
     commitCreate(finished);
     selectShape(finished.id);
     onDrawingCommitted?.();
-  }, [commitCreate, draftShape, onDrawingCommitted, selectShape]);
+  }, [autoDetect, tool, color, commitCreate, draftShape, fill, onDrawingCommitted, opacity, roughness, roundness, selectShape, strokeStyle, strokeWidth]);
 
   // ---- zoom (wheel) + pan ----
   const handleWheel = useCallback((event) => {
@@ -499,6 +546,47 @@ export default function useCanvasDrawing({
       if (!isFiniteNum(nodeX) || !isFiniteNum(nodeY)) return;
       const shape = shapes.find((s) => s.id === shapeId);
       if (!shape) return;
+      // Frame move: shift every child whose center falls inside the
+      // frame's PRE-move bounds by the same (dx, dy) translation, then
+      // commit the frame's own new position. Children that are frames
+      // themselves move without recursing (their children stay put unless
+      // also inside the moved frame).
+      if (shape.type === 'frame') {
+        const dx = nodeX - shape.x;
+        const dy = nodeY - shape.y;
+        if (isFiniteNum(dx) && isFiniteNum(dy) && (dx !== 0 || dy !== 0)) {
+          for (const child of shapes) {
+            if (!child || child.id === shapeId || child.type === 'frame') continue;
+            if (!isShapeInsideFrame(child, shape)) continue;
+            if (
+              child.type === 'freehand' ||
+              child.type === 'pen' ||
+              child.type === 'line' ||
+              child.type === 'arrow'
+            ) {
+              const src = sanitizePoints(child.points);
+              if (src.length < 4) continue;
+              const moved = src.map((v, i) => (i % 2 === 0 ? v + dx : v + dy));
+              if (moved.some((v) => !Number.isFinite(v))) continue;
+              commitUpdate(child.id, { x: 0, y: 0, points: moved });
+            } else if (isFiniteNum(child.x) && isFiniteNum(child.y)) {
+              commitUpdate(child.id, { x: child.x + dx, y: child.y + dy });
+            }
+          }
+        }
+        const node = shapeNodesRef.current.get(shapeId);
+        if (node && (nodeX !== shape.x || nodeY !== shape.y)) {
+          commitUpdate(shapeId, { x: nodeX, y: nodeY });
+        }
+        const transformer = transformerRef.current;
+        if (transformer && node && typeof node.getStage === 'function') {
+          if (!transformer.nodes().includes(node)) transformer.nodes([node]);
+          transformer.getLayer()?.batchDraw();
+        } else {
+          transformer?.getLayer()?.batchDraw();
+        }
+        return;
+      }
       // nodeX/nodeY are the exact absolute node position Konva already
       // moved to. For absolute-points shapes (freehand/pen/line/arrow)
       // bakeDragEnd folds the offset into a fresh points array; for

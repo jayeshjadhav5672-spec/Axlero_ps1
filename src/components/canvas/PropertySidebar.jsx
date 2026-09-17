@@ -715,11 +715,58 @@ const SELECTION_TYPE_LABELS = {
   freehand: 'Pen',
   pen: 'Pen',
   text: 'Text',
+  image: 'Image',
+  frame: 'Frame',
 };
 
-function SelectionActionsSection({ selectedShape, onDuplicate = () => {}, onDelete = () => {} }) {
+/**
+ * ConvertShapeSection — in-place morph toggle between Rectangle,
+ * Circle/Ellipse, and Diamond. Renders only for those types; commits flow
+ * through the single `onConvertShape(targetType)` boundary (shell rewrites
+ * geometry via `morphShape` + `onShapeUpdate`, preserving the visual
+ * bounding box across Konva's differing origin models).
+ */
+function ConvertShapeSection({ shapeType, onConvert = () => {} }) {
+  const norm = shapeType === 'rect' ? 'rectangle' : shapeType === 'ellipse' ? 'circle' : shapeType;
+  if (norm !== 'rectangle' && norm !== 'circle' && norm !== 'diamond') return null;
+  const options = [
+    { value: 'rectangle', label: 'Rectangle' },
+    { value: 'circle', label: 'Circle' },
+    { value: 'diamond', label: 'Diamond' },
+  ];
+  return (
+    <div>
+      <SectionLabel>Convert shape</SectionLabel>
+      <ChoiceRow ariaLabel="Convert shape">
+        {options.map((o) => {
+          const active = norm === o.value;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              title={active ? `${o.label} (current)` : `Convert to ${o.label}`}
+              aria-label={`Convert to ${o.label}`}
+              aria-pressed={active}
+              disabled={active}
+              onClick={() => onConvert(o.value)}
+              className={`${choiceClass(active)} disabled:cursor-default disabled:opacity-70`}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </ChoiceRow>
+    </div>
+  );
+}
+
+function SelectionActionsSection({ selectedShape, onDuplicate = () => {}, onDelete = () => {}, onConvertShape = () => {} }) {
   const bounds = selectedShape ? getShapeBounds(selectedShape) : null;
   const label = SELECTION_TYPE_LABELS[selectedShape?.type] ?? 'Shape';
+  const convertible =
+    selectedShape?.type === 'rectangle' ||
+    selectedShape?.type === 'circle' ||
+    selectedShape?.type === 'diamond';
   return (
     <div>
       <div className="flex items-center justify-between">
@@ -742,6 +789,9 @@ function SelectionActionsSection({ selectedShape, onDuplicate = () => {}, onDele
             H {Math.round(bounds.height)}
           </span>
         </div>
+      )}
+      {convertible && (
+        <ConvertShapeSection shapeType={selectedShape.type} onConvert={onConvertShape} />
       )}
       <div className="mt-1.5 flex items-center gap-1.5">
         <button
@@ -859,6 +909,7 @@ export default function PropertySidebar({
   onDuplicate = () => {},
   onDelete = () => {},
   onClear = () => {},
+  onConvertShape = () => {},
   onStraighten = () => {},
   onBringToFront = () => {},
   onSendToBack = () => {},
@@ -984,6 +1035,7 @@ export default function PropertySidebar({
           selectedShape={selectedShape}
           onDuplicate={onDuplicate}
           onDelete={onDelete}
+          onConvertShape={onConvertShape}
         />
       ) : (
       <>
@@ -1082,6 +1134,11 @@ export default function PropertySidebar({
         </>
       ) : isClosed ? (
         <>
+          {(selectedShape?.type === 'rectangle' ||
+            selectedShape?.type === 'circle' ||
+            selectedShape?.type === 'diamond') && (
+            <ConvertShapeSection shapeType={selectedShape.type} onConvert={onConvertShape} />
+          )}
           <StrokeSection color={color} onColorChange={safeColor} />
           {isClosed && <BackgroundSection fill={fill} onFillChange={safeFill} />}
           <StrokeWidthSection strokeWidth={strokeWidth} onStrokeWidthChange={safeWidth} />

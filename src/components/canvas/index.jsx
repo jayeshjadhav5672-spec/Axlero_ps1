@@ -1,10 +1,20 @@
-import React, { Component, useCallback, useEffect, useState } from 'react';
+import React, { Component, useCallback, useEffect, useRef, useState } from 'react';
 import CanvasStage from './CanvasStage';
 import TextEditorOverlay from './TextEditorOverlay';
 import Toolbar from './Toolbar';
+import MermaidModal from './MermaidModal';
+import useImageDrop from './useImageDrop.js';
 import PropertySidebar, { shouldShowPropertiesPanel } from './PropertySidebar';
 import useCanvasDrawing from './useCanvasDrawing';
-import { DEFAULTS, FONT_FAMILIES, duplicateShape, elbowPoints } from './utils/shapes.js';
+import { DEFAULTS, FONT_FAMILIES, duplicateShape, elbowPoints, morphShape } from './utils/shapes.js';
+import {
+  exportAVIF,
+  exportJSON,
+  exportPDF,
+  exportSVG,
+  prepareStageForExport,
+} from './utils/exportHub.js';
+import { exportCanvasDirect } from '../../utils/exportUtils.js';
 
 /**
  * PopoverErrorBoundary — last-resort guard around the 3-dot customization
@@ -129,6 +139,13 @@ export function Whiteboard({
   // mid-gesture; it closes via the backdrop, the X button, Escape, or when
   // the current tool/selection offers nothing to customize.
   const [isCustomizeOpen, setIsCustomizeOpen] = useState(false);
+  // Week-2 productivity toolset: auto-detect toggle, mermaid modal,
+  // hidden image file input, export status toast.
+  const [autoDetect, setAutoDetect] = useState(false);
+  const [isMermaidOpen, setIsMermaidOpen] = useState(false);
+  const [exportNote, setExportNote] = useState('');
+  const fileInputRef = useRef(null);
+  const canvasWrapRef = useRef(null);
 
   const tool = controlledTool ?? internalTool;
   const color = controlledColor ?? internalColor;
@@ -325,6 +342,7 @@ export function Whiteboard({
     onShapesReorder,
     onSelectionChange,
     onDrawingCommitted: handleDrawingCommitted,
+    autoDetect,
   });
 
   const selectedShape = visibleShapes.find((s) => s.id === selectedId) ?? null;
@@ -524,18 +542,6 @@ export function Whiteboard({
     [handleTextAlignChange, selectedId, stylizeSelection],
   );
 
-  // Header quick-style swatches: route patch keys through the same
-  // sidebar handlers so picks update the tool defaults AND the live
-  // selection (text shapes map stroke -> fill inside handleSidebarColor).
-  const handleToolbarStyleChange = useCallback(
-    (patch) => {
-      if (!patch || typeof patch !== 'object') return;
-      if (patch.stroke !== undefined) handleSidebarColor(patch.stroke);
-      if (patch.strokeWidth !== undefined) handleSidebarWidth(patch.strokeWidth);
-    },
-    [handleSidebarColor, handleSidebarWidth],
-  );
-
   const handleDuplicate = useCallback(() => {    if (!selectedShape) return;
     // Clone beside the original with a small (+15px x/y) offset, then
     // select the copy. commitCreate/selectShape fire the Yjs/CRDT
@@ -545,6 +551,139 @@ export function Whiteboard({
     commitCreate(clone);
     selectShape(clone.id);
   }, [commitCreate, selectShape, selectedShape]);
+
+  // ---- shape morph: rectangle <-> circle <-> diamond in place ----
+  // Geometry is rebuilt from the visual bounding box (rects use top-left
+  // origin + w/h; circles use center + radius), so the shape never
+  // collapses or teleports. Commits flow through the single onShapeUpdate
+  // JSON boundary; morphShape builds the target fresh (no stale keys),
+  // and normalizeShape strips any ghost geometry on merge.
+  const handleConvertShape = useCallback(
+    (targetType) => {
+      if (!selectedShape || !selectedId) return;
+      if (
+        selectedShape.type !== 'rectangle' &&
+        selectedShape.type !== 'circle' &&
+        selectedShape.type !== 'diamond'
+      ) {
+        return;
+      }
+      const converted = morphShape(selectedShape, targetType);
+      // morphShape returns the input ref when nothing changes (same type,
+      // degenerate geometry, unsupported target) — no update to dispatch.
+      if (!converted || converted === selectedShape) return;
+      const { id, ...changes } = converted;
+      void id;
+      commitUpdate(selectedId, changes);
+    },
+    [commitUpdate, selectedId, selectedShape],
+  );
+
+  // ---- Week-2 productivity: image import (picker + paste + drop) ----
+  const handleImageCreate = useCallback(
+    (shape) => {
+      commitCreate(shape);
+      selectShape(shape.id);
+    },
+    [commitCreate, selectShape],
+  );
+  const { importFiles } = useImageDrop({
+    stageRef,
+    containerRef: canvasWrapRef,
+    onImageCreate: handleImageCreate,
+  });
+  const handleInsertImage = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+  const handleFileInputChange = useCallback(
+    (event) => {
+      const files = event.target.files;
+      if (files && files.length > 0) importFiles(files);
+      // Reset so picking the same file twice still fires change.
+      event.target.value = '';
+    },
+    [importFiles],
+  );
+
+  // ---- auto-detect is locked to the Pen tool: enabling it from any
+  // other tool first switches to Pen; recognition itself is additionally
+  // guarded in useCanvasDrawing (tool === pen/freehand && autoDetect). ----
+  const handleToggleAutoDetect = useCallback(() => {
+    setAutoDetect((v) => {
+      if (!v && tool !== 'pen' && tool !== 'freehand') handleToolChange('freehand');
+      return !v;
+    });
+  }, [handleToolChange, tool]);
+  // ---- Week-2 productivity: Mermaid compile -> append native shapes ----
+  const handleMermaidCompile = useCallback(
+    (newShapes) => {
+      if (!Array.isArray(newShapes) || newShapes.length === 0) return;
+      let lastId = null;
+      for (const s of newShapes) {
+        commitCreate(s);
+        lastId = s.id;
+      }
+      if (lastId) selectShape(lastId);
+    },
+    [commitCreate, selectShape],
+  );
+
+  // ---- Week-2 productivity: universal export hub ----
+  const flashExportNote = useCallback((text) => {
+    setExportNote(text);
+    window.setTimeout(() => {
+      setExportNote((cur) => (cur === text ? '' : cur));
+    }, 3200);
+  }, []);
+  const handleExport = useCallback(
+    async (format) => {
+      // Deselect + hide Transformer BEFORE capture so selection outlines
+      // never bake into the exported image.
+      prepareStageForExport({ stageRef, transformerRef, selectShape });
+      // Let the detach render flush before reading pixels.
+      await new Promise((r) => setTimeout(r, 30));
+      const stage = stageRef.current;
+      try {
+        switch (format) {
+          case 'json':
+            exportJSON(visibleShapes, 'syncspace-board.json');
+            flashExportNote('Exported JSON');
+            break;
+          case 'png':
+            // Bulletproof direct-DOM raster path: zero props, zero Konva
+            // refs (survives a dead stageRef chain); hides/restores the
+            // Transformer itself and bakes a white background.
+            exportCanvasDirect('png', 'syncspace-board');
+            flashExportNote('Exported PNG');
+            break;
+          case 'jpeg':
+            exportCanvasDirect('jpeg', 'syncspace-board');
+            flashExportNote('Exported JPEG');
+            break;
+          case 'avif': {
+            if (!stage) throw new Error('Canvas not ready');
+            const { fallback } = await exportAVIF(stage, 'syncspace-board.avif');
+            flashExportNote(fallback ? 'AVIF unsupported — exported PNG instead' : 'Exported AVIF');
+            break;
+          }
+          case 'svg':
+            exportSVG(visibleShapes, 'syncspace-board.svg');
+            flashExportNote('Exported SVG');
+            break;
+          case 'pdf':
+            if (!stage) throw new Error('Canvas not ready');
+            await exportPDF(stage, visibleShapes, 'syncspace-board.pdf');
+            flashExportNote('Exported PDF');
+            break;
+          default:
+            break;
+        }
+      } catch (err) {
+        flashExportNote(err?.message ?? 'Export failed');
+      }
+    },
+    [flashExportNote, selectShape, stageRef, transformerRef, visibleShapes],
+  );
 
   // ---- bent arrows: one committed `{ points }` update per bend gesture ----
   const handleBendCommit = useCallback(
@@ -594,6 +733,7 @@ export function Whiteboard({
         a: 'arrow',
         l: 'line',
         p: 'freehand',
+        f: 'frame',
         t: 'text',
         e: 'eraser',
         h: 'pan',
@@ -618,8 +758,6 @@ export function Whiteboard({
             <Toolbar
               tool={tool}
               onToolChange={handleToolChange}
-              currentStyle={{ stroke: inspectorColor, strokeWidth: inspectorWidth }}
-              onStyleChange={handleToolbarStyleChange}
               zoom={scale}
               shapes={visibleShapes}
               onZoomChange={handleZoomChange}
@@ -631,6 +769,11 @@ export function Whiteboard({
               showPropertiesToggle={panelAvailable}
               isPropertiesOpen={isCustomizeOpen}
               onToggleProperties={toggleCustomize}
+              onInsertImage={handleInsertImage}
+              autoDetect={autoDetect}
+              onToggleAutoDetect={handleToggleAutoDetect}
+              onOpenMermaid={() => setIsMermaidOpen(true)}
+              onExport={handleExport}
             />
             {isCustomizeOpen && panelAvailable && (
               <>
@@ -698,6 +841,7 @@ export function Whiteboard({
                   onDuplicate={handleDuplicate}
                   onDelete={deleteSelected}
                   onClear={clearCanvas}
+                  onConvertShape={handleConvertShape}
                   onStraighten={handleStraighten}
                   onBringToFront={handleBringToFront}
                   onSendToBack={handleSendToBack}
@@ -712,7 +856,7 @@ export function Whiteboard({
       </div>
       {/* Expanded canvas boundary: fills all remaining height/width. */}
       <section className="flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-[#f8f9fa] shadow-sm">
-      <div className="relative min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1" ref={canvasWrapRef}>
         <div className="relative h-full min-h-[420px] overflow-hidden">
           <CanvasStage
             shapes={visibleShapes}
@@ -742,9 +886,35 @@ export function Whiteboard({
             onCommit={commitTextEditor}
             onCancel={cancelTextEditor}
           />
+          {exportNote && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="pointer-events-none absolute bottom-4 left-1/2 z-40 -translate-x-1/2 whitespace-nowrap rounded-full bg-slate-900 px-4 py-1.5 text-xs font-medium text-white shadow-lg"
+            >
+              {exportNote}
+            </div>
+          )}
         </div>
       </div>
       </section>
+      {/* Hidden file picker for Insert Image (also: drag & drop, Ctrl/⌘+V). */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        aria-hidden="true"
+        tabIndex={-1}
+        className="hidden"
+        onChange={handleFileInputChange}
+      />
+      <MermaidModal
+        open={isMermaidOpen}
+        onClose={() => setIsMermaidOpen(false)}
+        onCompile={handleMermaidCompile}
+        styleDefaults={{ color, strokeWidth, fontSize, fontFamily, fontFamilyKey }}
+      />
     </div>
   );
 }
