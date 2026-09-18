@@ -132,7 +132,7 @@ function createSocketServer(httpServer, options = {}) {
   }
 
 /** Record last-seen awareness clocks so removals use an accepted clock. */
-  function trackAwarenessClocks(roomId, updateB64) {
+  function trackAwarenessClocks(socket, roomId, updateB64) {
     const pairs = snoopAwarenessClocks(updateB64);
     if (pairs.length === 0) return;
     let roomClocks = awarenessClocks.get(roomId);
@@ -140,9 +140,25 @@ function createSocketServer(httpServer, options = {}) {
       roomClocks = new Map();
       awarenessClocks.set(roomId, roomClocks);
     }
+    // Authorship binding (anti-spoof): only clientIDs this socket actually
+    // authored through this server may later be removed on its behalf.
+    // A hello-claimed ID the socket never wrote can never evict anyone.
+    let authored = socket.data.yjsAuthored;
+    if (!(authored instanceof Set)) {
+      authored = new Set();
+      socket.data.yjsAuthored = authored;
+    }
     for (const [clientId, clock] of pairs) {
       const prev = roomClocks.get(clientId) || 0;
       if (clock > prev) roomClocks.set(clientId, clock);
+      authored.add(clientId);
+      // Bound per-room clock state: rooms with pathological client counts
+      // evict the oldest entry instead of growing without limit. (Eviction
+      // only affects never-hello'd authors, which get no removal anyway.)
+      if (roomClocks.size > 1000) {
+        const oldest = roomClocks.keys().next();
+        if (!oldest.done) roomClocks.delete(oldest.value);
+      }
     }
   }
 
@@ -167,10 +183,15 @@ function createSocketServer(httpServer, options = {}) {
   // listing it — this covers explicit leave, room switch AND abrupt
   // disconnect (removeFromPresence runs on all three paths). The removal
   // clock is last-seen + 1 so peers accept it; state itself is never read.
+  // The mapping must ALSO be socket-authored (seen in this socket's own
+  // relayed updates): a hello-claimed ID the socket never wrote cannot
+  // evict the real owner.
   function broadcastAwarenessRemoval(socket, roomId) {
     const clientId = socket.data.yjsClientId;
     delete socket.data.yjsClientId;
     if (!Number.isInteger(clientId) || clientId < 0) return;
+    const authored = socket.data.yjsAuthored;
+    if (!(authored instanceof Set) || !authored.has(clientId)) return;
     const roomClocks = awarenessClocks.get(roomId);
     const lastClock = roomClocks ? roomClocks.get(clientId) || 0 : 0;
     if (roomClocks) {
@@ -178,7 +199,9 @@ function createSocketServer(httpServer, options = {}) {
       if (roomClocks.size === 0) awarenessClocks.delete(roomId);
     }
     try {
-      io.to(roomId).emit(YJS_AWARENESS_EVENT, {
+      // broadcast excludes the leaving socket itself (matches relay
+      // semantics; avoids recreating a just-destroyed local Awareness).
+      socket.broadcast.to(roomId).emit(YJS_AWARENESS_EVENT, {
         roomId,
         data: { protocol: YJS_PROTOCOL, kind: "awareness", update: encodeAwarenessRemoval(clientId, lastClock + 1) },
       });
@@ -290,7 +313,7 @@ function createSocketServer(httpServer, options = {}) {
           }
 
           if (event === YJS_AWARENESS_EVENT && isPlainObject(payload.data)) {
-            trackAwarenessClocks(payload.roomId, payload.data.update);
+            trackAwarenessClocks(socket, payload.roomId, payload.data.update);
           }
 
           socket.to(socket.data.roomId).emit(event, {

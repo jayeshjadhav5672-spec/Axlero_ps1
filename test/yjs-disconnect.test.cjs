@@ -216,6 +216,33 @@ function seesUser(peer, userId) {
   return [...peer.getStates().values()].some((s) => s && s.user && s.user.id === userId);
 }
 
+test('rebind does not accumulate awareness listeners (single emit per change)', () => {
+  const { setLocalCursor } = require('../src/lib/yjsAwareness.js');
+  const sock1 = fakeSocket();
+  attachRoomSync({ socket: sock1, roomId: 'rebind-aw' });
+  setLocalUserSafe('rebind-aw');
+  sock1.emitted.length = 0;
+  setLocalCursor('rebind-aw', { x: 1, y: 1 });
+  assert.equal(sock1.emitted.filter((e) => e.event === YJS_AWARENESS_EVENT).length, 1);
+
+  const sock2 = fakeSocket();
+  attachRoomSync({ socket: sock2, roomId: 'rebind-aw' });
+  sock1.emitted.length = 0;
+  sock2.emitted.length = 0;
+  setLocalCursor('rebind-aw', { x: 2, y: 2 });
+  assert.equal(sock1.emitted.length, 0, 'dead socket emits nothing');
+  assert.equal(
+    sock2.emitted.filter((e) => e.event === YJS_AWARENESS_EVENT).length,
+    1,
+    'exactly one awareness emit after rebind (no accumulated handlers)',
+  );
+});
+
+function setLocalUserSafe(roomId) {
+  const { setLocalUser } = require('../src/lib/yjsAwareness.js');
+  setLocalUser(roomId, { id: 'u-rebind', name: 'R' });
+}
+
 test('abrupt disconnect removes awareness; room stays functional', async () => {
   const sockA = client();
   const sockB = client();
@@ -286,6 +313,44 @@ test('room switch broadcasts removal to the previous room only', async () => {
   assert.equal(seesUser(peerNew, 'a'), false, 'new room gets no spurious removal or phantom');
   peerOld.destroy();
   peerNew.destroy();
+});
+
+test('spoofed hello cannot evict the real owner on disconnect', async () => {
+  const sockA = client();
+  const sockB = client();
+  const sockX = client();
+  await Promise.all([waitForEvent(sockA, 'connect'), waitForEvent(sockB, 'connect'), waitForEvent(sockX, 'connect')]);
+  await joinRoom(sockA, 'spoof-a', 'a');
+  await joinRoom(sockB, 'spoof-a', 'b');
+  await joinRoom(sockX, 'spoof-a', 'x');
+
+  attachRoomSync({ socket: sockA, roomId: 'spoof-a', identity: { userId: 'a' } });
+  setLocalUser('spoof-a', { id: 'a', name: 'A' });
+  const peerB = wireAwarenessPeer(sockB, 'spoof-a');
+  await waitFor(() => (seesUser(peerB, 'a') ? true : null), 3000, 'B sees A');
+
+  // Attacker X authors its OWN awareness update (proving authorship
+  // tracking works) but hello-claims A's clientID.
+  const awX = new Awareness(new Y.Doc());
+  awX.setLocalState({ user: { id: 'x', name: 'X' } });
+  const { encodeAwarenessUpdate: encodeAw } = await import('y-protocols/awareness');
+  const b64 = Buffer.from(encodeAw(awX, [awX.clientID])).toString('base64');
+  sockX.emit(YJS_AWARENESS_EVENT, { roomId: 'spoof-a', data: { protocol: PROTOCOL, kind: 'awareness', update: b64 } });
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const victimId = getAwareness('spoof-a').clientID;
+  assert.notEqual(victimId, awX.clientID, 'precondition: distinct clientIDs');
+  sockX.emit(YJS_HELLO_EVENT, { roomId: 'spoof-a', data: { protocol: PROTOCOL, kind: 'hello', clientId: victimId } });
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  const removals = [];
+  sockB.on(YJS_AWARENESS_EVENT, (payload) => removals.push(payload));
+  sockX.disconnect();
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.equal(removals.length, 0, 'spoofed mapping must not broadcast any removal');
+  assert.ok(seesUser(peerB, 'a'), 'real owner must remain visible');
+  peerB.destroy();
+  awX.destroy();
 });
 
 test('hello validation rejects bad mappings without crashing', async () => {
