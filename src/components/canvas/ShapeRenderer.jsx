@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Arrow, Circle, Ellipse, Group, Image as KonvaImage, Line, Rect, Text } from 'react-konva';
 import {
   circleRadii,
@@ -50,7 +50,38 @@ function ImageShape({ shape, common }) {
       cancelled = true;
     };
   }, [shape.src]);
-  if (!img) return null;
+  // Loading placeholder / skeleton while the dropped file decodes:
+  // dashed rounded rect at the drop point (non-blocking, selectable).
+  if (!img) {
+    if (shape.loading || !shape.src) {
+      return (
+        <Group key={shape.id} {...common} x={safeX(shape.x)} y={safeX(shape.y)}>
+          <Rect
+            width={safeSize(shape.width)}
+            height={safeSize(shape.height)}
+            fill="rgba(241, 245, 249, 0.6)"
+            stroke="#94a3b8"
+            strokeWidth={1.5}
+            dash={[8, 5]}
+            cornerRadius={8}
+            listening={false}
+          />
+          <Text
+            x={0}
+            y={safeSize(shape.height) / 2 - 10}
+            width={safeSize(shape.width)}
+            align="center"
+            text="Loading…"
+            fontSize={14}
+            fontFamily="sans-serif"
+            fill="#64748b"
+            listening={false}
+          />
+        </Group>
+      );
+    }
+    return null;
+  }
   return (
     <KonvaImage
       key={shape.id}
@@ -99,6 +130,118 @@ function FrameShape({ shape, common }) {
 }
 
 /**
+ * GroupShape — composite group: Konva Group owns drag/transform under the
+ * group id; children render statically (listening=false) relative to the
+ * group origin. Children carry positions relative to (group.x, group.y).
+ */
+function GroupShape({ shape, common }) {
+  const kids = Array.isArray(shape.children) ? shape.children : [];
+  return (
+    <Group key={shape.id} {...common} x={safeX(shape.x)} y={safeX(shape.y)}>
+      {kids.map((k, idx) => {
+        if (!k || typeof k !== 'object') return null;
+        const kDash = k.dash ?? dashForStyle(k.strokeStyle, k.strokeWidth);
+        const kOpacity = konvaOpacity(k.opacity);
+        const kSw = isFiniteNum(k.strokeWidth) ? k.strokeWidth : DEFAULTS.strokeWidth;
+        const key = k.id ?? `group-child-${idx}`;
+        if (k.type === 'rectangle') {
+          return (
+            <Rect
+              key={key}
+              x={safeX(k.x)}
+              y={safeX(k.y)}
+              width={safeSize(k.width)}
+              height={safeSize(k.height)}
+              stroke={k.stroke}
+              strokeWidth={kSw}
+              dash={kDash}
+              fill={k.fill ?? 'transparent'}
+              opacity={kOpacity}
+              listening={false}
+              cornerRadius={k.roundness === 'round' ? 8 : 2}
+            />
+          );
+        }
+        if (k.type === 'circle') {
+          const { rx, ry } = circleRadii(k);
+          return (
+            <Circle
+              key={key}
+              x={safeX(k.x)}
+              y={safeX(k.y)}
+              radius={Math.max(0.1, Math.max(rx, ry))}
+              stroke={k.stroke}
+              strokeWidth={kSw}
+              dash={kDash}
+              fill={k.fill ?? 'transparent'}
+              opacity={kOpacity}
+              listening={false}
+            />
+          );
+        }
+        if (k.type === 'diamond') {
+          const w = safeSize(k.width);
+          const h = safeSize(k.height);
+          return (
+            <Line
+              key={key}
+              x={safeX(k.x)}
+              y={safeX(k.y)}
+              points={diamondPoints(0, 0, w, h)}
+              stroke={k.stroke}
+              strokeWidth={kSw}
+              dash={kDash}
+              fill={k.fill ?? 'transparent'}
+              closed
+              opacity={kOpacity}
+              listening={false}
+            />
+          );
+        }
+        if (k.type === 'freehand' || k.type === 'pen' || k.type === 'line' || k.type === 'arrow') {
+          const clean = sanitizePoints(k.points);
+          if (clean.length < 4) return null;
+          return (
+            <Line
+              key={key}
+              x={0}
+              y={0}
+              points={clean}
+              stroke={k.stroke}
+              strokeWidth={kSw}
+              dash={kDash}
+              lineCap="round"
+              lineJoin="round"
+              opacity={kOpacity}
+              listening={false}
+            />
+          );
+        }
+        if (k.type === 'text') {
+          return (
+            <Text
+              key={key}
+              x={safeX(k.x)}
+              y={safeX(k.y)}
+              text={k.text}
+              fontSize={isFiniteNum(k.fontSize) ? k.fontSize : DEFAULTS.fontSize}
+              fontFamily={resolveFontFamily(k.fontFamily)}
+              fill={k.fill ?? '#1e1e1e'}
+              opacity={kOpacity}
+              listening={false}
+            />
+          );
+        }
+        if (k.type === 'image') {
+          return null;
+        }
+        return null;
+      })}
+    </Group>
+  );
+}
+
+/**
  * ShapeRenderer — Sayon (Whiteboard / Konva.js Engineer)
  * Excalidraw-styled renderer: violet selection accents live on the
  * Transformer (see CanvasStage); here we honor the extended schema:
@@ -118,46 +261,40 @@ function FrameShape({ shape, common }) {
  * pointer/drag events on an inner shape never reach an enclosing
  * rectangle; transparent fills disable fill hit-testing so interior
  * clicks pass through to nested shapes.
+ *
+ * ShapeNode (below) is the memoized per-shape renderer. Its bail-out
+ * compare keys on shape object IDENTITY (commit paths preserve untouched
+ * shape refs) plus the selection/tool flags that genuinely alter
+ * rendering. Handler props are stable useCallbacks from the hook, so
+ * high-frequency preview traffic (which only swaps the preview/draft
+ * objects) reconciles the tiny overlay list while every committed node
+ * below skips re-render entirely — no full-tree reconciliation per tick,
+ * no Konva invalidation storm.
  */
-export default function ShapeRenderer({
-  shapes,
-  selectedId,
-  tool,
-  shapeNodesRef,
-  onShapeClick,
-  onSelect,
-  onDragEnd,
-  onDragStart,
-  onTransformEnd,
-  onTextDoubleClick,
-}) {
-  // Text-tool priority: while the text tool is active, existing shapes
-  // neither intercept clicks (listening off → events reach the Stage,
-  // which spawns the text overlay) nor initiate drags.
-  // In select/selection mode ALL shapes are draggable so a press-and-drag
-  // on any nested shape grabs that exact node (drag ownership is resolved
-  // synchronously in onDragStart via e.target + cancelBubble).
-  // Eraser mode keeps shapes listening so clicks can delete.
-  const textMode = tool === 'text';
-  // 'selection' is accepted as an alias of 'select' (spec + legacy callers).
-  const selectMode = tool === 'select' || tool === 'selection';
+const ShapeNode = React.memo(
+  function ShapeNode({
+    shape,
+    selectedId,
+    textMode,
+    selectMode,
+    shapeNodesRef,
+    onShapeClick,
+    onSelect,
+    onDragEnd,
+    onDragStart,
+    onDragMove,
+    onTransformEnd,
+    onTextDoubleClick,
+  }) {
+    const setNodeRef = useMemo(() => {
+      if (!shapeNodesRef || shape.remotePreview) return undefined;
+      const shapeId = shape.id;
+      return (node) => {
+        if (node) shapeNodesRef.current.set(shapeId, node);
+        else shapeNodesRef.current.delete(shapeId);
+      };
+    }, [shapeNodesRef, shape.id, shape.remotePreview]);
 
-  const registerNode = (shapeId) => (node) => {
-    if (!shapeNodesRef) return;
-    if (node) shapeNodesRef.current.set(shapeId, node);
-    else shapeNodesRef.current.delete(shapeId);
-  };
-
-  // Immediate selection on pointer-down fixes the nested-drag race:
-  // clicking an unselected inner shape selects it synchronously (before
-  // Konva resolves the drag gesture), so the drag belongs to the inner
-  // shape instead of a previously-selected outer rectangle.
-  // cancelBubble stops the event reaching overlapping background shapes.
-  const select = (shapeId) => {
-    if (onSelect) onSelect(shapeId);
-  };
-
-  return shapes.map((shape) => {
     // NOTE (React 19): `key` must be passed directly as a JSX prop.
     // It is intentionally NOT part of this spread object.
     // `id` IS spread: Konva needs it for findOne(`#id`) lookups
@@ -178,14 +315,18 @@ export default function ShapeRenderer({
       : DEFAULTS.strokeWidth;
     const common = {
       id: shape.id,
-      ref: registerNode(shape.id),
+      // Remote in-progress stroke previews render only: never register
+      // their nodes (keeps the Transformer and drag ownership local-only).
+      ref: setNodeRef,
       // All shapes are draggable in select mode so a press-and-drag on an
       // unselected nested shape starts moving it in the SAME gesture
       // (previously only the already-selected shape was draggable, so the
       // outer rectangle won the drag). Ownership is resolved in
       // onDragStart via e.target + cancelBubble.
-      draggable: selectMode,
-      listening: !textMode,
+      // Remote previews are display-only: not draggable, not listening,
+      // so local gestures pass through them to the Stage/shapes beneath.
+      draggable: shape.remotePreview ? false : selectMode,
+      listening: shape.remotePreview ? false : !textMode,
       rotation: isFiniteNum(shape.rotation) ? shape.rotation : 0,
       opacity: konvaOpacity(shape.opacity),
       onPointerDown: (e) => {
@@ -194,13 +335,13 @@ export default function ShapeRenderer({
         // starting on top of an existing shape still begins a draft.
         if (!selectMode) return;
         e.cancelBubble = true;
-        if (shape.id !== selectedId) select(shape.id);
+        if (shape.id !== selectedId) onSelect?.(shape.id);
         onShapeClick?.(e, shape.id);
       },
       onMouseDown: (e) => {
         if (!selectMode) return;
         e.cancelBubble = true;
-        if (shape.id !== selectedId) select(shape.id);
+        if (shape.id !== selectedId) onSelect?.(shape.id);
       },
       onClick: (e) => {
         e.cancelBubble = true;
@@ -215,13 +356,17 @@ export default function ShapeRenderer({
         // stop bubbling so an enclosing rectangle underneath never moves.
         e.cancelBubble = true;
         if (e.target !== e.currentTarget) e.cancelBubble = true;
-        if (shape.id !== selectedId) select(shape.id);
+        if (shape.id !== selectedId) onSelect?.(shape.id);
         onDragStart?.(shape.id, e);
       },
       onDragMove: (e) => {
         // Prevent stage panning / parent containers from hijacking the
         // shape translation mid-gesture.
         e.cancelBubble = true;
+        const node = e.target;
+        if (node && typeof node.x === 'function') {
+          onDragMove?.(shape.id, node.x(), node.y(), e);
+        }
       },
       onDragEnd: (e) => {
         // Read the exact absolute position directly from the dragged node
@@ -246,7 +391,29 @@ export default function ShapeRenderer({
     // points array on drag end instead (see bakeDragEnd).
     if (shape.type === 'freehand' || shape.type === 'pen' || (shape.type === 'line' && shape.points?.length > 4)) {
       const clean = sanitizePoints(shape.points);
-      if (clean.length < 4) return null;
+      if (clean.length < 2) return null;
+      if (clean.length < 4) {
+        // Single-point stroke (exactly one [x, y] pair): a <Line /> paints
+        // nothing for a zero-length path, so the very first in-flight
+        // remote preview (seed point only) would be invisible until the
+        // second point lands. Render a round dot at the tip instead, sized
+        // to the stroke width, so remote clients see the stroke from its
+        // first flushed point. `common` already carries the preview's
+        // non-interactive flags when remote.
+        const dotR = Math.max(1, safeStrokeWidth / 2);
+        return (
+          <Circle
+            key={shape.id}
+            {...common}
+            x={safeCoord(clean[0])}
+            y={safeCoord(clean[1])}
+            radius={dotR}
+            fill={shape.stroke ?? '#1e1e1e'}
+            strokeEnabled={false}
+            hitStrokeWidth={0}
+          />
+        );
+      }
       return (
         <Line
           key={shape.id}
@@ -492,8 +659,14 @@ export default function ShapeRenderer({
           width={alignWidth}
           fontStyle="500"
           fill={shape.fill ?? shape.stroke ?? '#1e1e1e'}
-          onDblClick={() => onTextDoubleClick?.(shape)}
-          onDblTap={() => onTextDoubleClick?.(shape)}
+          // Remote live-typing ghosts are display-only: double-click must
+          // never open the local text editor for a peer's in-flight text.
+          onDblClick={() => {
+            if (!shape.remotePreview) onTextDoubleClick?.(shape);
+          }}
+          onDblTap={() => {
+            if (!shape.remotePreview) onTextDoubleClick?.(shape);
+          }}
         />
       );
     }
@@ -506,6 +679,67 @@ export default function ShapeRenderer({
       return <FrameShape key={shape.id} shape={shape} common={common} />;
     }
 
+    if (shape.type === 'group') {
+      return <GroupShape key={shape.id} shape={shape} common={common} />;
+    }
+
     return null;
-  });
+  },
+  (prev, next) =>
+    prev.shape === next.shape &&
+    prev.selectedId === next.selectedId &&
+    prev.textMode === next.textMode &&
+    prev.selectMode === next.selectMode &&
+    prev.shapeNodesRef === next.shapeNodesRef &&
+    prev.onShapeClick === next.onShapeClick &&
+    prev.onSelect === next.onSelect &&
+    prev.onDragEnd === next.onDragEnd &&
+    prev.onDragStart === next.onDragStart &&
+    prev.onDragMove === next.onDragMove &&
+    prev.onTransformEnd === next.onTransformEnd &&
+    prev.onTextDoubleClick === next.onTextDoubleClick,
+);
+
+
+export default function ShapeRenderer({
+  shapes,
+  selectedId,
+  tool,
+  shapeNodesRef,
+  onShapeClick,
+  onSelect,
+  onDragEnd,
+  onDragStart,
+  onDragMove,
+  onTransformEnd,
+  onTextDoubleClick,
+}) {
+  // Text-tool priority: while the text tool is active, existing shapes
+  // neither intercept clicks (listening off → events reach the Stage,
+  // which spawns the text overlay) nor initiate drags.
+  // In select/selection mode ALL shapes are draggable so a press-and-drag
+  // on any nested shape grabs that exact node (drag ownership is resolved
+  // synchronously in onDragStart via e.target + cancelBubble).
+  // Eraser mode keeps shapes listening so clicks can delete.
+  const textMode = tool === 'text';
+  // 'selection' is accepted as an alias of 'select' (spec + legacy callers).
+  const selectMode = tool === 'select' || tool === 'selection';
+
+  return shapes.map((shape) => (
+    <ShapeNode
+      key={shape.id}
+      shape={shape}
+      selectedId={selectedId}
+      textMode={textMode}
+      selectMode={selectMode}
+      shapeNodesRef={shapeNodesRef}
+      onShapeClick={onShapeClick}
+      onSelect={onSelect}
+      onDragEnd={onDragEnd}
+      onDragStart={onDragStart}
+      onDragMove={onDragMove}
+      onTransformEnd={onTransformEnd}
+      onTextDoubleClick={onTextDoubleClick}
+    />
+  ));
 }

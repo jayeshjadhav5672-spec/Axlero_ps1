@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from 'react';
-import { createImageShape, isFiniteNum } from './utils/shapes.js';
+import { createImageShape, createShapeId, isFiniteNum } from './utils/shapes.js';
 
 /**
  * useImageDrop.js — Sayon (Week 2: Media & Assets)
@@ -10,12 +10,22 @@ import { createImageShape, isFiniteNum } from './utils/shapes.js';
  * - `dragover`/`drop` on the stage container: accepts `e.dataTransfer.files`.
  * - `importFiles(fileList)` shared entry for the toolbar file picker.
  *
- * Coordinates resolve through the live Konva stage
- * (`getRelativePointerPosition()` for drops, viewport-center for pastes)
- * so split-pane resizing (Avantee's container) stays correct.
- * Commits flow through the single `onImageCreate(shape)` boundary —
- * callers wire it to `commitCreate`.
+ * Accepted image MIME types: image/png, image/jpeg, image/svg+xml,
+ * image/webp (plus extension fallback for extension-only file lists).
+ *
+ * Coordinates resolve through the live Konva stage into canvas world
+ * coords taking pan and zoom into account:
+ *   const transform = stage.getAbsoluteTransform().copy().invert();
+ *   const stageCoords = transform.point({ x: event.clientX, y: event.clientY });
+ * Commits flow through `onImageCreate(shape)` (wired to `commitCreate`)
+ * with placeholder-first ingestion: a loading skeleton shape is inserted
+ * instantly at the drop point, then replaced with the final `type: 'image'`
+ * shape via `onImageUpdate(id, changes)` once natural dimensions are known
+ * (scaled to fit 800x800 preserving aspect ratio).
  */
+
+export const ACCEPTED_IMAGE_MIMES = ['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp'];
+export const IMAGE_MAX_SIDE = 800;
 
 function readFileAsDataURL(file) {
   return new Promise((resolve, reject) => {
@@ -45,7 +55,7 @@ function measureDataURL(dataUrl) {
  * SVG vector which scales freely, or any failure — caller keeps the
  * original). PNG output preserves transparency.
  */
-function downscaleDataURL(dataUrl, mime, maxSide = 640) {
+function downscaleDataURL(dataUrl, mime, maxSide = 800) {
   return new Promise((resolve) => {
     try {
       if (typeof mime === 'string' && mime.includes('svg')) {
@@ -85,7 +95,51 @@ function downscaleDataURL(dataUrl, mime, maxSide = 640) {
 }
 
 function isImageFile(file) {
-  return !!file && (file.type?.startsWith('image/') || /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(file.name ?? ''));
+  if (!file) return false;
+  const mime = (file.type ?? '').toLowerCase();
+  if (ACCEPTED_IMAGE_MIMES.includes(mime)) return true;
+  // Extension fallback (some drop sources omit MIME types) + legacy
+  // acceptance for other common rasters carried over from Week 2.
+  if (mime.startsWith('image/')) return true;
+  return /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(file.name ?? '');
+}
+
+/**
+ * Project a native screen (clientX/clientY) point into canvas world coords,
+ * taking pan and zoom into account via the inverse absolute transform.
+ */
+export function projectToStageCoords(stage, container, clientX, clientY) {
+  try {
+    const transform = stage?.getAbsoluteTransform?.()?.copy?.()?.invert?.();
+    if (transform && typeof transform.point === 'function' && container) {
+      const rect = container.getBoundingClientRect();
+      return transform.point({ x: clientX - rect.left, y: clientY - rect.top });
+    }
+  } catch {
+    // fall through to pointer-position fallback
+  }
+  try {
+    const world = stage?.getRelativePointerPosition?.() ?? null;
+    if (world && isFiniteNum(world.x) && isFiniteNum(world.y)) return world;
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+/** Instant loading placeholder inserted at the drop point (skeleton). */
+function createPlaceholderShape(x, y) {
+  return {
+    id: createShapeId('shape'),
+    type: 'image',
+    src: null,
+    x: isFiniteNum(x) ? x - 80 : 0,
+    y: isFiniteNum(y) ? y - 60 : 0,
+    width: 160,
+    height: 120,
+    rotation: 0,
+    loading: true,
+  };
 }
 
 /** Viewport-center in world coords (for paste: no pointer position). */
@@ -99,7 +153,7 @@ function worldCenterOfStage(stage) {
   };
 }
 
-export default function useImageDrop({ stageRef, containerRef, onImageCreate } = {}) {
+export default function useImageDrop({ stageRef, containerRef, onImageCreate, onImageUpdate, onImageDelete } = {}) {
   const importFiles = useCallback(
     async (fileList, targetWorld) => {
       const files = Array.from(fileList ?? []).filter(isImageFile);
@@ -116,34 +170,72 @@ export default function useImageDrop({ stageRef, containerRef, onImageCreate } =
       }
       let created = 0;
       for (let i = 0; i < files.length; i += 1) {
+        const at = { x: anchor.x + i * 24, y: anchor.y + i * 24 };
+        // Instant placeholder with loading skeleton at the drop point so
+        // the user sees feedback before the file finishes decoding.
+        let placeholderId = null;
+        try {
+          const placeholder = createPlaceholderShape(at.x, at.y);
+          placeholderId = placeholder.id;
+          onImageCreate?.(placeholder);
+        } catch {
+          placeholderId = null;
+        }
         try {
           const dataUrl = await readFileAsDataURL(files[i]);
-          if (typeof dataUrl !== 'string') continue;
+          if (typeof dataUrl !== 'string') {
+            if (placeholderId) onImageDelete?.(placeholderId);
+            continue;
+          }
           // Store the display-capped bitmap, not the full-resolution
           // original (see downscaleDataURL). Falls back to the original
           // whenever downscaling does not apply.
-          const storedUrl = (await downscaleDataURL(dataUrl, files[i]?.type)) ?? dataUrl;
-          if (typeof storedUrl !== 'string') continue;
+          const storedUrl = (await downscaleDataURL(dataUrl, files[i]?.type, IMAGE_MAX_SIDE)) ?? dataUrl;
+          if (typeof storedUrl !== 'string') {
+            if (placeholderId) onImageDelete?.(placeholderId);
+            continue;
+          }
           const { width, height } = await measureDataURL(storedUrl);
-          // Cap absurd dimensions to a max 640px side, keep aspect.
-          const maxSide = 640;
+          // Cap absurd dimensions to a max 800px side, keep aspect ratio.
+          const maxSide = IMAGE_MAX_SIDE;
           const scaleDown = Math.min(1, maxSide / Math.max(width, height));
+          const w = Math.round(width * scaleDown);
+          const h = Math.round(height * scaleDown);
           const shape = createImageShape(storedUrl, {
-            x: anchor.x + i * 24 - (width * scaleDown) / 2,
-            y: anchor.y + i * 24 - (height * scaleDown) / 2,
-            width: Math.round(width * scaleDown),
-            height: Math.round(height * scaleDown),
+            x: at.x - w / 2,
+            y: at.y - h / 2,
+            width: w,
+            height: h,
           });
-          if (!shape) continue;
-          onImageCreate?.(shape);
+          if (!shape) {
+            if (placeholderId) onImageDelete?.(placeholderId);
+            continue;
+          }
+          if (placeholderId && onImageUpdate) {
+            // Replace the placeholder in place (keeps z-order + selection).
+            const { id, ...changes } = shape;
+            void id;
+            onImageUpdate(placeholderId, { ...changes, loading: false });
+            // Re-key selection to the placeholder id (already selected).
+          } else {
+            if (placeholderId) onImageDelete?.(placeholderId);
+            onImageCreate?.(shape);
+          }
           created += 1;
         } catch {
           // Skip unreadable files; keep importing the rest.
+          if (placeholderId) {
+            try {
+              onImageDelete?.(placeholderId);
+            } catch {
+              // ignore
+            }
+          }
         }
       }
       return created;
     },
-    [onImageCreate, stageRef],
+    [onImageCreate, onImageDelete, onImageUpdate, stageRef],
   );
 
   // Cross-platform clipboard paste (Cmd+V / Ctrl+V).
@@ -175,19 +267,13 @@ export default function useImageDrop({ stageRef, containerRef, onImageCreate } =
       if (!files || files.length === 0) return;
       if (!Array.from(files).some(isImageFile)) return;
       e.preventDefault();
+      // Stage coordinate projection: screen -> world via the inverse
+      // absolute transform so pan/zoom never offset the drop point.
       let world = null;
       try {
         const stage = stageRef?.current;
-        // Pointer-based world coords via the inverse absolute transform:
-        // getRelativePointerPosition() already inverts scale + pan.
-        world = stage?.getRelativePointerPosition?.() ?? null;
-        if (!world) {
-          const rect = container.getBoundingClientRect();
-          const abs = stage?.getAbsoluteTransform?.()?.copy?.()?.invert?.();
-          if (abs && typeof abs.point === 'function') {
-            world = abs.point({ x: e.clientX - rect.left, y: e.clientY - rect.top });
-          }
-        }
+        const container = containerRef?.current;
+        world = projectToStageCoords(stage, container, e.clientX, e.clientY);
       } catch {
         world = null;
       }

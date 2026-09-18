@@ -267,6 +267,7 @@ export default function App() {
               whiteboard={
                 <Whiteboard
                   shapes={whiteboardSync.shapes}
+                  roomId={roomId}
                   onShapeCreate={whiteboardSync.onShapeCreate}
                   onShapeUpdate={whiteboardSync.onShapeUpdate}
                   onShapeDelete={whiteboardSync.onShapeDelete}

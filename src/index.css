@@ -4,6 +4,19 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer utilities {
+  /* Hide scrollbars on horizontally scrolling toolbars while keeping
+     scrollability (touch + wheel + keyboard). Used by the whiteboard
+     toolbar so it fits 13"/15" laptop viewports without visual blowout. */
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 html,
 body,
 #root {

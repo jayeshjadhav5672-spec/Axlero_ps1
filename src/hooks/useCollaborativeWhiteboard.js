@@ -84,9 +84,30 @@ export default function useCollaborativeWhiteboard({ socket, roomId, enabled = t
       const selfId = socket.id;
       setShapes((prev) => applyWhiteboardOp(prev, op, selfId).shapes);
     };
+    // Initial hydration: the server sends the room snapshot as
+    // `canvas:sync-init` right after `room:joined`. An empty local board
+    // adopts it wholesale; otherwise server state wins on id conflicts
+    // while local-only shapes are preserved (rejoin with unsynced work).
+    // Loop-free: this write never re-emits (receivers apply, never echo).
+    const handleSyncInit = (payload) => {
+      if (!payload || payload.roomId !== roomRef.current) return;
+      if (!Array.isArray(payload.shapes)) return;
+      const clean = payload.shapes.filter((s) => s && typeof s.id === 'string');
+      setShapes((prev) => {
+        if ((prev ?? []).length === 0) return clean;
+        const byId = new Map(clean.map((s) => [s.id, s]));
+        const merged = clean.slice();
+        for (const s of prev) {
+          if (!byId.has(s.id)) merged.push(s);
+        }
+        return merged.length === prev.length && merged.every((s, i) => s === prev[i]) ? prev : merged;
+      });
+    };
     socket.on('canvas:update', handleRemote);
+    socket.on('canvas:sync-init', handleSyncInit);
     return () => {
       socket.off('canvas:update', handleRemote);
+      socket.off('canvas:sync-init', handleSyncInit);
     };
   }, [socket]);
 
