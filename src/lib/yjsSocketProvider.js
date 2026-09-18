@@ -45,6 +45,9 @@ import {
 export const PROTOCOL = 'syncspace-yjs-1';
 export const YJS_UPDATE_EVENT = 'yjs:update';
 export const YJS_AWARENESS_EVENT = 'yjs:awareness';
+/** Mapping-only event: registers this socket's awareness clientID per room
+ * so the server can broadcast awareness removal on abrupt disconnect. */
+export const YJS_HELLO_EVENT = 'yjs:hello';
 /** Origin marking updates applied from the socket (never rebroadcast). */
 export const ORIGIN_REMOTE = 'remote-socket';
 export const ORIGIN_LOCAL_SYNC = 'local-socket';
@@ -128,7 +131,16 @@ export function attachRoomSync({ socket, roomId, identity } = {}) {
   if (!isValidRoomId(roomId)) {
     throw new Error(`[yjsSocketProvider] Invalid roomId "${roomId}". Must match /^[A-Za-z0-9_-]{1,64}$/`);
   }
-  if (_attached.has(roomId)) return _attached.get(roomId);
+  if (_attached.has(roomId)) {
+    const existing = _attached.get(roomId);
+    if (existing.socket === socket) return existing;
+    // Same room re-attached on a NEW socket object (e.g. client recreated
+    // the socket after an abrupt disconnect): silently drop the old
+    // listeners and rebind. The Awareness instance survives, so the client
+    // keeps its clientID — reconnecting never creates duplicate entries.
+    // No removal broadcast here: this client is still present.
+    silentDetach(roomId);
+  }
 
   const doc = getYDoc(roomId);
   const awareness = getAwareness(roomId);
@@ -225,13 +237,29 @@ export function attachRoomSync({ socket, roomId, identity } = {}) {
     return emitEnvelope(socket, YJS_UPDATE_EVENT, roomId, { protocol: PROTOCOL, kind: 'sync-request', stateVector: b64 });
   };
 
+  const sendHello = () => emitEnvelope(socket, YJS_HELLO_EVENT, roomId, {
+    protocol: PROTOCOL,
+    kind: 'hello',
+    clientId: awareness.clientID,
+  });
+
   const onReconnect = () => {
     // Same socket object re-emits: refresh local awareness broadcast so
-    // peers re-list us, then re-request current state.
+    // peers re-list us, re-register the hello mapping (the server drops it
+    // with the old connection state), then re-request current state.
     try {
       const local = awareness.getLocalState();
       if (local) awareness.setLocalState({ ...local });
     } catch { /* ignore */ }
+    sendHello();
+    requestSync();
+  };
+
+  const onRoomJoined = (payload) => {
+    // Existing room lifecycle (useRoomConnection) owns joining; hook into
+    // it so hello + bootstrap survive the join/rejoin race on reconnect.
+    if (!payload || payload.roomId !== roomId) return;
+    sendHello();
     requestSync();
   };
 
@@ -240,6 +268,7 @@ export function attachRoomSync({ socket, roomId, identity } = {}) {
   socket.on(YJS_UPDATE_EVENT, onRemoteDocEvent);
   socket.on(YJS_AWARENESS_EVENT, onRemoteAwarenessEvent);
   socket.on('connect', onReconnect);
+  socket.on('room:joined', onRoomJoined);
 
   const attachment = {
     roomId,
@@ -247,14 +276,17 @@ export function attachRoomSync({ socket, roomId, identity } = {}) {
     awareness,
     socket,
     requestSync,
+    sendHello,
     _onDocUpdate: onDocUpdate,
     _listeners: [
       [YJS_UPDATE_EVENT, onRemoteDocEvent],
       [YJS_AWARENESS_EVENT, onRemoteAwarenessEvent],
       ['connect', onReconnect],
+      ['room:joined', onRoomJoined],
     ],
   };
   _attached.set(roomId, attachment);
+  sendHello();
   requestSync();
   return attachment;
 }
@@ -262,6 +294,27 @@ export function attachRoomSync({ socket, roomId, identity } = {}) {
 /** True iff Yjs sync is currently attached for the room. */
 export function isRoomAttached(roomId) {
   return _attached.has(roomId);
+}
+
+/**
+ * Drop an attachment's listeners WITHOUT broadcasting removal and WITHOUT
+ * destroying Awareness. Used when rebinding the same room to a new socket
+ * object (the client is still present — removal would wrongly evict it).
+ */
+function silentDetach(roomId) {
+  const attachment = _attached.get(roomId);
+  if (!attachment) return;
+  _attached.delete(roomId);
+  try {
+    attachment.doc.off('update', attachment._onDocUpdate);
+  } catch { /* ignore */ }
+  if (attachment._listeners && attachment.socket && typeof attachment.socket.off === 'function') {
+    for (const [event, handler] of attachment._listeners) {
+      try {
+        attachment.socket.off(event, handler);
+      } catch { /* ignore */ }
+    }
+  }
 }
 
 /**

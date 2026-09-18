@@ -168,3 +168,27 @@ workspace wiring only.
 
 Implemented, tested (104/104), built, scoped. Awaiting commit + push +
 Shravan review. Do NOT merge.
+
+## 14. Follow-up — Abrupt-Disconnect Awareness Cleanup (PASS)
+
+Gap review found explicit-leave cleanup existed but abrupt disconnect left
+stale awareness (disconnecting client cannot broadcast its own removal).
+Minimum-change fix, same architecture:
+
+- Server (`server/socket.cjs`): `yjs:hello` records per-socket awareness
+  clientID (validated uint32, membership-checked, mapping only);
+  relayed `yjs:awareness` payloads are snooped for (clientID → clock) to
+  `awarenessClocks`; `removeFromPresence` (leave / switch / disconnect —
+  single place) broadcasts a hand-encoded removal update
+  (last-seen clock + 1, which Yjs accepts) on the existing `yjs:awareness`
+  channel. No room-routing or auth changes.
+- Client (`yjsSocketProvider.js`): hello sent on attach, on `connect`, and
+  on `room:joined` (join-race safety); re-attach on a new socket object
+  silently rebinds, preserving the Awareness instance/clientID (no
+  duplicates, no wrongful eviction).
+- Single-room-per-socket confirmed from server code, so "multiple rooms"
+  means switch semantics (old room gets removal, new room unaffected).
+- Tests: `test/yjs-disconnect.test.cjs` 7/7 (hello unit, joined re-send,
+  rebind, abrupt-disconnect scenario with room-still-functional check,
+  switch isolation, hello validation, reconnect single-entry). Full suite
+  **111/111**, build succeeds.
