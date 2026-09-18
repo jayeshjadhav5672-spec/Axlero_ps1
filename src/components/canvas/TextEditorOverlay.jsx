@@ -7,7 +7,7 @@ import React, { useEffect, useRef, useState } from 'react';
  * correct). Hand-drawn typography (Caveat/Virgil stack), violet focus ring.
  * Commit: Enter (no Shift) or blur. Cancel: Escape.
  */
-export default function TextEditorOverlay({ editor, color, onCommit, onCancel }) {
+export default function TextEditorOverlay({ editor, color, onCommit, onCancel, onChange }) {
   const [value, setValue] = useState(editor?.value ?? '');
   const areaRef = useRef(null);
   // Mount guard: an instantaneous blur (within 150ms of the overlay
@@ -72,7 +72,12 @@ export default function TextEditorOverlay({ editor, color, onCommit, onCancel })
     <textarea
       ref={areaRef}
       value={value}
-      onChange={(e) => setValue(e.target.value)}
+      onChange={(e) => {
+        setValue(e.target.value);
+        // Live typing stream: the shell throttles + broadcasts a text
+        // preview so room peers see keystrokes before commit.
+        onChange?.(e.target.value);
+      }}
       onBlur={handleBlur}
       onKeyDown={handleKeyDown}
       onPointerDown={(e) => e.stopPropagation()}
