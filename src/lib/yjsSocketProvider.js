@@ -278,6 +278,7 @@ export function attachRoomSync({ socket, roomId, identity } = {}) {
     requestSync,
     sendHello,
     _onDocUpdate: onDocUpdate,
+    _onAwarenessUpdate: onAwarenessUpdate,
     _listeners: [
       [YJS_UPDATE_EVENT, onRemoteDocEvent],
       [YJS_AWARENESS_EVENT, onRemoteAwarenessEvent],
@@ -307,6 +308,9 @@ function silentDetach(roomId) {
   _attached.delete(roomId);
   try {
     attachment.doc.off('update', attachment._onDocUpdate);
+  } catch { /* ignore */ }
+  try {
+    attachment.awareness.off('update', attachment._onAwarenessUpdate);
   } catch { /* ignore */ }
   if (attachment._listeners && attachment.socket && typeof attachment.socket.off === 'function') {
     for (const [event, handler] of attachment._listeners) {

@@ -188,7 +188,29 @@ Minimum-change fix, same architecture:
   duplicates, no wrongful eviction).
 - Single-room-per-socket confirmed from server code, so "multiple rooms"
   means switch semantics (old room gets removal, new room unaffected).
-- Tests: `test/yjs-disconnect.test.cjs` 7/7 (hello unit, joined re-send,
-  rebind, abrupt-disconnect scenario with room-still-functional check,
-  switch isolation, hello validation, reconnect single-entry). Full suite
-  **111/111**, build succeeds.
+- Tests: `test/yjs-disconnect.test.cjs` 9/9 (hello unit, joined re-send,
+  rebind, awareness-listener non-accumulation, abrupt-disconnect scenario
+  with room-still-functional check, switch isolation, spoofed-hello
+  rejection, hello validation, reconnect single-entry). Full suite
+  **113/113**, build succeeds.
+
+## 15. Final Review Fixes (before PR)
+
+Code-level review of the disconnect follow-up found and fixed three
+issues, each regression-tested:
+
+1. **Hello-spoof eviction (security).** `yjs:hello` trusted the claimed
+   clientID: attacker X hello-claiming victim Y's ID got a removal
+   broadcast for Y on X's disconnect (peers dropped Y transiently).
+   Fix: authorship binding — the server records which clientIDs each
+   socket actually authored in its relayed updates and broadcasts removal
+   only for socket-authored mappings. Proven by a failing-then-passing
+   spoof test.
+2. **Awareness listener leak on rebind.** `silentDetach` removed doc +
+   socket listeners but not the Awareness `update` handler, doubling
+   awareness emits per rebind. Fix: store/off `_onAwarenessUpdate`.
+   Proven by a failing-then-passing accumulation test.
+3. **Removal self-delivery + clock-map bound.** Removal now uses
+   `socket.broadcast.to(room)` (excludes the leaver, matching relay
+   semantics); per-room clock maps capped at 1000 entries (oldest
+   evicted).
