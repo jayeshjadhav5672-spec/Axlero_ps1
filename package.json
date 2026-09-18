@@ -19,6 +19,7 @@
     "react-konva": "^19.2.7",
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1",
+    "y-protocols": "^1.0.7",
     "yjs": "^13.6.32"
   },
   "devDependencies": {

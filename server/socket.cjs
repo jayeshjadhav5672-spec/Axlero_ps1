@@ -2,7 +2,7 @@ const { Server } = require("socket.io");
 
 const ROOM_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_PAYLOAD_BYTES = 256 * 1024;
-const COLLABORATION_EVENTS = ["canvas:update", "code:update", "cursor:update"];
+const COLLABORATION_EVENTS = ["canvas:update", "code:update", "cursor:update", "yjs:update", "yjs:awareness"];
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
