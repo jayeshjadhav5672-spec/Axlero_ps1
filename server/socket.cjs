@@ -16,9 +16,11 @@ const MAX_STREAM_POINTS = 20000;
  * older client re-broadcasts. `roomState` tracks the authoritative shape
  * array per room from every validated mutation channel (unified +
  * legacy ops); `room:join` delivers it as `canvas:sync-init` to the
- * joiner only. Bounded (rooms + shapes caps, oldest idle evicted) so memory
- * cannot grow unboundedly. Ephemeral streams (previews, cursors, trails,
- * in-progress strokes) never touch it.
+ * joiner only. Bounded (rooms + shapes caps, oldest IDLE room evicted)
+ * so memory cannot grow unboundedly. A room with live presence is NEVER
+ * evicted automatically; when every slot holds a live room, new entries
+ * are rejected with `connection:error` instead. Ephemeral streams
+ * (previews, cursors, trails, in-progress strokes) never touch it.
  *
  * Capacity contract (explicit, never silent): a mutation that would push a
  * room past MAX_ROOM_SHAPES is REJECTED with `connection:error` ("room
@@ -396,6 +398,26 @@ function createSocketServer(httpServer, options = {}) {
     return roomState.get(roomId)?.shapes ?? [];
   }
 
+  function roomHasLivePresence(roomId) {
+    return (roomPresence.get(roomId)?.length ?? 0) > 0;
+  }
+
+  /**
+   * Free one room-state slot when at capacity. Evicts the oldest IDLE
+   * room (zero live presence) only — a live room is never evicted
+   * automatically. Returns true when a slot is available.
+   */
+  function freeRoomCapacity() {
+    if (roomState.size < MAX_ROOMS) return true;
+    for (const [id] of roomState) {
+      if (!roomHasLivePresence(id)) {
+        roomState.delete(id);
+        return true;
+      }
+    }
+    return false;
+  }
+
   function setRoomShapes(roomId, shapes) {
     const clean = validShapeEntries(shapes);
     // Recency refresh: rooms written to re-insert at the end, so eviction
@@ -403,13 +425,12 @@ function createSocketServer(httpServer, options = {}) {
     if (roomState.has(roomId)) roomState.delete(roomId);
     // Bounded memory: evict rooms with no live presence first — their state
     // is unobservable (nobody connected to lose it), so eviction can never
-    // silently empty a board out from under connected clients. Only when
-    // every tracked room has live peers, evict the oldest-written room.
-    while (roomState.size >= MAX_ROOMS) {
-      const idle = [...roomState.keys()].find((id) => (roomPresence.get(id) ?? []).length === 0);
-      roomState.delete(idle ?? roomState.keys().next().value);
-    }
+    // silently empty a board out from under connected clients. A room with
+    // live presence is NEVER evicted; when every slot is live, refuse the
+    // new entry instead (callers reject with connection:error).
+    if (roomState.size >= MAX_ROOMS && !freeRoomCapacity()) return false;
     roomState.set(roomId, { shapes: clean, updatedAt: Date.now() });
+    return true;
   }
 
   /**
@@ -417,12 +438,24 @@ function createSocketServer(httpServer, options = {}) {
    * MUST be called BEFORE relaying the op: mutations that would overflow
    * MAX_ROOM_SHAPES throw (converted to `connection:error` by callers),
    * so an over-cap op is never relayed without being stored — peers and
-   * the snapshot can never silently diverge.
+   * the snapshot can never silently diverge. No-op mutations return the
+   * previous array untouched (no entry created, no eviction triggered).
+   * A mutation needing a new entry while every MAX_ROOMS slot holds a
+   * live room throws a coded ROOM_CAPACITY_EXHAUSTED error (likewise
+   * converted to `connection:error`, with no relay and no snapshot
+   * change) — a live room's snapshot is never discarded.
    */
   function commitRoomMutation(roomId, event, data) {
-    const next = applyRoomMutation(getRoomShapes(roomId), event, data);
+    const prev = getRoomShapes(roomId);
+    const next = applyRoomMutation(prev, event, data);
     if (next.length > MAX_ROOM_SHAPES) {
       throw new Error(`room shape limit reached (${MAX_ROOM_SHAPES} shapes)`);
+    }
+    if (next === prev) return next;
+    if (!roomState.has(roomId) && !freeRoomCapacity()) {
+      const err = new Error(`room-state capacity exhausted (${MAX_ROOMS} live rooms); try again later`);
+      err.code = "ROOM_CAPACITY_EXHAUSTED";
+      throw err;
     }
     setRoomShapes(roomId, next);
     return next;
@@ -554,7 +587,9 @@ function createSocketServer(httpServer, options = {}) {
           // Track legacy whiteboard ops in the room snapshot (code/cursor
           // payloads are ignored by the reducer). Runs BEFORE relay so an
           // over-cap mutation is rejected (connection:error) instead of
-          // relayed-but-unstored.
+          // relayed-but-unstored. A capacity rejection likewise stops the
+          // op entirely: no snapshot change, no relay (the coded error
+          // below preserves ROOM_CAPACITY_EXHAUSTED).
           if (event === "canvas:update") {
             commitRoomMutation(socket.data.roomId, event, payload.data);
           }
@@ -564,7 +599,7 @@ function createSocketServer(httpServer, options = {}) {
             socketId: socket.id,
           });
         } catch (error) {
-          sendError(socket, event, error.message);
+          sendError(socket, event, error.message, error.code ?? "INVALID_PAYLOAD");
         }
       });
     }
@@ -645,7 +680,7 @@ function createSocketServer(httpServer, options = {}) {
           traceServer(`Relayed ${event} to room "${targetRoom}" excluding sender ${socket.id}`);
         } catch (error) {
           traceServerError(`${event} from=${socket.id}: ${error.message}`);
-          sendError(socket, event, error.message);
+          sendError(socket, event, error.message, error.code ?? "INVALID_PAYLOAD");
         }
       });
     }
@@ -708,7 +743,7 @@ function createSocketServer(httpServer, options = {}) {
           traceServer(`Relayed ${event} to room "${targetRoom}" excluding sender ${socket.id}`);
         } catch (error) {
           traceServerError(`${event} from=${socket.id}: ${error.message}`);
-          sendError(socket, event, error.message);
+          sendError(socket, event, error.message, error.code ?? "INVALID_PAYLOAD");
         }
       });
     }
@@ -725,4 +760,4 @@ function createSocketServer(httpServer, options = {}) {
   return { io, roomPresence, roomState, applyRoomMutation };
 }
 
-module.exports = { createSocketServer, isValidRoomId, applyRoomMutation };
+module.exports = { createSocketServer, isValidRoomId, applyRoomMutation, MAX_ROOMS, MAX_ROOM_SHAPES };
