@@ -81,8 +81,12 @@ function redactCredentials(text) {
   // user:password@ token, not just the password).
   out = out.replace(/(^|[\s"'`(])[A-Za-z0-9_.%+-]+:[^@\s"'`\\]+@/g, "$1<redacted>@");
   // Credential-bearing query/connection parameters, whether &-joined,
-  // whitespace-separated, or at the start of the message.
-  out = out.replace(/(^|[\s?&;])(password|passwd|pwd|secret|token|authMechanismProperties)=[^&\s"'`\\]*/gi, "$1$2=<redacted>");
+  // whitespace-separated, or at the start of the message — and whether
+  // or not spaces surround the `=` sign.
+  out = out.replace(
+    /(^|[\s?&;])(password|passwd|pwd|secret|token|authMechanismProperties)\s*=\s*[^&\s"'`\\]*/gi,
+    "$1$2=<redacted>"
+  );
   const firstLine = out.split("\n")[0].slice(0, 300);
   return firstLine;
 }

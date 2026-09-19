@@ -74,6 +74,30 @@ test("sanitizedError redacts credential-bearing URIs, userinfo, and secret param
   assert.ok(String(sanitizedError(null).message).includes("MongoDB connection failed"));
 });
 
+test("sanitizedError redacts credential params with spaces around =", () => {
+  const { sanitizedError } = loadFresh();
+  const cases = [
+    ["password = F4kePass", "F4kePass"],
+    ["password= F4kePass", "F4kePass"],
+    ["password =F4kePass", "F4kePass"],
+    ["token = F4keToken", "F4keToken"],
+    ["secret = F4keSecret", "F4keSecret"],
+    ["pwd = F4kePwd", "F4kePwd"],
+    ["passwd = F4kePasswd", "F4kePasswd"],
+    ["authMechanismProperties = F4keProps", "F4keProps"],
+  ];
+  for (const [fragment, secret] of cases) {
+    const out = String(sanitizedError(new Error(`connect failed: ${fragment} end`)).message);
+    assert.ok(out.startsWith("MongoDB connection failed: "), `prefix lost: ${out}`);
+    assert.ok(out.includes("<redacted>"), `nothing redacted: ${out}`);
+    assert.ok(!out.includes(secret), `credential leaked: ${out}`);
+  }
+  // Error code behavior is unchanged by redaction.
+  const coded = sanitizedError(Object.assign(new Error("x password = F4kePass y"), { code: "ENOTFOUND" }));
+  assert.equal(coded.code, "ENOTFOUND");
+  assert.ok(!String(coded.message).includes("F4kePass"));
+});
+
 test("concurrent and sequential failures share reset state without hanging", async () => {
   process.env.MONGODB_URI = "mongodb://u:p@127.0.0.1:1/db?serverSelectionTimeoutMS=1500";
   const { connectMongo, isConnected } = loadFresh();
