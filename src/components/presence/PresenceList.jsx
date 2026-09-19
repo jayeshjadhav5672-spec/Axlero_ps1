@@ -17,12 +17,14 @@ const FALLBACK_COLORS = [
 ];
 
 function initialsFor(name) {
-  return name
-    .split(' ')
+  if (typeof name !== 'string') return '?';
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  return parts
     .map((part) => part[0])
     .join('')
     .toUpperCase()
-    .slice(0, 2);
+    .slice(0, 2) || '?';
 }
 
 function colorClassFor(user, index) {

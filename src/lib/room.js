@@ -86,9 +86,10 @@ export function presenceToUsers(presence) {
   if (!Array.isArray(presence)) return [];
   return presence.map((entry) => {
     const id = entry?.userId || entry?.socketId || 'unknown';
+    const rawName = typeof entry?.displayName === 'string' ? entry.displayName.trim() : '';
     return {
       id: String(id),
-      name: entry?.displayName || 'Guest',
+      name: rawName || '?',
       color: colorForId(id),
       isActive: true,
     };
