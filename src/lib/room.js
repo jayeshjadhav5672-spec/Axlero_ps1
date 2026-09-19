@@ -9,7 +9,6 @@
 export const ROOM_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 export const DEFAULT_ROOM_ID = 'lobby';
 export const IDENTITY_STORAGE_KEY = 'syncspace:identity';
-export const AUTH_STORAGE_KEY = 'syncspace:auth';
 
 const PRESENCE_PALETTE = [
   '#0f766e',
@@ -45,14 +44,10 @@ function randomIdentity() {
 
 /**
  * Stable per-browser identity, persisted in localStorage.
- *
- * Authenticated users defer to their account identity (from the stored
- * auth session) when a valid, unexpired token exists; everyone else
- * falls back to the random Guest flow, which keeps working unchanged.
+ * Vaishnavi's auth will replace the displayName/userId source; callers
+ * already pass identity through, so the swap is contained here.
  */
 export function getOrCreateIdentity() {
-  const authed = getAuthenticatedIdentity();
-  if (authed) return authed;
   try {
     const raw = localStorage.getItem(IDENTITY_STORAGE_KEY);
     if (raw) {
@@ -73,76 +68,6 @@ export function getOrCreateIdentity() {
   } catch {
     return randomIdentity();
   }
-}
-
-/**
- * Stored auth session shape: { token, user } where user is
- * { id, name, email, username, role }. Written at login/signup, cleared
- * at logout. Never holds passwords or secrets beyond the JWT itself.
- */
-export function getStoredAuth() {
-  try {
-    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed.token !== 'string' || !parsed.token || !parsed.user) return null;
-    return { token: parsed.token, user: parsed.user };
-  } catch {
-    return null;
-  }
-}
-
-export function setStoredAuth(session) {
-  try {
-    if (!session?.token || !session?.user) return;
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: session.token, user: session.user }));
-  } catch {
-    // storage unavailable — session simply won't persist
-  }
-}
-
-export function clearStoredAuth() {
-  try {
-    localStorage.removeItem(AUTH_STORAGE_KEY);
-  } catch {
-    // ignore
-  }
-}
-
-function isTokenFresh(token) {
-  try {
-    const parts = String(token).split('.');
-    if (parts.length !== 3) return false;
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
-    if (typeof payload.exp !== 'number') return true;
-    return payload.exp * 1000 > Date.now();
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Account identity when a valid (unexpired) token exists, else null.
- * Carries the authenticated userId/displayName the socket layer and
- * presence mapping consume; extra fields (username, role) ride along
- * for the profile and lobby-role checks.
- */
-export function getAuthenticatedIdentity() {
-  const session = getStoredAuth();
-  if (!session || !isTokenFresh(session.token)) return null;
-  const user = session.user;
-  if (!user || (typeof user.id !== 'string' && typeof user.id !== 'number')) return null;
-  const displayName =
-    (typeof user.username === 'string' && user.username.trim()) ||
-    (typeof user.name === 'string' && user.name.trim()) ||
-    null;
-  if (!displayName) return null;
-  return {
-    userId: String(user.id),
-    displayName,
-    username: user.username ?? null,
-    role: user.role ?? null,
-  };
 }
 
 /** Deterministic avatar color for a presence id (stable across renders). */

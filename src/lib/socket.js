@@ -17,7 +17,6 @@ const SERVER_URL =
   'http://localhost:3000';
 
 let socket = null;
-let authToken = null;
 
 export function getSocket() {
   if (!socket) {
@@ -28,27 +27,9 @@ export function getSocket() {
       reconnectionDelay: 500,
       reconnectionDelayMax: 5000,
       timeout: 10000,
-      auth: authToken ? { token: authToken } : {},
     });
   }
   return socket;
-}
-
-/**
- * Auth handshake token for the socket connection. Applied to the shared
- * instance so the next (re)connect carries it in `auth.token`, where the
- * server middleware verifies it into socket.user. Null clears it back
- * to the anonymous Guest handshake.
- */
-export function setSocketAuthToken(token) {
-  authToken = token || null;
-  if (socket) {
-    socket.auth = authToken ? { token: authToken } : {};
-  }
-}
-
-export function getSocketAuthToken() {
-  return authToken;
 }
 
 /** Test/dev escape hatch — the app itself never needs this. */

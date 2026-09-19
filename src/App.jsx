@@ -10,9 +10,8 @@
  * - Shree (pending): room→doc mapping + op contract documented in
  *   docs/INTEGRATION.md; socket relay is the transport her Yjs sync
  *   provider will reuse
- * - Auth: account identity via getOrCreateIdentity (prefers the stored
- *   JWT session, falls back to the Guest identity); the JWT travels in
- *   the Socket.io handshake where server middleware sets socket.user
+ * - Vaishnavi (pending): identity via getOrCreateIdentity (localStorage);
+ *   server already honors socket.user for future auth middleware
  *
  * Offline honesty: when the realtime server is unreachable the banner
  * says so and the whiteboard/editor keep working locally.
@@ -24,9 +23,6 @@ import Workspace from './components/workspace/Workspace';
 import { LeftRoomState } from './components/room';
 import Dashboard from './components/dashboard/Dashboard';
 import LandingPage from './components/landing/LandingPage';
-import LoginPage from './components/auth/LoginPage';
-import SignupPage from './components/auth/SignupPage';
-import ProfilePage from './components/auth/ProfilePage';
 import { Whiteboard } from './components/canvas';
 import CollabTextEditor from './components/editor/CollabTextEditor';
 import useRoomConnection from './hooks/useRoomConnection';
@@ -34,16 +30,13 @@ import useCollaborativeWhiteboard from './hooks/useCollaborativeWhiteboard';
 import useCollaborativeCode from './hooks/useCollaborativeCode';
 import {
   buildRoomUrl,
-  clearStoredAuth,
   getOrCreateIdentity,
   getRoomIdFromUrl,
-  getStoredAuth,
   hasEnteredApp,
   isValidRoomId,
   markEnteredApp,
   presenceToUsers,
   recordRecentRoom,
-  setStoredAuth,
   shouldShowLanding,
   urlForDashboardView,
   urlForWorkspaceView,
@@ -51,14 +44,7 @@ import {
 
 export default function App() {
   const [roomId] = useState(() => getRoomIdFromUrl());
-  // Auth session ({ token, user } | null), persisted in localStorage.
-  // Identity derives from it: getOrCreateIdentity() prefers the account
-  // identity when a valid token exists, else the stable Guest identity.
-  const [auth, setAuth] = useState(() => getStoredAuth());
-  // Auth views extend the existing useState-based view switching —
-  // no router. One of null | 'login' | 'signup' | 'profile'.
-  const [authView, setAuthView] = useState(null);
-  const identity = useMemo(() => getOrCreateIdentity(), [auth]);
+  const [identity] = useState(() => getOrCreateIdentity());
   const [shareNote, setShareNote] = useState('');
   // Day 3 full Dashboard: the home/start screen. Shown by default when the
   // URL carries no explicit `?room=`, and entered later via "Go to
@@ -86,7 +72,6 @@ export default function App() {
     roomId,
     userId: identity.userId,
     displayName: identity.displayName,
-    authToken: auth?.token ?? null,
   });
 
   const live = !left && status !== 'error';
@@ -174,25 +159,6 @@ export default function App() {
     setShowLanding(false);
   }, []);
 
-  const handleAuthSuccess = useCallback((session) => {
-    setStoredAuth(session);
-    setAuth(getStoredAuth());
-    setAuthView(null);
-  }, []);
-
-  const handleLogout = useCallback(() => {
-    clearStoredAuth();
-    setAuth(null);
-    setAuthView(null);
-  }, []);
-
-  const handleUsernameSaved = useCallback((user) => {
-    setStoredAuth({ token: getStoredAuth()?.token, user });
-    setAuth(getStoredAuth());
-  }, []);
-
-  const goDashboard = useCallback(() => setAuthView(null), []);
-
   return (
     <AppLayout>
       {banner && (
@@ -219,36 +185,11 @@ export default function App() {
 
       {showLanding ? (
         <LandingPage onEnter={handleEnterApp} />
-      ) : authView === 'login' ? (
-        <LoginPage
-          onSuccess={handleAuthSuccess}
-          onSwitchToSignup={() => setAuthView('signup')}
-          onBack={goDashboard}
-        />
-      ) : authView === 'signup' ? (
-        <SignupPage
-          onSuccess={handleAuthSuccess}
-          onSwitchToLogin={() => setAuthView('login')}
-          onBack={goDashboard}
-        />
-      ) : authView === 'profile' && auth?.user ? (
-        <ProfilePage
-          user={auth.user}
-          token={auth.token}
-          onUsernameSaved={handleUsernameSaved}
-          onLogout={handleLogout}
-          onBack={goDashboard}
-        />
       ) : dashboardView ? (
         <Dashboard
           currentRoomId={roomId}
           hasActiveRoom={initialPresence.hasRoom}
           onReturnToWorkspace={handleRejoin}
-          user={auth?.user ?? null}
-          onLogin={() => setAuthView('login')}
-          onSignup={() => setAuthView('signup')}
-          onProfile={() => setAuthView('profile')}
-          onLogout={handleLogout}
         />
       ) : (
         <div className="relative flex flex-1 flex-col">
