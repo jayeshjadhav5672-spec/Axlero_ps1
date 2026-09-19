@@ -21,6 +21,8 @@ export default function Workspace({
   roomName,
   connectionStatus = 'disconnected',
   users = [],
+  // Local identity's user id for the header people panel ("You" row).
+  currentUserId = null,
   whiteboard,
   editor,
   editorLanguage,
@@ -41,6 +43,7 @@ export default function Workspace({
         roomName={roomName}
         connectionStatus={connectionStatus}
         users={users}
+        currentUserId={currentUserId}
         onLeaveRoom={onLeaveRoom}
         onShareRoom={onShareRoom}
       />
