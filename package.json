@@ -12,9 +12,11 @@
     "test": "node --test test/*.test.cjs test/*.test.mjs"
   },
   "dependencies": {
+    "dotenv": "^18.0.1",
     "express": "^5.2.1",
     "jspdf": "^4.2.1",
     "konva": "^10.5.0",
+    "mongodb": "^7.6.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-konva": "^19.2.7",
