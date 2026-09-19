@@ -1,4 +1,5 @@
 import React from 'react';
+import { initialsForDisplayName } from '../../lib/room';
 
 /**
  * PresenceList — Avantee (React UI / Frontend Engineer)
@@ -6,6 +7,10 @@ import React from 'react';
  * Renders collaborator avatars from an external `users` array.
  * Shape: { id, name, color?, isActive? } — ready for Shree's Yjs
  * awareness data. No hardcoded production users inside this component.
+ *
+ * Initials come from each user's actual name via the shared
+ * initialsForDisplayName helper (real names → first letters, auto
+ * guest tags → their unique suffix, unknown → '?').
  */
 const FALLBACK_COLORS = [
   'bg-teal-600',
@@ -15,17 +20,6 @@ const FALLBACK_COLORS = [
   'bg-rose-600',
   'bg-sky-600',
 ];
-
-function initialsFor(name) {
-  if (typeof name !== 'string') return '?';
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '?';
-  return parts
-    .map((part) => part[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2) || '?';
-}
 
 function colorClassFor(user, index) {
   if (user.colorClass) return user.colorClass;
@@ -56,7 +50,7 @@ export default function PresenceList({ users = [], maxVisible = 4, className = '
           className={`relative -ml-1 flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold text-white ring-2 ring-white first:ml-0 ${colorClassFor(user, index) ?? 'bg-slate-500'}`}
           style={user.color && !user.colorClass ? { backgroundColor: user.color } : undefined}
         >
-          {initialsFor(user.name)}
+          {initialsForDisplayName(user.name)}
           {user.isActive !== false && (
             <span
               className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-white"

@@ -263,6 +263,7 @@ export default function App() {
               roomId={roomId}
               connectionStatus={status}
               users={users}
+              currentUserId={identity.userId}
               whiteboard={
                 <Whiteboard
                   shapes={whiteboardSync.shapes}
