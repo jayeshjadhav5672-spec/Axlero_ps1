@@ -159,16 +159,7 @@ function navigateToRoom(roomId) {
 /* Dashboard                                                           */
 /* ------------------------------------------------------------------ */
 
-export default function Dashboard({
-  currentRoomId,
-  hasActiveRoom = false,
-  onReturnToWorkspace,
-  user = null,
-  onLogin,
-  onSignup,
-  onProfile,
-  onLogout,
-}) {
+export default function Dashboard({ currentRoomId, hasActiveRoom = false, onReturnToWorkspace }) {
   const [recentRooms] = useState(() => getRecentRooms());
   const [roomInput, setRoomInput] = useState('');
   const [joinError, setJoinError] = useState('');
@@ -233,52 +224,6 @@ export default function Dashboard({
             <span className="rounded-full border border-[#E7DFCC] bg-white px-2.5 py-0.5 text-xs font-semibold text-[#57534E]">
               Dashboard
             </span>
-          </span>
-          {/* Account area: entry points branch on session state — signed-in
-              users get profile/sign-out, everyone else gets log-in and
-              create-account. Frontend-only navigation, no backend. */}
-          <span className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
-            {user ? (
-              <>
-                <span
-                  className="hidden max-w-[12rem] truncate text-sm font-medium text-[#57534E] sm:inline"
-                  aria-label={`Signed in as ${user.name || user.email}`}
-                >
-                  {user.username || user.name || user.email}
-                </span>
-                <button
-                  type="button"
-                  onClick={onProfile}
-                  className="rounded-lg border border-[#E7DFCC] bg-white px-4 py-2 text-sm font-semibold text-[#111111] transition-colors hover:bg-[#EDE6D6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#111111] focus-visible:ring-offset-2 focus-visible:ring-offset-[#F5F1E8]"
-                >
-                  Profile
-                </button>
-                <button
-                  type="button"
-                  onClick={onLogout}
-                  className="rounded-lg px-3 py-2 text-sm font-medium text-[#57534E] transition-colors hover:text-[#111111] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#111111]"
-                >
-                  Log out
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={onLogin}
-                  className="rounded-lg px-3 py-2 text-sm font-semibold text-[#57534E] transition-colors hover:text-[#111111] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#111111]"
-                >
-                  Log in
-                </button>
-                <button
-                  type="button"
-                  onClick={onSignup}
-                  className="rounded-lg bg-[#111111] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#2A2A2A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#111111] focus-visible:ring-offset-2 focus-visible:ring-offset-[#F5F1E8]"
-                >
-                  Create account
-                </button>
-              </>
-            )}
           </span>
         </header>
 
