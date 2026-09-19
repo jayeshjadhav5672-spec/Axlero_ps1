@@ -23,6 +23,9 @@ import Workspace from './components/workspace/Workspace';
 import { LeftRoomState } from './components/room';
 import Dashboard from './components/dashboard/Dashboard';
 import LandingPage from './components/landing/LandingPage';
+import LoginPage from './components/auth/LoginPage';
+import SignupPage from './components/auth/SignupPage';
+import ProfilePage from './components/auth/ProfilePage';
 import { Whiteboard } from './components/canvas';
 import CollabTextEditor from './components/editor/CollabTextEditor';
 import useRoomConnection from './hooks/useRoomConnection';
@@ -67,6 +70,13 @@ export default function App() {
   const [showLanding, setShowLanding] = useState(
     () => shouldShowLanding(initialPresence.hasRoom, hasEnteredApp()),
   );
+  // Frontend-only auth views extend the existing useState-based view
+  // switching — no router. One of null | 'login' | 'signup' | 'profile'.
+  // `sessionUser` ({ name, email, username } | null) lives in memory
+  // only: nothing is persisted and nothing is sent to a backend. The
+  // auth teammate will replace this seam with real authentication.
+  const [authView, setAuthView] = useState(null);
+  const [sessionUser, setSessionUser] = useState(null);
 
   const { socket, status, presence, error, left, reconnect, leaveRoom } = useRoomConnection({
     roomId,
@@ -159,6 +169,29 @@ export default function App() {
     setShowLanding(false);
   }, []);
 
+  const goDashboard = useCallback(() => setAuthView(null), []);
+
+  const handleSignupSuccess = useCallback(({ name, email }) => {
+    // New account → profile, so a username can be chosen there.
+    setSessionUser({ name, email, username: '' });
+    setAuthView('profile');
+  }, []);
+
+  const handleLoginSuccess = useCallback(({ email }) => {
+    // Frontend-only sign-in; the name arrives with real auth later.
+    setSessionUser({ name: '', email, username: '' });
+    setAuthView(null);
+  }, []);
+
+  const handleUsernameSaved = useCallback((username) => {
+    setSessionUser((current) => (current ? { ...current, username } : current));
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    setSessionUser(null);
+    setAuthView(null);
+  }, []);
+
   return (
     <AppLayout>
       {banner && (
@@ -185,11 +218,37 @@ export default function App() {
 
       {showLanding ? (
         <LandingPage onEnter={handleEnterApp} />
+      ) : authView === 'login' ? (
+        <LoginPage
+          onSuccess={handleLoginSuccess}
+          onSwitchToSignup={() => setAuthView('signup')}
+          onBack={goDashboard}
+        />
+      ) : authView === 'signup' ? (
+        <SignupPage
+          onSuccess={handleSignupSuccess}
+          onSwitchToLogin={() => setAuthView('login')}
+          onBack={goDashboard}
+        />
+      ) : authView === 'profile' ? (
+        <ProfilePage
+          user={sessionUser}
+          onUsernameSaved={handleUsernameSaved}
+          onLogout={handleLogout}
+          onBack={goDashboard}
+          onLogin={() => setAuthView('login')}
+          onSignup={() => setAuthView('signup')}
+        />
       ) : dashboardView ? (
         <Dashboard
           currentRoomId={roomId}
           hasActiveRoom={initialPresence.hasRoom}
           onReturnToWorkspace={handleRejoin}
+          user={sessionUser}
+          onLogin={() => setAuthView('login')}
+          onSignup={() => setAuthView('signup')}
+          onProfile={() => setAuthView('profile')}
+          onLogout={handleLogout}
         />
       ) : (
         <div className="relative flex flex-1 flex-col">
