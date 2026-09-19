@@ -121,7 +121,7 @@ export const exportCanvas = async (stageRef, format = 'png', fileName = 'syncspa
 };
 
 /** Union bounds of all shapes in world coords (fallback: 1600x900). */
-export function exportBounds(shapes) {
+export function exportBounds(shapes, padding = 32) {
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -141,8 +141,25 @@ export function exportBounds(shapes) {
   if (!Number.isFinite(minX) || maxX <= minX || maxY <= minY) {
     return { x: 0, y: 0, width: 1600, height: 900 };
   }
-  const pad = 24;
+  const pad = Number.isFinite(padding) ? padding : 32;
   return { x: minX - pad, y: minY - pad, width: maxX - minX + pad * 2, height: maxY - minY + pad * 2 };
+}
+
+/**
+ * Union bounds of only the selected shapes (selection-only export).
+ * Falls back to the auto-cropped full canvas when the selection is empty.
+ */
+export function getSelectionBounds(selectedShapes, padding = 20) {
+  const list = Array.isArray(selectedShapes) ? selectedShapes.filter(Boolean) : [];
+  if (list.length === 0) return null;
+  return exportBounds(list, padding);
+}
+
+/** Resolve export bounds for a raster capture: selection wins, else full board. */
+export function resolveExportBounds(shapes, selectedShapes) {
+  const sel = getSelectionBounds(selectedShapes, 20);
+  if (sel) return { bounds: sel, selectionOnly: true };
+  return { bounds: exportBounds(shapes, 32), selectionOnly: false };
 }
 
 /** JSON: clean serializable shapes array -> syncspace-board.json */
@@ -209,10 +226,14 @@ async function flattenOverBackground(pngDataUrl, background = '#ffffff', mime = 
  * composited explicitly: Konva's `toDataURL` ignores any `fill` option
  * and raw canvas pixels default to transparent, which many image
  * viewers render as solid black.
+ *
+ * When `bounds` (world coords) is provided, the stage capture is cropped
+ * via `stage.toDataURL({ x, y, width, height, pixelRatio: 2 })` so the
+ * export is auto-cropped to content instead of the raw infinite viewport.
  */
-async function whitePngDataURL({ stage, domCanvas }, pixelRatio = 2) {
+async function whitePngDataURL({ stage, domCanvas }, pixelRatio = 2, bounds = null) {
   if (stage) {
-    const transparent = stageDataURL(stage, { mimeType: 'image/png', pixelRatio });
+    const transparent = stageDataURL(stage, { mimeType: 'image/png', pixelRatio, bounds });
     return flattenOverBackground(transparent, '#ffffff', 'image/png', 1.0);
   }
   const temp = document.createElement('canvas');
@@ -272,38 +293,80 @@ function assertExportable(resolved) {
 }
 
 /**
- * PNG: white-composited capture from a React ref, a raw Konva Stage, the
- * stage registries, or the DOM canvas — in that order. Async (decodes the
+ * PNG: white-composited, auto-cropped capture from a React ref, a raw
+ * Konva Stage, the stage registries, or the DOM canvas — in that order.
+ * Content bounds come from `exportBounds(shapes)` with a 32px padding
+ * margin and are passed into
+ * `stage.toDataURL({ x, y, width, height, pixelRatio: 2 })`.
+ * Pass `selectedShapes` to export only the current selection
+ * (`getSelectionBounds(selectedShapes, 20)`); falls back to the full
+ * auto-cropped board when the selection is empty. Async (decodes the
  * capture bitmap to composite the white background).
  */
-export async function exportPNG(stageOrRef, filename = 'syncspace-board.png') {
+export async function exportPNG(stageOrRef, filename = 'syncspace-board.png', shapes = null, selectedShapes = null) {
   const resolved = assertExportable(resolveStageOrCanvas(stageOrRef));
-  const url = await whitePngDataURL(resolved, 2);
+  const bounds = Array.isArray(shapes)
+    ? (getSelectionBounds(selectedShapes, 20) ?? exportBounds(shapes, 32))
+    : null;
+  const url = await whitePngDataURL(resolved, 2, bounds);
   downloadDataUrl(url, filename, 'image/png');
   return url;
 }
 
 /**
- * JPEG: white-composited capture, re-encoded as JPEG. Accepts the same
- * ref/stage/nothing inputs as `exportPNG`.
+ * JPEG: white-composited, auto-cropped capture, re-encoded as JPEG.
+ * Accepts the same ref/stage/nothing + shapes/selection inputs as `exportPNG`.
  */
-export async function exportJPEG(stageOrRef, filename = 'syncspace-board.jpg') {
+export async function exportJPEG(stageOrRef, filename = 'syncspace-board.jpg', shapes = null, selectedShapes = null) {
   const resolved = assertExportable(resolveStageOrCanvas(stageOrRef));
-  const whitePng = await whitePngDataURL(resolved, 2);
+  const bounds = Array.isArray(shapes)
+    ? (getSelectionBounds(selectedShapes, 20) ?? exportBounds(shapes, 32))
+    : null;
+  const whitePng = await whitePngDataURL(resolved, 2, bounds);
   const url = await flattenOverBackground(whitePng, '#ffffff', 'image/jpeg', 0.92);
   downloadDataUrl(url, filename, 'image/jpeg');
   return url;
 }
 
 /**
- * AVIF: native capture, white-PNG fallback when the browser rejects it
- * (or when only a DOM canvas is reachable).
+ * Selection-only PNG export. When `selectedShapes` is non-empty the union
+ * bounds of only those shapes (20px padding) are captured; otherwise the
+ * caller should disable the UI option or fall back to `exportPNG`.
  */
-export async function exportAVIF(stageOrRef, filename = 'syncspace-board.avif') {
+export async function exportSelectedPNG(stageOrRef, selectedShapes, filename = 'syncspace-board-selection.png') {
+  const bounds = getSelectionBounds(selectedShapes, 20);
+  if (!bounds) throw new Error('No shape selected — select shapes to export, or export the full board.');
+  const resolved = assertExportable(resolveStageOrCanvas(stageOrRef));
+  const url = await whitePngDataURL(resolved, 2, bounds);
+  downloadDataUrl(url, filename, 'image/png');
+  return url;
+}
+
+/**
+ * Selection-only JPEG export (same bounds contract as `exportSelectedPNG`).
+ */
+export async function exportSelectedJPEG(stageOrRef, selectedShapes, filename = 'syncspace-board-selection.jpg') {
+  const bounds = getSelectionBounds(selectedShapes, 20);
+  if (!bounds) throw new Error('No shape selected — select shapes to export, or export the full board.');
+  const resolved = assertExportable(resolveStageOrCanvas(stageOrRef));
+  const whitePng = await whitePngDataURL(resolved, 2, bounds);
+  const url = await flattenOverBackground(whitePng, '#ffffff', 'image/jpeg', 0.92);
+  downloadDataUrl(url, filename, 'image/jpeg');
+  return url;
+}
+
+/**
+ * AVIF: native auto-cropped capture, white-PNG fallback when the browser
+ * rejects it (or when only a DOM canvas is reachable).
+ */
+export async function exportAVIF(stageOrRef, filename = 'syncspace-board.avif', shapes = null, selectedShapes = null) {
   const resolved = resolveStageOrCanvas(stageOrRef);
+  const bounds = Array.isArray(shapes)
+    ? (getSelectionBounds(selectedShapes, 20) ?? exportBounds(shapes, 32))
+    : null;
   if (resolved.stage) {
     try {
-      const url = stageDataURL(resolved.stage, { mimeType: 'image/avif', pixelRatio: 2 });
+      const url = stageDataURL(resolved.stage, { mimeType: 'image/avif', pixelRatio: 2, bounds });
       // Chrome returns a PNG data URL silently when AVIF encode fails —
       // verify the prefix before trusting the extension.
       if (typeof url === 'string' && url.startsWith('data:image/avif')) {
@@ -314,7 +377,7 @@ export async function exportAVIF(stageOrRef, filename = 'syncspace-board.avif') 
       // fall through to the PNG fallback below
     }
   }
-  const url = await whitePngDataURL(assertExportable(resolved), 2);
+  const url = await whitePngDataURL(assertExportable(resolved), 2, bounds);
   const pngName =
     typeof filename === 'string' && filename.toLowerCase().endsWith('.avif')
       ? `${filename.slice(0, -5)}.png`
@@ -405,6 +468,26 @@ export function exportSVG(shapes, filename = 'syncspace-board.svg') {
       parts.push(
         `<image x="${s.x}" y="${s.y}" width="${s.width}" height="${s.height}" xlink:href="${s.src}"${opacityAttr(s)}/>`,
       );
+    } else if (s.type === 'group' && Array.isArray(s.children)) {
+      const ox = Number.isFinite(s.x) ? s.x : 0;
+      const oy = Number.isFinite(s.y) ? s.y : 0;
+      parts.push(`<g transform="translate(${ox} ${oy})">`);
+      for (const k of s.children) {
+        if (!k) continue;
+        const ksw = k.strokeWidth ?? 2;
+        const kstroke = k.stroke ?? '#1e1e1e';
+        const kfill = k.fill && k.fill !== 'transparent' ? k.fill : 'none';
+        if (k.type === 'rectangle') {
+          parts.push(`<rect x="${k.x}" y="${k.y}" width="${k.width}" height="${k.height}" fill="${kfill}" stroke="${kstroke}" stroke-width="${ksw}"/>`);
+        } else if (k.type === 'circle') {
+          const krx = k.radiusX ?? k.radius ?? 10;
+          const kry = k.radiusY ?? k.radius ?? 10;
+          parts.push(`<ellipse cx="${k.x}" cy="${k.y}" rx="${krx}" ry="${kry}" fill="${kfill}" stroke="${kstroke}" stroke-width="${ksw}"/>`);
+        } else if (k.type === 'text') {
+          parts.push(`<text x="${k.x}" y="${k.y}" font-size="${k.fontSize ?? 20}" fill="${k.fill ?? '#1e1e1e'}">${esc(k.text ?? '')}</text>`);
+        }
+      }
+      parts.push('</g>');
     }
   }
   parts.push('</svg>');
@@ -414,14 +497,16 @@ export function exportSVG(shapes, filename = 'syncspace-board.svg') {
 
 /**
  * PDF: white-composited PNG embedded at content bounds via jspdf.
- * Geometry contract: the page is sized to `exportBounds(shapes)` and the
- * embedded bitmap is cropped to exactly those bounds (stage path), so the
+ * Geometry contract: the page is sized to `exportBounds(shapes, 32)` (or
+ * the selection bounds when `selectedShapes` is provided) and the
+ * embedded bitmap is captured at exactly those bounds
+ * (`stage.toDataURL({ x, y, width, height, pixelRatio: 2 })`), so the
  * page and the image always agree. The DOM-canvas fallback has no viewport
  * metadata, so it embeds the full bitmap on a bitmap-sized page instead of
  * stretching it into a bounds-sized one. jspdf loads lazily so the main
  * bundle stays lean; throws a readable error when missing.
  */
-export async function exportPDF(stageOrRef, shapes, filename = 'syncspace-board.pdf') {
+export async function exportPDF(stageOrRef, shapes, filename = 'syncspace-board.pdf', selectedShapes = null) {
   let jsPDFCtor;
   try {
     const mod = await import('jspdf');
@@ -435,9 +520,15 @@ export async function exportPDF(stageOrRef, shapes, filename = 'syncspace-board.
   let pageW;
   let pageH;
   if (resolved.stage) {
-    const bounds = exportBounds(serializeShapes(shapes));
-    const full = await whitePngDataURL(resolved, 2);
-    png = await cropPngToBounds(full, resolved.stage, bounds, 2);
+    const clean = serializeShapes(shapes);
+    const bounds = getSelectionBounds(
+      Array.isArray(selectedShapes) ? serializeShapes(selectedShapes) : null,
+      20,
+    ) ?? exportBounds(clean, 32);
+    // Auto-cropped capture: bounds flow directly into
+    // stage.toDataURL({ x, y, width, height, pixelRatio: 2 }) via
+    // whitePngDataURL — no full-viewport capture + manual crop.
+    png = await whitePngDataURL(resolved, 2, bounds);
     pageW = bounds.width;
     pageH = bounds.height;
   } else {

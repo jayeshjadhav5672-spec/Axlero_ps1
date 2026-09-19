@@ -32,7 +32,7 @@ export default function CollabTextEditor({
       autoCapitalize="off"
       autoCorrect="off"
       wrap="off"
-      className={`h-full min-h-[420px] w-full flex-1 resize-none rounded-xl border border-slate-700 bg-slate-900 p-4 font-mono text-sm leading-relaxed text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-60 ${className}`}
+      className={`h-full min-h-0 w-full flex-1 resize-none border-0 bg-slate-900 p-4 font-mono text-sm leading-relaxed text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-teal-500 disabled:opacity-60 ${className}`}
     />
   );
 }
