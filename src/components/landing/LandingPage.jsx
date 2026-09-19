@@ -264,12 +264,6 @@ const CAPABILITIES = [
   },
 ];
 
-const ROOM_FLOW = [
-  { title: 'Idea', body: 'Agree on the problem with your team in one place.' },
-  { title: 'Visualize', body: 'Map the approach on the shared whiteboard.' },
-  { title: 'Implement', body: 'Write the code side by side in the same room.' },
-];
-
 const HOW_IT_WORKS = [
   { title: 'Create or join a room', body: 'Pick a room ID and open your workspace.' },
   { title: 'Invite your team', body: 'Share the room link with collaborators.' },
@@ -295,13 +289,6 @@ export default function LandingPage({ onEnter }) {
               How it works
             </a>
           </span>
-          <button
-            type="button"
-            onClick={onEnter}
-            className="ml-auto shrink-0 rounded-lg bg-[#111111] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#2A2A2A]"
-          >
-            Open SyncSpace
-          </button>
         </nav>
       </header>
 
@@ -367,29 +354,6 @@ export default function LandingPage({ onEnter }) {
           </div>
         </section>
 
-        {/* Whiteboard + code relationship */}
-        <section aria-labelledby="landing-room-title" className="w-full">
-          <div className="mx-auto w-full max-w-6xl px-4 py-14 sm:px-6">
-            <h2 id="landing-room-title" className="text-2xl font-bold tracking-tight text-[#111111] sm:text-3xl">
-              One room, from idea to implementation
-            </h2>
-            <p className="mt-2 max-w-2xl text-sm text-[#57534E] sm:text-base">
-              The whiteboard and the editor live side by side, so the plan and the code never drift apart.
-            </p>
-            <ol className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-3">
-              {ROOM_FLOW.map((step, index) => (
-                <li key={step.title} className="relative rounded-2xl border border-[#E7DFCC] bg-white p-6">
-                  <span aria-hidden="true" className="text-sm font-bold tabular-nums text-[#111111]">
-                    {String(index + 1).padStart(2, '0')}
-                  </span>
-                  <h3 className="mt-2 text-base font-semibold text-[#111111]">{step.title}</h3>
-                  <p className="mt-1.5 text-sm text-[#57534E]">{step.body}</p>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </section>
-
         {/* How it works */}
         <section aria-labelledby="landing-how-title" id="how-it-works" className="w-full scroll-mt-4 bg-white">
           <div className="mx-auto w-full max-w-6xl px-4 py-14 sm:px-6">
@@ -415,25 +379,6 @@ export default function LandingPage({ onEnter }) {
                 </li>
               ))}
             </ol>
-          </div>
-        </section>
-
-        {/* Final CTA */}
-        <section aria-labelledby="landing-cta-title" className="w-full">
-          <div className="mx-auto flex w-full max-w-6xl flex-col items-center px-4 py-16 text-center sm:px-6">
-            <h2 id="landing-cta-title" className="max-w-xl text-2xl font-bold tracking-tight text-[#111111] sm:text-3xl">
-              Open SyncSpace and start collaborating
-            </h2>
-            <p className="mt-2 max-w-xl text-sm text-[#57534E] sm:text-base">
-              Create a room, share the link, and whiteboard and code with your team.
-            </p>
-            <button
-              type="button"
-              onClick={onEnter}
-              className="mt-6 rounded-lg bg-[#111111] px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#2A2A2A]"
-            >
-              Open SyncSpace
-            </button>
           </div>
         </section>
       </main>
