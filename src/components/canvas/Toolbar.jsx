@@ -213,19 +213,27 @@ const EXPORT_OPTIONS = [
   { value: 'svg', label: 'SVG (.svg)' },
   { value: 'pdf', label: 'PDF (.pdf)' },
 ];
+const EXPORT_SELECTION_OPTIONS = [
+  { value: 'png-selection', label: 'PNG — selection only' },
+  { value: 'jpeg-selection', label: 'JPEG — selection only' },
+  { value: 'pdf-selection', label: 'PDF — selection only' },
+];
 const BTN_BASE =
   'relative flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg border text-[15px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-1';
 const BTN_ACTIVE = 'bg-violet-100 text-violet-700 border-violet-200 shadow-[inset_0_0_0_1px_rgba(109,88,246,0.15)]';
 const BTN_IDLE = 'border-transparent text-gray-700 hover:bg-gray-100 hover:text-gray-900';
 
 /**
- * Toolbar — full-width 2-section header bar docked at the top of the
+ * Toolbar — responsive 2-section header bar docked at the top of the
  * whiteboard: drawing tools (left), canvas status (shape count + zoom
  * steppers) with history/actions + 3-dot customization toggle (right).
+ * The bar is unconditionally `flex` (no breakpoint locks) and scrolls
+ * horizontally within `max-w-[calc(100vw-32px)]`, so it stays visible on
+ * 13"/15" laptop screens as well as 27" monitors.
  * Stroke/fill color controls live exclusively in the PropertySidebar
  * customization panel — this bar carries no color swatches by design.
  * Back-compat: still accepts the legacy props (locked, onLockedChange,
- * hasSelection, onDelete, color, strokeWidth, currentStyle, onColorChange,
+ * onDelete, color, strokeWidth, currentStyle, onColorChange,
  * onStrokeWidthChange, onStyleChange) and ignores them. Status/action
  * props are all optional — each section degrades gracefully when its
  * handlers are absent.
@@ -237,7 +245,6 @@ export default function Toolbar({
   onLockedChange,
   // legacy (ignored, kept for integration compat — color controls live
   // exclusively in the PropertySidebar customization panel)
-  hasSelection,
   onDelete,
   color,
   strokeWidth,
@@ -266,10 +273,14 @@ export default function Toolbar({
   onToggleAutoDetect,
   onOpenMermaid,
   onExport,
+  // Selection-export toggle: when > 0 a shape is selected the
+  // "selection only" menu section enables; otherwise it disables with a
+  // fallback to the auto-cropped full canvas.
+  selectedCount = 0,
+  hasSelection = false,
 }) {
   void locked;
   void onLockedChange;
-  void hasSelection;
   void onDelete;
   void color;
   void strokeWidth;
@@ -332,14 +343,23 @@ export default function Toolbar({
   const zoomPct = Math.round((Number.isFinite(zoom) ? zoom : 1) * 100);
 
   return (
+    // Outer bar: full-width wrapping pill. Sections flow onto additional
+    // rows on narrow columns instead of clipping behind a scroll strip, so
+    // every tool stays visibly discoverable without hidden scrolling.
+    // Unconditionally `flex` (no breakpoint locks).
     <div
       role="toolbar"
       aria-label="Whiteboard tools"
       aria-orientation="horizontal"
-      className="pointer-events-auto mb-2 flex min-h-[52px] w-full select-none items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-2.5 shadow-sm"
+      className="pointer-events-auto flex w-full max-w-full select-none flex-wrap rounded-xl border border-gray-200 bg-white shadow-sm"
     >
+      {/* Inner pill content: wraps instead of forcing `min-w-max` scroll;
+      `min-h-12` keeps the bar at the shared 48px panel-header height so the
+      canvas card below starts on the same baseline as the code editor card.
+      Every section/divider is `shrink-0` so nothing squeezes out of view. */}
+      <div className="flex min-h-12 w-full flex-1 flex-wrap items-center justify-between gap-1.5 px-2 py-1">
       {/* SECTION 1: DRAWING TOOLS (LEFT) */}
-      <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto">
+      <div className="flex min-w-0 flex-wrap items-center gap-1">
       {TOOLS.map((option) => {
         const isActive = tool === option.value;
         return (
@@ -478,6 +498,33 @@ export default function Toolbar({
                       {opt.label}
                     </button>
                   ))}
+                  <div className="mx-2 my-1 border-t border-gray-100" aria-hidden="true" />
+                  <div className="px-4 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                    Selection only
+                  </div>
+                  {EXPORT_SELECTION_OPTIONS.map((opt) => {
+                    const canExportSel = Boolean(hasSelection) || selectedCount > 0;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        role="menuitem"
+                        data-testid={`export-format-${opt.value}`}
+                        disabled={!canExportSel}
+                        title={canExportSel ? `Export selection as ${opt.value}` : 'Select shapes to enable selection export'}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (!canExportSel) return;
+                          setExportOpen(false);
+                          onExport(opt.value);
+                        }}
+                        className={`pointer-events-auto block w-full px-4 py-2 text-left text-sm ${canExportSel ? 'cursor-pointer text-gray-700 hover:bg-violet-50 hover:text-violet-700' : 'cursor-not-allowed text-gray-300'}`}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -486,17 +533,17 @@ export default function Toolbar({
       )}
       </div>
 
-      <div className="mx-2 h-7 w-px shrink-0 bg-gray-200" aria-hidden="true" />
+      <div className="mx-1 h-7 w-px shrink-0 bg-gray-200 md:mx-2" aria-hidden="true" />
 
       {/* SECTION 2: STATUS + ACTIONS & MORE MENU (RIGHT) */}
-      <div className="flex shrink-0 items-center gap-2">
-        {/* Shape count badge */}
-        <span className="text-sm font-medium text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full whitespace-nowrap">
+      <div className="flex shrink-0 items-center gap-1">
+        {/* Shape count badge — text hidden on compact viewports */}
+        <span className="hidden whitespace-nowrap rounded-full bg-gray-100 px-2.5 py-1 text-sm font-medium text-gray-500 sm:inline-block">
           {shapeCount} {shapeCount === 1 ? 'shape' : 'shapes'}
         </span>
         {/* Zoom controls */}
         {onZoomChange && (
-          <div className="flex items-center gap-1 bg-gray-100 rounded-lg px-2 py-1 text-sm text-gray-700">
+          <div className="flex shrink-0 items-center gap-1 bg-gray-100 rounded-lg px-2 py-1 text-sm text-gray-700">
             <button
               type="button"
               onClick={() => onZoomChange && onZoomChange(zoom - 0.1)}
@@ -525,7 +572,7 @@ export default function Toolbar({
             type="button"
             onClick={onUndo}
             disabled={!canUndo}
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 transition hover:bg-gray-100 disabled:opacity-40"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-gray-600 transition hover:bg-gray-100 disabled:opacity-40"
             title="Undo (Cmd/Ctrl+Z)"
             aria-label="Undo"
           >
@@ -537,7 +584,7 @@ export default function Toolbar({
             type="button"
             onClick={onRedo}
             disabled={!canRedo}
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 transition hover:bg-gray-100 disabled:opacity-40"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-gray-600 transition hover:bg-gray-100 disabled:opacity-40"
             title="Redo (Cmd/Ctrl+Y)"
             aria-label="Redo"
           >
@@ -548,7 +595,7 @@ export default function Toolbar({
           <button
             type="button"
             onClick={onClear}
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 transition hover:bg-red-50 hover:text-red-600"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-gray-600 transition hover:bg-red-50 hover:text-red-600"
             title="Clear Canvas"
             aria-label="Clear canvas"
           >
@@ -557,16 +604,16 @@ export default function Toolbar({
         )}
 
         {(showUndo || showRedo || showClear) && showPropertiesToggle && (
-          <div className="mx-1 h-6 w-px bg-gray-200" aria-hidden="true" />
+          <div className="mx-1 h-6 w-px shrink-0 bg-gray-200" aria-hidden="true" />
         )}
 
         {/* 3-dot more menu */}
         {showPropertiesToggle && (
-          <div className="relative">
+          <div className="relative shrink-0">
             <button
               type="button"
               onClick={onToggleProperties}
-              className={`flex h-9 w-9 items-center justify-center rounded-lg transition ${
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition ${
                 isPropertiesOpen ? 'bg-indigo-50 text-indigo-600' : 'text-gray-700 hover:bg-gray-100'
               }`}
               title="All Properties"
@@ -582,6 +629,7 @@ export default function Toolbar({
             </button>
           </div>
         )}
+      </div>
       </div>
     </div>
   );

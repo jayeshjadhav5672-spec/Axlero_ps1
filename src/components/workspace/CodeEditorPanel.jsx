@@ -17,8 +17,8 @@ export default function CodeEditorPanel({
   className = '',
 }) {
   return (
-    <section className={`flex h-full min-h-0 flex-col ${className}`} aria-label={title} role="region">
-      <div className="flex shrink-0 items-center justify-between px-1 pb-2">
+    <section className={`flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-white p-2 pr-3 ${className}`} aria-label={title} role="region">
+      <div className="flex h-12 shrink-0 items-center justify-between px-1">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{title}</h2>
         {language && (
           <span className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 font-mono text-xs text-slate-500">
@@ -26,7 +26,7 @@ export default function CodeEditorPanel({
           </span>
         )}
       </div>
-      <div className="relative min-h-0 flex-1">
+      <div className="relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden">
         {isLoading && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-xl border border-slate-200 bg-slate-100/80">
             <span className="h-8 w-8 animate-spin rounded-full border-[3px] border-teal-600 border-t-transparent" aria-hidden="true" />
@@ -51,7 +51,7 @@ export default function CodeEditorPanel({
           </div>
         )}
         {!isLoading && !error && !children && (
-          <div className="flex h-full min-h-[420px] flex-col items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-900 p-6 text-center">
+          <div className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-900 p-6 text-center">
             <svg className="h-10 w-10 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
             </svg>
@@ -61,7 +61,9 @@ export default function CodeEditorPanel({
             </p>
           </div>
         )}
-        {children}
+        {children && (
+          <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-900 shadow-sm">{children}</div>
+        )}
       </div>
     </section>
   );

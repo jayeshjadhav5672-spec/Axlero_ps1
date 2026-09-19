@@ -8,6 +8,7 @@ export const SHAPE_TYPES = [
   'text',
   'image',
   'frame',
+  'group',
 ];
 
 /** Excalidraw-parity option lists (shared by sidebar + defaults). */
@@ -506,6 +507,30 @@ export function estimateTextWidth(text, fontSize = DEFAULTS.fontSize) {
 export function getShapeBounds(shape) {
   if (!shape || typeof shape !== 'object') return null;
   switch (shape.type) {
+    case 'group': {
+      // Composite group: prefer stored union bounds; fall back to the
+      // union of children bounds (children stored relative to group origin).
+      if (isFiniteNum(shape.width) && isFiniteNum(shape.height) && isFiniteNum(shape.x) && isFiniteNum(shape.y)) {
+        return { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
+      }
+      const kids = Array.isArray(shape.children) ? shape.children : [];
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      const ox = isFiniteNum(shape.x) ? shape.x : 0;
+      const oy = isFiniteNum(shape.y) ? shape.y : 0;
+      for (const k of kids) {
+        const b = getShapeBounds(k);
+        if (!b) continue;
+        minX = Math.min(minX, ox + b.x);
+        minY = Math.min(minY, oy + b.y);
+        maxX = Math.max(maxX, ox + b.x + b.width);
+        maxY = Math.max(maxY, oy + b.y + b.height);
+      }
+      if (!Number.isFinite(minX)) return null;
+      return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+    }
     case 'rectangle':
     case 'diamond':
     case 'image':
@@ -704,6 +729,29 @@ export function normalizeShape(shape) {
     }
     return dirty ? out : shape;
   }
+  if (shape.type === 'group') {
+    const out = { ...shape };
+    let dirty = false;
+    if (!Array.isArray(out.children)) {
+      out.children = [];
+      dirty = true;
+    }
+    for (const k of ['x', 'y', 'width', 'height']) {
+      if (!isFiniteNum(out[k])) {
+        out[k] = 0;
+        dirty = true;
+      }
+    }
+    if (out.width < 0) {
+      out.width = Math.abs(out.width);
+      dirty = true;
+    }
+    if (out.height < 0) {
+      out.height = Math.abs(out.height);
+      dirty = true;
+    }
+    return dirty ? out : shape;
+  }
   if (shape.type === 'text') {
     const out = { ...shape };
     if (typeof out.text !== 'string') out.text = String(out.text ?? '');
@@ -774,7 +822,7 @@ export function bakeTransform(shape, { scaleX, scaleY, rotation }) {
   const sy = isFiniteNum(scaleY) ? scaleY : 1;
   if (sx === 1 && sy === 1) return Object.keys(changes).length ? changes : null;
 
-  if (shape.type === 'rectangle' || shape.type === 'diamond' || shape.type === 'image' || shape.type === 'frame') {
+  if (shape.type === 'rectangle' || shape.type === 'diamond' || shape.type === 'image' || shape.type === 'frame' || shape.type === 'group') {
     const w = isFiniteNum(shape.width) ? shape.width : 0;
     const h = isFiniteNum(shape.height) ? shape.height : 0;
     const nw = Math.abs(w * sx);
@@ -1047,6 +1095,18 @@ export function duplicateShape(shape, offset = 16) {
   const clone = serializeShape(shape);
   if (!clone) return null;
   clone.id = createShapeId();
+  if (clone.type === 'group' && Array.isArray(clone.children)) {
+    // Deep-clone children with fresh ids, shifted with the group origin.
+    clone.children = clone.children.map((k) => {
+      const kc = serializeShape(k);
+      if (!kc) return k;
+      if (typeof kc.id === 'string') kc.id = createShapeId();
+      return kc;
+    });
+    if (typeof clone.x === 'number') clone.x += offset;
+    if (typeof clone.y === 'number') clone.y += offset;
+    return clone;
+  }
   if (
     (clone.type === 'freehand' ||
       clone.type === 'pen' ||
@@ -1062,4 +1122,176 @@ export function duplicateShape(shape, offset = 16) {
     if (typeof clone.y === 'number') clone.y += offset;
   }
   return clone;
+}
+
+/** Axis-aligned rect intersection test (marquee selection). */
+export function boxesIntersect(a, b) {
+  if (!a || !b) return false;
+  const ax2 = a.x + a.width;
+  const ay2 = a.y + a.height;
+  const bx2 = b.x + b.width;
+  const by2 = b.y + b.height;
+  return a.x <= bx2 && ax2 >= b.x && a.y <= by2 && ay2 >= b.y;
+}
+
+/** Normalize a marquee drag into a positive w/h rect (world coords). */
+export function normalizeSelectBox(x0, y0, x1, y1) {
+  return normalizeRect(x0, y0, x1, y1);
+}
+
+/** Squared distance from point P to segment AB (flat numbers). */
+function pointSegDistSq(px, py, ax, ay, bx, by) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  let t = 0;
+  if (lenSq > 0) t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+  const cx = ax + t * dx;
+  const cy = ay + t * dy;
+  const ex = px - cx;
+  const ey = py - cy;
+  return ex * ex + ey * ey;
+}
+
+/**
+ * Eraser contact test: true when a world-space point touches the shape.
+ * Closed shapes hit anywhere inside their (tolerance-expanded) bounds;
+ * path shapes hit within strokeWidth/2 + tolerance of any segment;
+ * groups translate the point into child-local coords and test children.
+ * Pure — drives drag-erase in useCanvasDrawing.
+ */
+export function isShapeIntersectingPoint(shape, point, tolerance = 8) {
+  if (!shape || typeof shape !== 'object') return false;
+  if (!point || !isFiniteNum(point.x) || !isFiniteNum(point.y)) return false;
+  const tol = isFiniteNum(tolerance) && tolerance >= 0 ? tolerance : 8;
+  const { x: px, y: py } = point;
+
+  if (shape.type === 'group') {
+    const kids = Array.isArray(shape.children) ? shape.children : [];
+    const ox = isFiniteNum(shape.x) ? shape.x : 0;
+    const oy = isFiniteNum(shape.y) ? shape.y : 0;
+    return kids.some((k) => isShapeIntersectingPoint(k, { x: px - ox, y: py - oy }, tol));
+  }
+
+  if (shape.type === 'circle') {
+    if (!isFiniteNum(shape.x) || !isFiniteNum(shape.y)) return false;
+    const { rx, ry } = circleRadii(shape);
+    const r = Math.max(rx, ry) + tol;
+    return Math.hypot(px - shape.x, py - shape.y) <= r;
+  }
+
+  if (
+    shape.type === 'freehand' ||
+    shape.type === 'pen' ||
+    shape.type === 'line' ||
+    shape.type === 'arrow'
+  ) {
+    const pts = sanitizePoints(shape.points);
+    if (pts.length < 2) return false;
+    const sw = isFiniteNum(shape.strokeWidth) ? shape.strokeWidth : DEFAULTS.strokeWidth;
+    const hitSq = (sw / 2 + tol) * (sw / 2 + tol);
+    if (pts.length === 2) {
+      // Single-point stroke: radial hit around the dot.
+      return Math.hypot(px - pts[0], py - pts[1]) <= Math.sqrt(hitSq);
+    }
+    for (let i = 0; i + 3 < pts.length + 1; i += 2) {
+      if (pointSegDistSq(px, py, pts[i], pts[i + 1], pts[i + 2], pts[i + 3]) <= hitSq) return true;
+    }
+    return false;
+  }
+
+  // rectangle / diamond / image / frame / text: expanded-bounds contact.
+  const b = getShapeBounds(shape);
+  if (!b || !isFiniteNum(b.x) || !isFiniteNum(b.y)) return false;
+  const w = isFiniteNum(b.width) ? Math.abs(b.width) : 0;
+  const h = isFiniteNum(b.height) ? Math.abs(b.height) : 0;
+  const nx = Math.min(b.x, b.x + b.width);
+  const ny = Math.min(b.y, b.y + b.height);
+  return px >= nx - tol && px <= nx + w + tol && py >= ny - tol && py <= ny + h + tol;
+}
+
+/**
+ * Group selected shapes into a composite group. Children are re-based
+ * relative to the group's top-left origin so the Group node owns placement;
+ * drags of the group move x/y only. Returns the group shape (caller removes
+ * the originals and commits the group), or null when < 2 shapes.
+ */
+export function createGroupShape(shapes) {
+  const list = (shapes ?? []).filter(Boolean);
+  if (list.length < 2) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  const boundsOf = new Map();
+  for (const s of list) {
+    const b = getShapeBounds(s);
+    if (!b) return null;
+    boundsOf.set(s.id, b);
+    minX = Math.min(minX, b.x);
+    minY = Math.min(minY, b.y);
+    maxX = Math.max(maxX, b.x + b.width);
+    maxY = Math.max(maxY, b.y + b.height);
+  }
+  if (!Number.isFinite(minX)) return null;
+  const children = list.map((s) => {
+    const c = serializeShape(s);
+    if (!c) return null;
+    const b = boundsOf.get(s.id);
+    // Re-base positioned children relative to the group origin; point-path
+    // children shift their absolute points by (-minX, -minY).
+    if (
+      (c.type === 'freehand' || c.type === 'pen' || c.type === 'line' || c.type === 'arrow') &&
+      Array.isArray(c.points)
+    ) {
+      c.points = c.points.map((v, i) => (i % 2 === 0 ? v - minX : v - minY));
+      c.x = 0;
+      c.y = 0;
+    } else if (c.type === 'circle') {
+      if (isFiniteNum(c.x)) c.x -= minX;
+      if (isFiniteNum(c.y)) c.y -= minY;
+    } else {
+      if (isFiniteNum(c.x)) c.x -= minX;
+      if (isFiniteNum(c.y)) c.y -= minY;
+    }
+    void b;
+    return c;
+  }).filter(Boolean);
+  return {
+    id: createShapeId(),
+    type: 'group',
+    x: minX,
+    y: minY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+    rotation: 0,
+    children,
+  };
+}
+
+/**
+ * Ungroup a composite group back into world-coord children with fresh
+ * validity (same ids preserved so collab deletes stay idempotent).
+ * Children positions are restored by adding the group origin back.
+ */
+export function ungroupShape(group) {
+  if (!group || group.type !== 'group' || !Array.isArray(group.children)) return [];
+  const ox = isFiniteNum(group.x) ? group.x : 0;
+  const oy = isFiniteNum(group.y) ? group.y : 0;
+  return group.children.map((k) => {
+    const c = serializeShape(k);
+    if (!c) return null;
+    if (
+      (c.type === 'freehand' || c.type === 'pen' || c.type === 'line' || c.type === 'arrow') &&
+      Array.isArray(c.points)
+    ) {
+      c.points = c.points.map((v, i) => (i % 2 === 0 ? v + ox : v + oy));
+      c.x = 0;
+      c.y = 0;
+    } else {
+      if (isFiniteNum(c.x)) c.x += ox;
+      if (isFiniteNum(c.y)) c.y += oy;
+    }
+    return c;
+  }).filter(Boolean);
 }

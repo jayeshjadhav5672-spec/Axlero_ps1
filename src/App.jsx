@@ -251,13 +251,13 @@ export default function App() {
           onLogout={handleLogout}
         />
       ) : (
-        <div className="relative flex flex-1 flex-col">
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <div
             aria-hidden={left ? true : undefined}
             // inert keeps keyboard focus inside the left-room dialog while
             // the workspace is dimmed (React 19 supports boolean inert).
             inert={left ? true : undefined}
-            className={left ? 'pointer-events-none select-none opacity-40 blur-[1px]' : undefined}
+            className={`flex min-h-0 flex-1 flex-col overflow-hidden ${left ? 'pointer-events-none select-none opacity-40 blur-[1px]' : ''}`}
           >
             <Workspace
               roomId={roomId}
@@ -267,6 +267,7 @@ export default function App() {
               whiteboard={
                 <Whiteboard
                   shapes={whiteboardSync.shapes}
+                  roomId={roomId}
                   onShapeCreate={whiteboardSync.onShapeCreate}
                   onShapeUpdate={whiteboardSync.onShapeUpdate}
                   onShapeDelete={whiteboardSync.onShapeDelete}

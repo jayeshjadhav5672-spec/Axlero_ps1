@@ -6,15 +6,23 @@ import MermaidModal from './MermaidModal';
 import useImageDrop from './useImageDrop.js';
 import PropertySidebar, { shouldShowPropertiesPanel } from './PropertySidebar';
 import useCanvasDrawing from './useCanvasDrawing';
+import useCanvasHotkeys from './hooks/useCanvasHotkeys.js';
+import { PresenceCursors, usePresenceCursors } from './presence/index.js';
+import useRemoteSelection from './presence/useRemoteSelection.js';
+import { getSocket } from '../../lib/socket.js';
+import { colorForId, getOrCreateIdentity, getRoomIdFromUrl } from '../../lib/room.js';
 import { DEFAULTS, FONT_FAMILIES, duplicateShape, elbowPoints, morphShape } from './utils/shapes.js';
 import {
   exportAVIF,
+  exportJPEG,
   exportJSON,
   exportPDF,
+  exportPNG,
+  exportSelectedJPEG,
+  exportSelectedPNG,
   exportSVG,
   prepareStageForExport,
 } from './utils/exportHub.js';
-import { exportCanvasDirect } from '../../utils/exportUtils.js';
 
 /**
  * PopoverErrorBoundary — last-resort guard around the 3-dot customization
@@ -76,10 +84,16 @@ class PopoverErrorBoundary extends Component {
  * - onShapeCreate(shape), onShapeUpdate(shapeId, changes),
  *   onShapeDelete(shapeId), onCanvasClear(), onSelectionChange(shapeId),
  *   onShapesReorder(nextShapes)
+ * - roomId, socket: realtime transport identity for pen-stroke streaming
+ *   and presence. When omitted, roomId falls back to `?room=` at mount and
+ *   socket to the shared singleton — pass the shell's live `roomId` so a
+ *   room switch without remount can never leave streaming on a stale room.
  */
 export function Whiteboard({
   shapes: controlledShapes,
   selectedShapeId: controlledSelection,
+  roomId: roomIdProp,
+  socket: socketProp,
   tool: controlledTool,
   color: controlledColor,
   strokeWidth: controlledWidth,
@@ -163,12 +177,48 @@ export function Whiteboard({
   const fontSize = controlledFontSize ?? internalFontSize;
   const textAlign = controlledTextAlign ?? controlledAlign ?? internalTextAlign;
 
+  // Room-scoped realtime transports (streaming + presence + tool/viewport
+  // sync) share one socket/room pair, declared up here so every handler
+  // below can close over them (dep arrays evaluate eagerly — declaring
+  // these below first use would TDZ-crash the board). Explicit props win
+  // (the shell's live roomId tracks room switches without a remount);
+  // otherwise fall back to `?room=` at mount and the shared singleton —
+  // standalone boards simply stay local-only.
+  const urlRoomId = React.useMemo(() => {
+    try {
+      return getRoomIdFromUrl();
+    } catch {
+      return null;
+    }
+  }, []);
+  const fallbackSocket = React.useMemo(() => {
+    try {
+      return getSocket();
+    } catch {
+      return null;
+    }
+  }, []);
+  const streamRoomId = roomIdProp ?? urlRoomId;
+  const streamSocket = socketProp ?? fallbackSocket;
+
   const handleToolChange = useCallback(
-    (next) => {
+    (next, opts = {}) => {
       if (controlledTool === undefined) setInternalTool(next);
       onToolChange?.(next);
+      // Shared toolbar: broadcast local tool switches so room peers mirror
+      // the active tool. Remote applies pass { fromRemote: true } and never
+      // re-emit (loop-free). No socket/room → local-only as before.
+      if (!opts.fromRemote && typeof next === 'string') {
+        try {
+          if (streamSocket && typeof streamSocket.emit === 'function' && streamRoomId && streamSocket.connected !== false) {
+            streamSocket.emit('collab:tool-sync', { roomId: streamRoomId, data: { tool: next } });
+          }
+        } catch {
+          // best-effort; never break tool switching
+        }
+      }
     },
-    [controlledTool, onToolChange],
+    [controlledTool, onToolChange, streamSocket, streamRoomId],
   );
   const handleColorChange = useCallback(
     (next) => {
@@ -281,9 +331,21 @@ export function Whiteboard({
     [],
   );
 
+  // (Shared socket/room memos live above, next to the tool state, so
+  // every handler can close over them without TDZ hazards.)
+
   const {
     visibleShapes,
+    renderShapes,
+    draftShape,
     selectedId,
+    selectedIds,
+    selectShapes,
+    guidelines,
+    selectBox,
+    duplicateSelected,
+    groupSelected,
+    ungroupSelected,
     textEditor,
     scale,
     stagePos,
@@ -295,10 +357,12 @@ export function Whiteboard({
     handleStageMouseUp,
     handleWheel,
     handleDragStageEnd,
+    handleDragStageMove,
     handleZoomChange,
     handleShapeClick,
     handleShapeSelect,
     handleShapeDragStart,
+    handleShapeDragMove,
     handleShapeDragEnd,
     handleTransformEnd,
     openTextEditorForShape,
@@ -309,6 +373,7 @@ export function Whiteboard({
     selectShape,
     commitCreate,
     commitUpdate,
+    commitDelete,
     sendToBack,
     bringToFront,
     sendBackward,
@@ -343,6 +408,9 @@ export function Whiteboard({
     onSelectionChange,
     onDrawingCommitted: handleDrawingCommitted,
     autoDetect,
+    // Live pen-stroke streaming over the room socket (no-op standalone).
+    socket: streamSocket,
+    roomId: streamRoomId,
   });
 
   const selectedShape = visibleShapes.find((s) => s.id === selectedId) ?? null;
@@ -587,10 +655,24 @@ export function Whiteboard({
     },
     [commitCreate, selectShape],
   );
+  const handleImageUpdate = useCallback(
+    (id, changes) => {
+      commitUpdate(id, changes);
+    },
+    [commitUpdate],
+  );
+  const handleImageDelete = useCallback(
+    (id) => {
+      if (id) commitDelete(id);
+    },
+    [commitDelete],
+  );
   const { importFiles } = useImageDrop({
     stageRef,
     containerRef: canvasWrapRef,
     onImageCreate: handleImageCreate,
+    onImageUpdate: handleImageUpdate,
+    onImageDelete: handleImageDelete,
   });
   const handleInsertImage = useCallback(() => {
     fileInputRef.current?.click();
@@ -605,6 +687,178 @@ export function Whiteboard({
     [importFiles],
   );
 
+  // ---- live multiplayer cursors: room-scoped cursor:update transport ----
+  // Identity is stable per browser (localStorage); the shared socket
+  // connects only when the collab shell owns it — standalone boards simply
+  // render zero peers. Stage pointer tracking lives in the hook
+  // (throttled 40ms, canvas-space coords so zoom/pan align for peers).
+  const presenceIdentity = React.useMemo(() => {
+    try {
+      return getOrCreateIdentity();
+    } catch {
+      return { userId: 'user-local', displayName: 'Guest' };
+    }
+  }, []);
+  // Reuses the shared stream socket/room memos declared above.
+  const presenceRoomId = streamRoomId;
+  const presenceSocket = streamSocket;
+  const { peers: presencePeers } = usePresenceCursors({
+    socket: presenceSocket,
+    roomId: presenceRoomId,
+    stageRef,
+    containerRef: canvasWrapRef,
+    userId: presenceIdentity.userId,
+    userName: presenceIdentity.displayName,
+    color: colorForId(presenceIdentity.userId),
+    enabled: true,
+  });
+
+  // ---- peer selection presence: tools/selection stay local per client;
+  // only a non-intrusive highlight broadcasts (discrete emit per change).
+  // Reception renders imperatively (RemoteSelectionOverlay) with zero
+  // React re-renders, so this hook is emit-only by design.
+  const { emitSelection } = useRemoteSelection({
+    socket: presenceSocket,
+    roomId: presenceRoomId,
+    userId: presenceIdentity.userId,
+    userName: presenceIdentity.displayName,
+    color: colorForId(presenceIdentity.userId),
+  });
+  // Deduplicated outbound selection: pointerdown + click fire for a single
+  // tap and reselects rebuild arrays — broadcast only when the sorted id
+  // set actually changes, so one tap never emits twice (and never renders
+  // twice downstream on peers).
+  const lastBroadcastSelectionRef = useRef(null);
+  useEffect(() => {
+    const ids = Array.isArray(selectedIds) ? selectedIds : selectedId ? [selectedId] : [];
+    const key = [...ids].sort().join('|');
+    if (lastBroadcastSelectionRef.current === key) return;
+    lastBroadcastSelectionRef.current = key;
+    emitSelection(ids);
+  }, [selectedIds, selectedId, emitSelection]);
+
+  // Shared toolbar: apply peers' tool switches locally (never re-emit).
+  // Unknown tool names are ignored so a newer client can't break this one.
+  useEffect(() => {
+    const sock = streamSocket;
+    if (!sock || typeof sock.on !== 'function') return undefined;
+    const KNOWN_TOOLS = new Set([
+      'select', 'selection', 'rectangle', 'circle', 'diamond', 'arrow',
+      'line', 'freehand', 'pen', 'text', 'frame', 'eraser', 'pan',
+    ]);
+    const onToolSync = (payload) => {
+      if (!payload || payload.roomId !== streamRoomId) return;
+      const tool = payload.data?.tool;
+      if (typeof tool !== 'string' || !KNOWN_TOOLS.has(tool)) return;
+      handleToolChange(tool === 'pen' ? 'freehand' : tool, { fromRemote: true });
+    };
+    sock.on('collab:tool-sync', onToolSync);
+    return () => {
+      try {
+        sock.off?.('collab:tool-sync', onToolSync);
+      } catch {
+        // ignore teardown failures
+      }
+    };
+  }, [streamSocket, streamRoomId, handleToolChange]);
+
+  // ---- live typing previews: keystrokes stream as a text-shape preview
+  // (existing `shape:preview-progress` machinery renders it on peers)
+  // throttled ~150ms; commit/cancel settle via preview-cancel while the
+  // authoritative create/update op carries the persisted text.
+  const typingSessionRef = useRef(null);
+  const typingTimerRef = useRef(null);
+  const typingLatestRef = useRef({ value: '', editor: null });
+  useEffect(() => {
+    if (textEditor) {
+      typingSessionRef.current =
+        `typing-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    } else {
+      typingSessionRef.current = null;
+      if (typingTimerRef.current) {
+        clearTimeout(typingTimerRef.current);
+        typingTimerRef.current = null;
+      }
+    }
+  }, [textEditor]);
+  useEffect(
+    () => () => {
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    },
+    [],
+  );
+  const flushTypingPreview = useCallback(() => {
+    typingTimerRef.current = null;
+    const sessionId = typingSessionRef.current;
+    const { value, editor } = typingLatestRef.current;
+    if (!sessionId || !editor) return;
+    try {
+      const sock = streamSocket;
+      const rid = streamRoomId;
+      if (!sock || typeof sock.emit !== 'function' || !rid || sock.connected === false) return;
+      if (!value || !value.trim()) {
+        sock.emit('shape:preview-cancel', { roomId: rid, data: { draftId: sessionId } });
+        return;
+      }
+      const shape = {
+        id: sessionId,
+        type: 'text',
+        x: editor.worldX,
+        y: editor.worldY,
+        text: value,
+        fontSize: editor.fontSize ?? fontSize,
+        fontFamily,
+        fill: editor.mode === 'edit' ? (editor.fill ?? color) : color,
+        align: editor.align ?? editor.textAlign ?? textAlign,
+        textAlign: editor.align ?? editor.textAlign ?? textAlign,
+        opacity: 1,
+        rotation: 0,
+      };
+      sock.emit('shape:preview-progress', { roomId: rid, data: { draftId: sessionId, shape } });
+    } catch {
+      // best-effort; never break typing
+    }
+  }, [streamSocket, streamRoomId, fontSize, fontFamily, color, textAlign]);
+  const handleTypingChange = useCallback(
+    (value) => {
+      typingLatestRef.current = { value: value ?? '', editor: textEditor };
+      if (typingTimerRef.current) return;
+      typingTimerRef.current = setTimeout(flushTypingPreview, 150);
+    },
+    [textEditor, flushTypingPreview],
+  );
+  const cancelTypingPreview = useCallback(() => {
+    if (typingTimerRef.current) {
+      clearTimeout(typingTimerRef.current);
+      typingTimerRef.current = null;
+    }
+    const sessionId = typingSessionRef.current;
+    typingSessionRef.current = null;
+    try {
+      if (
+        sessionId &&
+        streamSocket &&
+        typeof streamSocket.emit === 'function' &&
+        streamRoomId &&
+        streamSocket.connected !== false
+      ) {
+        streamSocket.emit('shape:preview-cancel', { roomId: streamRoomId, data: { draftId: sessionId } });
+      }
+    } catch {
+      // best-effort
+    }
+  }, [streamSocket, streamRoomId]);
+  const handleTextCommit = useCallback(
+    (value, measuredWidth) => {
+      cancelTypingPreview();
+      commitTextEditor(value, measuredWidth);
+    },
+    [cancelTypingPreview, commitTextEditor],
+  );
+  const handleTextCancel = useCallback(() => {
+    cancelTypingPreview();
+    cancelTextEditor();
+  }, [cancelTypingPreview, cancelTextEditor]);
   // ---- auto-detect is locked to the Pen tool: enabling it from any
   // other tool first switches to Pen; recognition itself is additionally
   // guarded in useCanvasDrawing (tool === pen/freehand && autoDetect). ----
@@ -638,7 +892,11 @@ export function Whiteboard({
   const handleExport = useCallback(
     async (format) => {
       // Deselect + hide Transformer BEFORE capture so selection outlines
-      // never bake into the exported image.
+      // never bake into the exported image. Selection bounds are resolved
+      // BEFORE the deselect so "selection only" exports keep their target.
+      const selectedShapes = (visibleShapes ?? []).filter(
+        (s) => s.id === selectedId || (Array.isArray(selectedIds) && selectedIds.includes(s.id)),
+      );
       prepareStageForExport({ stageRef, transformerRef, selectShape });
       // Let the detach render flush before reading pixels.
       await new Promise((r) => setTimeout(r, 30));
@@ -650,20 +908,49 @@ export function Whiteboard({
             flashExportNote('Exported JSON');
             break;
           case 'png':
-            // Bulletproof direct-DOM raster path: zero props, zero Konva
-            // refs (survives a dead stageRef chain); hides/restores the
-            // Transformer itself and bakes a white background.
-            exportCanvasDirect('png', 'syncspace-board');
-            flashExportNote('Exported PNG');
+            // Auto-cropped full-board export: union bounds via
+            // exportBounds(shapes, 32px) passed into
+            // stage.toDataURL({ x, y, width, height, pixelRatio: 2 }).
+            if (!stage) throw new Error('Canvas not ready');
+            await exportPNG(stage, 'syncspace-board.png', visibleShapes);
+            flashExportNote('Exported PNG (cropped to content)');
             break;
           case 'jpeg':
-            exportCanvasDirect('jpeg', 'syncspace-board');
-            flashExportNote('Exported JPEG');
+            if (!stage) throw new Error('Canvas not ready');
+            await exportJPEG(stage, 'syncspace-board.jpg', visibleShapes);
+            flashExportNote('Exported JPEG (cropped to content)');
             break;
+          case 'png-selection':
+          case 'jpeg-selection': {
+            if (selectedShapes.length === 0) {
+              // Fallback: no selection -> auto-cropped full canvas.
+              if (!stage) throw new Error('Canvas not ready');
+              if (format.startsWith('png')) await exportPNG(stage, 'syncspace-board.png', visibleShapes);
+              else await exportJPEG(stage, 'syncspace-board.jpg', visibleShapes);
+              flashExportNote('No selection — exported full board');
+              break;
+            }
+            if (!stage) throw new Error('Canvas not ready');
+            if (format.startsWith('png')) await exportSelectedPNG(stage, selectedShapes, 'syncspace-board-selection.png');
+            else await exportSelectedJPEG(stage, selectedShapes, 'syncspace-board-selection.jpg');
+            flashExportNote(`Exported selection (${selectedShapes.length} shape${selectedShapes.length === 1 ? '' : 's'})`);
+            break;
+          }
+          case 'pdf-selection': {
+            if (!stage) throw new Error('Canvas not ready');
+            if (selectedShapes.length === 0) {
+              await exportPDF(stage, visibleShapes, 'syncspace-board.pdf');
+              flashExportNote('No selection — exported full board PDF');
+            } else {
+              await exportPDF(stage, visibleShapes, 'syncspace-board-selection.pdf', selectedShapes);
+              flashExportNote(`Exported selection PDF (${selectedShapes.length})`);
+            }
+            break;
+          }
           case 'avif': {
             if (!stage) throw new Error('Canvas not ready');
-            const { fallback } = await exportAVIF(stage, 'syncspace-board.avif');
-            flashExportNote(fallback ? 'AVIF unsupported — exported PNG instead' : 'Exported AVIF');
+            const { fallback } = await exportAVIF(stage, 'syncspace-board.avif', visibleShapes);
+            flashExportNote(fallback ? 'AVIF unsupported — exported PNG instead' : 'Exported AVIF (cropped to content)');
             break;
           }
           case 'svg':
@@ -673,7 +960,7 @@ export function Whiteboard({
           case 'pdf':
             if (!stage) throw new Error('Canvas not ready');
             await exportPDF(stage, visibleShapes, 'syncspace-board.pdf');
-            flashExportNote('Exported PDF');
+            flashExportNote('Exported PDF (cropped to content)');
             break;
           default:
             break;
@@ -682,7 +969,7 @@ export function Whiteboard({
         flashExportNote(err?.message ?? 'Export failed');
       }
     },
-    [flashExportNote, selectShape, stageRef, transformerRef, visibleShapes],
+    [flashExportNote, selectShape, selectedId, selectedIds, stageRef, transformerRef, visibleShapes],
   );
 
   // ---- bent arrows: one committed `{ points }` update per bend gesture ----
@@ -713,43 +1000,18 @@ export function Whiteboard({
     if (selectedId) sendBackward(selectedId);
   }, [selectedId, sendBackward]);
 
-  // ---- keyboard shortcuts (ignored while typing / editing text) ----
-  useEffect(() => {
-    const onKeyDown = (event) => {
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
-      const tag = document.activeElement?.tagName;
-      if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT') return;
-      if (textEditor) return;
-      const k = event.key.toLowerCase();
-      const map = {
-        1: 'select',
-        v: 'select',
-        2: 'rectangle',
-        r: 'rectangle',
-        3: 'circle',
-        c: 'circle',
-        4: 'diamond',
-        d: 'diamond',
-        a: 'arrow',
-        l: 'line',
-        p: 'freehand',
-        f: 'frame',
-        t: 'text',
-        e: 'eraser',
-        h: 'pan',
-      };
-      const next = map[k];
-      if (next) {
-        event.preventDefault();
-        handleToolChange(next);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleToolChange, textEditor]);
+  // ---- global keyboard hotkeys (V/P/R/C/T/F tools, Cmd+D duplicate,
+  // Cmd+G group, Cmd+Shift+G ungroup). Typing targets + text editor ignored.
+  useCanvasHotkeys({
+    onToolChange: handleToolChange,
+    onDuplicate: duplicateSelected,
+    onGroup: groupSelected,
+    onUngroup: ungroupSelected,
+    textEditor,
+  });
 
   return (
-    <div className="flex h-full min-h-[520px] min-w-0 w-full flex-1 flex-col">
+    <div className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden">
       {/* Header row: full-width toolbar bar. The header sits above
       the popover backdrop (relative z-50) so tools and the 3-dot toggle
       stay interactive while the panel is open. */}
@@ -774,6 +1036,8 @@ export function Whiteboard({
               onToggleAutoDetect={handleToggleAutoDetect}
               onOpenMermaid={() => setIsMermaidOpen(true)}
               onExport={handleExport}
+              hasSelection={Boolean(selectedId) || (Array.isArray(selectedIds) && selectedIds.length > 0)}
+              selectedCount={Array.isArray(selectedIds) ? selectedIds.length : (selectedId ? 1 : 0)}
             />
             {isCustomizeOpen && panelAvailable && (
               <>
@@ -855,27 +1119,40 @@ export function Whiteboard({
           </div>
       </div>
       {/* Expanded canvas boundary: fills all remaining height/width. */}
-      <section className="flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-[#f8f9fa] shadow-sm">
-      <div className="relative min-h-0 flex-1" ref={canvasWrapRef}>
-        <div className="relative h-full min-h-[420px] overflow-hidden">
+      <section className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-[#f8f9fa] shadow-sm">
+      <div className="relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden" ref={canvasWrapRef}>
+        <div className="relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden">
           <CanvasStage
-            shapes={visibleShapes}
+            // renderShapes = committed + local draft + remote in-progress
+            // pen previews (display-only; exports/counts use visibleShapes).
+            // CanvasStage splits committed vs in-flight into separate
+            // layers so preview traffic never reconciles the main tree.
+            shapes={renderShapes}
+            draftShape={draftShape}
             selectedId={selectedId}
+            selectedIds={selectedIds}
             tool={tool}
             scale={scale}
             stagePos={stagePos}
             stageRef={stageRef}
             shapeNodesRef={shapeNodesRef}
             transformerRef={transformerRef}
+            guidelines={guidelines}
+            selectBox={selectBox}
+            syncSocket={presenceSocket}
+            syncRoomId={presenceRoomId}
+            syncUserId={presenceIdentity.userId}
             onPointerDown={handleStageMouseDown}
             onPointerMove={handleStageMouseMove}
             onPointerUp={handleStageMouseUp}
             onWheel={handleWheel}
             onDragStageEnd={handleDragStageEnd}
+            onDragStageMove={handleDragStageMove}
             onShapeClick={handleShapeClick}
             onShapeSelect={handleShapeSelect}
             onShapeDragEnd={handleShapeDragEnd}
             onShapeDragStart={handleShapeDragStart}
+            onShapeDragMove={handleShapeDragMove}
             onTransformEnd={handleTransformEnd}
             onTextDoubleClick={openTextEditorForShape}
             onBendCommit={handleBendCommit}
@@ -883,9 +1160,11 @@ export function Whiteboard({
           <TextEditorOverlay
             editor={textEditor}
             color={color}
-            onCommit={commitTextEditor}
-            onCancel={cancelTextEditor}
+            onCommit={handleTextCommit}
+            onCancel={handleTextCancel}
+            onChange={handleTypingChange}
           />
+          <PresenceCursors peers={presencePeers} scale={scale} stagePos={stagePos} />
           {exportNote && (
             <div
               role="status"

@@ -5,7 +5,7 @@ import { initialsForDisplayName } from '../../lib/room';
  * PresenceList — Avantee (React UI / Frontend Engineer)
  *
  * Renders collaborator avatars from an external `users` array.
- * Shape: { id, name, color?, isActive? } — ready for Shree's Yjs
+ * Shape: { id, name, color?, isActive?, socketId? } — ready for Shree's Yjs
  * awareness data. No hardcoded production users inside this component.
  *
  * Initials come from each user's actual name via the shared
@@ -43,7 +43,9 @@ export default function PresenceList({ users = [], maxVisible = 4, className = '
     >
       {visible.map((user, index) => (
         <span
-          key={user.id}
+          // Per-connection identity: socketId first, id + index fallback —
+          // userId alone collides across tabs/shares of one account.
+          key={user.socketId ?? `${user.id}-${index}`}
           role="listitem"
           title={`${user.name}${user.isActive === false ? ' (away)' : ''}`}
           aria-label={user.name}

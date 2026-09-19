@@ -1,5 +1,6 @@
 import React from 'react';
 import WorkspaceHeader from '../layout/WorkspaceHeader';
+import WorkspaceSplitLayout from '../layout/WorkspaceSplitLayout';
 import WhiteboardPanel from './WhiteboardPanel';
 import CodeEditorPanel from './CodeEditorPanel';
 
@@ -37,37 +38,50 @@ export default function Workspace({
   className = '',
 }) {
   return (
-    <div className={`flex min-h-screen flex-col ${className}`}>
-      <WorkspaceHeader
-        roomId={roomId}
-        roomName={roomName}
-        connectionStatus={connectionStatus}
-        users={users}
-        currentUserId={currentUserId}
-        onLeaveRoom={onLeaveRoom}
-        onShareRoom={onShareRoom}
-      />
-      <div id="workspace-content" className="w-full flex-1 py-1.5 pl-2 pr-1.5 sm:py-2 sm:pl-3 sm:pr-2">
-        <div className="grid min-h-[calc(100vh-120px)] grid-cols-1 gap-2 sm:gap-2 lg:grid-cols-2">
-          <WhiteboardPanel
-            title="Whiteboard"
-            isLoading={isWhiteboardLoading}
-            error={whiteboardError}
-            onRetry={onRetryWhiteboard}
-          >
-            {whiteboard}
-          </WhiteboardPanel>
-          <CodeEditorPanel
-            title="Code Editor"
-            language={editorLanguage}
-            isLoading={isEditorLoading}
-            error={editorError}
-            onRetry={onRetryEditor}
-          >
-            {editor}
-          </CodeEditorPanel>
-        </div>
-      </div>
+    <div className={`h-dvh max-h-dvh w-screen flex flex-col overflow-hidden bg-white select-none ${className}`}>
+      {/* Top Navbar stays fixed at its natural height */}
+      <header className="shrink-0 border-b border-slate-200 bg-white z-20">
+        <WorkspaceHeader
+          roomId={roomId}
+          roomName={roomName}
+          connectionStatus={connectionStatus}
+          users={users}
+          currentUserId={currentUserId}
+          onLeaveRoom={onLeaveRoom}
+          onShareRoom={onShareRoom}
+        />
+      </header>
+
+      {/* Main split area occupies remaining vertical space with zero overflow.
+      Scoped split-pane: toolbar lives inside the whiteboard column
+      (Whiteboard owns its Toolbar), so it stretches/shrinks/follows its
+      parent pane on resize or swap. Layout is strictly local — no socket
+      emits, persisted per-browser via localStorage. */}
+      <main id="workspace-content" className="flex-1 min-h-0 w-full overflow-hidden flex flex-col">
+        <WorkspaceSplitLayout
+          whiteboardComponent={
+            <WhiteboardPanel
+              title="Whiteboard"
+              isLoading={isWhiteboardLoading}
+              error={whiteboardError}
+              onRetry={onRetryWhiteboard}
+            >
+              {whiteboard}
+            </WhiteboardPanel>
+          }
+          codeEditorComponent={
+            <CodeEditorPanel
+              title="Code Editor"
+              language={editorLanguage}
+              isLoading={isEditorLoading}
+              error={editorError}
+              onRetry={onRetryEditor}
+            >
+              {editor}
+            </CodeEditorPanel>
+          }
+        />
+      </main>
     </div>
   );
 }
