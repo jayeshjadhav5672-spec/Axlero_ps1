@@ -3,6 +3,8 @@ const express = require("express");
 const http = require("node:http");
 const { createSocketServer } = require("./socket.cjs");
 const { connectMongo } = require("./db/mongodb.cjs");
+const { verifyToken } = require("./auth/tokens.cjs");
+const { createAuthRouter } = require("./auth/routes.cjs");
 
 const app = express();
 
@@ -17,7 +19,29 @@ app.get("/", (_request, response) => {
 
 const httpServer = http.createServer(app);
 
-createSocketServer(httpServer);
+app.use("/api/auth", createAuthRouter());
+
+const { io } = createSocketServer(httpServer);
+
+// Socket identity: verify an optional handshake JWT into socket.user so
+// presence/room logic can attribute authenticated users. Guests (no
+// token, invalid token) connect exactly as before — authentication is
+// additive and never rejects the transport.
+io.use((socket, next) => {
+  try {
+    const token = socket && socket.handshake && socket.handshake.auth ? socket.handshake.auth.token : null;
+    if (typeof token === "string" && token.trim().length > 0) {
+      const payload = verifyToken(token);
+      socket.user = {
+        id: String(payload.sub),
+        displayName: payload.displayName || payload.email || "Guest",
+      };
+    }
+  } catch {
+    // Invalid token: stay anonymous rather than refusing the connection.
+  }
+  return next();
+});
 
 // MongoDB Atlas (connection infrastructure only — no schemas/auth yet).
 // Non-fatal: the realtime service stays up even if the database is

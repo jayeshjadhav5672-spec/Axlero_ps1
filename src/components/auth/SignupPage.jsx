@@ -1,16 +1,15 @@
 import React, { useState } from 'react';
 import GoogleButton from './GoogleButton';
+import { signupRequest } from '../../lib/auth';
 
 /**
- * SignupPage — frontend-only account creation form.
+ * SignupPage — account creation form backed by the real auth API.
  *
- * Fields: Name, Email, Password — exactly. No username field here;
- * usernames are chosen later on the Profile page. Validation is
- * client-side only; on success the entered name/email are handed to
- * `onSuccess` (in-memory React state in App — nothing is persisted
- * and nothing is sent to a backend; the auth teammate wires that up).
+ * Fields: Name, Email, Password — exactly. Client-side validation
+ * first, then POST /api/auth/signup; on success the session
+ * ({ user, token }) is handed to `onSuccess`.
  *
- * Props: { onSuccess({ name, email }), onSwitchToLogin(), onBack() }
+ * Props: { onSuccess({ user, token }), onSwitchToLogin(), onBack() }
  */
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 8;
@@ -23,8 +22,9 @@ export default function SignupPage({ onSuccess, onSwitchToLogin, onBack }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState({});
+  const [busy, setBusy] = useState(false);
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
     const nextErrors = {};
     if (!name.trim()) nextErrors.name = 'Please enter your name.';
@@ -35,8 +35,15 @@ export default function SignupPage({ onSuccess, onSwitchToLogin, onBack }) {
       nextErrors.password = `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
-    // Frontend-only: hand the valid form up; no network, no storage.
-    onSuccess?.({ name: name.trim(), email: email.trim() });
+    setBusy(true);
+    try {
+      const session = await signupRequest({ name: name.trim(), email: email.trim(), password });
+      onSuccess?.(session);
+    } catch (err) {
+      setErrors({ form: err?.message || 'Could not create your account.' });
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -125,10 +132,16 @@ export default function SignupPage({ onSuccess, onSwitchToLogin, onBack }) {
             </div>
             <button
               type="submit"
-              className="mt-1 flex w-full items-center justify-center rounded-lg bg-[#111111] px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#2A2A2A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#111111] focus-visible:ring-offset-2 focus-visible:ring-offset-[#F5F1E8]"
+              disabled={busy}
+              className="mt-1 flex w-full items-center justify-center rounded-lg bg-[#111111] px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#2A2A2A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#111111] focus-visible:ring-offset-2 focus-visible:ring-offset-[#F5F1E8] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Create Account
+              {busy ? 'Creating account…' : 'Create Account'}
             </button>
+            {errors.form && (
+              <p role="alert" className="mt-1.5 text-sm text-rose-700">
+                {errors.form}
+              </p>
+            )}
           </form>
           <div className="my-5 flex items-center gap-3" aria-hidden="true">
             <span className="h-px flex-1 bg-[#E7DFCC]" />
