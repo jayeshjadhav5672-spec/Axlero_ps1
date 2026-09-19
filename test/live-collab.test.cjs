@@ -209,3 +209,36 @@ test("viewport-sync and tool-sync mirror with isolation and guards", async () =>
   a.emit("collab:tool-sync", { roomId: "mirror-room", data: { tool: 42 } });
   assert.equal((await badTool)[0].event, "collab:tool-sync");
 });
+
+test("oversized string fields are rejected with connection:error", async () => {
+  const a = client();
+  const b = client();
+  await Promise.all([waitForEvent(a, "connect"), waitForEvent(b, "connect")]);
+  await joinRoom(a, "caps-room", "anna");
+  await joinRoom(b, "caps-room", "bob");
+
+  // Peer must not receive the oversized packets; sender gets loud errors.
+  const leakedCursor = waitForEvent(b, "cursor:move");
+  const cursorErr = waitForEvent(a, "connection:error");
+  a.emit("cursor:move", { roomId: "caps-room", data: { x: 1, y: 2, tool: "t".repeat(33) } });
+  assert.equal((await cursorErr)[0].event, "cursor:move");
+  const cursorErr2 = waitForEvent(a, "connection:error");
+  a.emit("cursor:move", { roomId: "caps-room", data: { x: 1, y: 2, user: "u".repeat(129) } });
+  assert.equal((await cursorErr2)[0].event, "cursor:move");
+  await assert.rejects(
+    Promise.race([leakedCursor, new Promise((_, reject) => setTimeout(() => reject(new Error("isolated")), 120))]),
+    /isolated/,
+  );
+
+  const leakedSel = waitForEvent(b, "collab:selection");
+  const selErr = waitForEvent(a, "connection:error");
+  a.emit("collab:selection", { roomId: "caps-room", data: { shapeIds: [], userName: "n".repeat(129) } });
+  assert.equal((await selErr)[0].event, "collab:selection");
+  const selErr2 = waitForEvent(a, "connection:error");
+  a.emit("collab:selection", { roomId: "caps-room", data: { shapeIds: [], color: "c".repeat(65) } });
+  assert.equal((await selErr2)[0].event, "collab:selection");
+  await assert.rejects(
+    Promise.race([leakedSel, new Promise((_, reject) => setTimeout(() => reject(new Error("isolated")), 120))]),
+    /isolated/,
+  );
+});

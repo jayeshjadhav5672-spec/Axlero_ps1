@@ -79,12 +79,12 @@ export function isValidPreviewProgress(data) {
   return jsonSizeOk({ draftId: data.draftId, shape: clean }, MAX_PREVIEW_JSON);
 }
 
-/** Validate inbound `cursor:move` data { x, y, user?, tool? }. */
+/** Validate inbound `cursor:move` data { x, y, user?, tool?}. Mirrors the server length caps. */
 export function isValidCursorMove(data) {
   if (!data || typeof data !== 'object') return false;
   if (!isFiniteNum(data.x) || !isFiniteNum(data.y)) return false;
-  if (data.user !== undefined && typeof data.user !== 'string') return false;
-  if (data.tool !== undefined && typeof data.tool !== 'string') return false;
+  if (data.user !== undefined && (typeof data.user !== 'string' || data.user.length > 128)) return false;
+  if (data.tool !== undefined && (typeof data.tool !== 'string' || data.tool.length > 32)) return false;
   return true;
 }
 
@@ -225,14 +225,14 @@ export function buildSelectionPayload({ userId, userName, color, shapeIds }) {
   return data;
 }
 
-/** Validate inbound `collab:selection` data. */
+/** Validate inbound `collab:selection` data. Mirrors the server length caps. */
 export function isValidSelection(data) {
   if (!data || typeof data !== 'object') return false;
   if (!Array.isArray(data.shapeIds) || data.shapeIds.length > MAX_BATCH_SHAPES) return false;
   if (!data.shapeIds.every((id) => typeof id === 'string')) return false;
   if (data.userId !== undefined && !isIdString(data.userId)) return false;
-  if (data.userName !== undefined && typeof data.userName !== 'string') return false;
-  if (data.color !== undefined && typeof data.color !== 'string') return false;
+  if (data.userName !== undefined && (typeof data.userName !== 'string' || data.userName.length > 128)) return false;
+  if (data.color !== undefined && (typeof data.color !== 'string' || data.color.length > 64)) return false;
   return true;
 }
 

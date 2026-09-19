@@ -1,23 +1,25 @@
 import React, { useState, useEffect, useRef } from "react";
+import { SPLIT_DEFAULT_PCT, clampSplitPercent, minPaneWidth } from "./splitLayout.js";
 
 function readStoredWidth(fallback) {
+  const safeFallback = clampSplitPercent(fallback);
   try {
     const saved = localStorage.getItem("syncspace_left_width");
     if (saved !== null && saved !== "") {
       const n = Number(saved);
-      if (Number.isFinite(n)) return n;
+      if (Number.isFinite(n)) return clampSplitPercent(n, safeFallback);
     }
     // Legacy key fallback (same physical-left percentage scale now that
     // the whiteboard is fixed on the left).
     const legacy = localStorage.getItem("syncspace_split_ratio");
     if (legacy !== null && legacy !== "") {
       const n = Number(legacy);
-      if (Number.isFinite(n)) return n;
+      if (Number.isFinite(n)) return clampSplitPercent(n, safeFallback);
     }
   } catch {
     // ignore storage failures (private mode / SSR)
   }
-  return fallback;
+  return safeFallback;
 }
 
 export default function WorkspaceSplitLayout({
@@ -29,6 +31,27 @@ export default function WorkspaceSplitLayout({
 
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef(null);
+  // Measured container width so per-pane minimums stay consistent on
+  // narrow viewports (see minPaneWidth). Updated on resize; defaults to
+  // 0 (200px minimums) until the first measurement lands.
+  const [containerWidth, setContainerWidth] = useState(0);
+  const paneMin = minPaneWidth(containerWidth);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const update = () => {
+      try {
+        setContainerWidth(el.clientWidth || 0);
+      } catch {
+        // ignore measurement failures
+      }
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     try {
@@ -49,9 +72,10 @@ export default function WorkspaceSplitLayout({
     const handlePointerMove = (e) => {
       if (!containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
+      if (!(rect.width > 0)) return;
       const currentX = e.clientX - rect.left;
       let newLeftWidth = (currentX / rect.width) * 100;
-      newLeftWidth = Math.max(20, Math.min(80, newLeftWidth));
+      newLeftWidth = clampSplitPercent(newLeftWidth, leftWidth);
       setLeftWidth(newLeftWidth);
     };
 
@@ -74,8 +98,8 @@ export default function WorkspaceSplitLayout({
     >
       {/* Left Column: Whiteboard */}
       <div
-        style={{ width: `${leftWidth}%` }}
-        className="h-full min-h-0 flex flex-col min-w-[200px] overflow-hidden"
+        style={{ width: `${leftWidth}%`, minWidth: paneMin }}
+        className="h-full min-h-0 flex flex-col overflow-hidden"
         data-testid="pane-whiteboard"
       >
         {whiteboardComponent}
@@ -88,15 +112,15 @@ export default function WorkspaceSplitLayout({
         aria-orientation="vertical"
         aria-label="Resize panels"
         data-testid="split-divider"
-        className="w-3 -mx-1.5 cursor-col-resize transition-colors flex items-center justify-center shrink-0 z-20 group bg-transparent hover:bg-slate-100"
+        className="w-3 -mx-1.5 cursor-col-resize touch-none transition-colors flex items-center justify-center shrink-0 z-20 group bg-transparent hover:bg-slate-100"
       >
         <div className="h-8 w-1 rounded-full bg-slate-300 group-hover:bg-slate-500 transition-colors" />
       </div>
 
       {/* Right Column: Code Editor */}
       <div
-        style={{ width: `${100 - leftWidth}%` }}
-        className="h-full min-h-0 flex flex-col min-w-[200px] overflow-hidden"
+        style={{ width: `${100 - leftWidth}%`, minWidth: paneMin }}
+        className="h-full min-h-0 flex flex-col overflow-hidden"
         data-testid="pane-code"
       >
         {codeEditorComponent}
