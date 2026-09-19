@@ -50,9 +50,9 @@ export const FILL_SWATCHES = [
 ];
 
 const WIDTH_CHOICES = [
-  { value: 2, label: 'Thin' },
-  { value: 4, label: 'Medium' },
-  { value: 8, label: 'Bold' },
+  { value: 1.5, label: 'Thin' },
+  { value: 2.5, label: 'Medium' },
+  { value: 4, label: 'Thick' },
 ];
 
 /** Arrow stroke widths (reference design): Thin 1px, Medium 2px, Bold 4px. */

@@ -281,13 +281,28 @@ export default function CanvasStage({
     const container = containerRef.current;
     if (!container) return undefined;
     const updateSize = () => {
-      setSize({ width: container.clientWidth, height: container.clientHeight });
+      const newWidth = container.clientWidth;
+      const newHeight = container.clientHeight;
+      setSize({ width: newWidth, height: newHeight });
+      // Keep the Konva stage in sync with its container during local
+      // split-pane resizes: imperative width sync + batchDraw avoids
+      // canvas clipping / rendering artifacts mid-drag.
+      try {
+        const stage = stageRef?.current;
+        if (stage && Number.isFinite(newWidth) && Number.isFinite(newHeight)) {
+          stage.width(newWidth);
+          stage.height(newHeight);
+          stage.batchDraw();
+        }
+      } catch {
+        // best-effort; React width/height props reconcile next render
+      }
     };
     updateSize();
     const resizeObserver = new ResizeObserver(updateSize);
     resizeObserver.observe(container);
     return () => resizeObserver.disconnect();
-  }, []);
+  }, [stageRef]);
 
   // Transformer lifecycle: attach to the selected node(s), detach otherwise.
   // Every branch explicitly releases with nodes([]) + batchDraw() so the
@@ -417,7 +432,7 @@ export default function CanvasStage({
   return (
     <div
       ref={containerRef}
-      className="h-full min-h-[420px] w-full touch-none overflow-hidden bg-[#ffffff] bg-[radial-gradient(#d3d8de_1px,transparent_1.25px)] [background-size:20px_20px]"
+      className="h-full min-h-0 w-full flex-1 touch-none overflow-hidden bg-[#ffffff] bg-[radial-gradient(#d3d8de_1px,transparent_1.25px)] [background-size:20px_20px]"
       style={{ cursor: cursorForTool() }}
       data-testid="excalidraw-canvas"
     >

@@ -343,24 +343,25 @@ export default function Toolbar({
   const zoomPct = Math.round((Number.isFinite(zoom) ? zoom : 1) * 100);
 
   return (
-    // Outer scroller: unconditionally `flex` (no breakpoint locks — the bar
-    // must render on 13"/15" laptop screens as well as 27" monitors).
-    // `max-w-[calc(100vw-32px)]` + `overflow-x-auto` guarantees the pill
-    // never blows out past the viewport; `no-scrollbar` keeps it clean.
+    // Outer scroller: compact floating pill (`w-fit`) hugging its content
+    // instead of stretching across the column; unconditionally `flex` (no
+    // breakpoint locks — renders on 13"/15" laptop screens as well as 27"
+    // monitors). `max-w-full` + `overflow-x-auto` guarantees the pill never
+    // blows out past its column; `no-scrollbar` keeps it clean.
     <div
       role="toolbar"
       aria-label="Whiteboard tools"
       aria-orientation="horizontal"
-      className="pointer-events-auto mb-2 flex w-full max-w-[calc(100vw-32px)] select-none overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm no-scrollbar"
+      className="pointer-events-auto flex w-fit max-w-full select-none overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm no-scrollbar"
     >
       {/* Inner pill row: `min-w-max` so narrow viewports scroll the full
-      row instead of clipping its start (justify-between + overflow can
-      hide leading items); `w-full` keeps the spread layout on wide
-      screens. Every section/divider is `shrink-0` so nothing wraps or
-      squeezes out of view. */}
-      <div className="flex min-h-[52px] w-full min-w-max flex-1 items-center justify-between gap-1.5 px-3 py-2 md:gap-2 md:px-4 md:py-2.5">
+      row instead of clipping its start; `min-h-12` keeps the bar at the
+      shared 48px panel-header height so the canvas card below starts on
+      the same baseline as the code editor card. Every section/divider is
+      `shrink-0` so nothing wraps or squeezes out of view. */}
+      <div className="flex min-h-12 w-full min-w-max flex-1 items-center justify-between gap-1.5 px-2 py-1">
       {/* SECTION 1: DRAWING TOOLS (LEFT) */}
-      <div className="flex shrink-0 flex-nowrap items-center gap-1.5 md:gap-2">
+      <div className="flex shrink-0 flex-nowrap items-center gap-1">
       {TOOLS.map((option) => {
         const isActive = tool === option.value;
         return (
@@ -537,7 +538,7 @@ export default function Toolbar({
       <div className="mx-1 h-7 w-px shrink-0 bg-gray-200 md:mx-2" aria-hidden="true" />
 
       {/* SECTION 2: STATUS + ACTIONS & MORE MENU (RIGHT) */}
-      <div className="flex shrink-0 items-center gap-1.5 md:gap-2">
+      <div className="flex shrink-0 items-center gap-1">
         {/* Shape count badge — text hidden on compact viewports */}
         <span className="hidden whitespace-nowrap rounded-full bg-gray-100 px-2.5 py-1 text-sm font-medium text-gray-500 sm:inline-block">
           {shapeCount} {shapeCount === 1 ? 'shape' : 'shapes'}
@@ -560,9 +561,11 @@ export default function Toolbar({
             <button
               type="button"
               onClick={() => onZoomChange && onZoomChange(zoom + 0.1)}
-              className="px-2 py-0.5 text-gray-600 hover:text-black font-bold"
-              title="Zoom in"
+              disabled={zoom >= 1.0}
+              className="px-2 py-0.5 text-gray-600 hover:text-black font-bold disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-gray-600"
+              title={zoom >= 1.0 ? "Maximum zoom (100%)" : "Zoom in"}
               aria-label="Zoom in"
+              aria-disabled={zoom >= 1.0}
             >
               +
             </button>

@@ -37,8 +37,8 @@ import {
 } from './utils/shapes.js';
 
 const MIN_FREEHAND_STEP = 2; // px in world coords — draft optimization
-const MIN_ZOOM = 0.25;
-const MAX_ZOOM = 4;
+const MIN_ZOOM = 0.25; // 25% minimum (zoom out allowed)
+const MAX_ZOOM = 1.0; // 100% maximum — users can never zoom in past 100%
 
 /**
  * useCanvasDrawing — Sayon (Whiteboard / Konva.js Engineer)
@@ -359,6 +359,15 @@ export default function useCanvasDrawing({
     }
     viewportLerpTargetRef.current = null;
     lastEmittedPosRef.current = null;
+    // Room initialization resets the viewport to 100%: a stale zoom (e.g.
+    // 273% from the previous room) must never carry over on room switch.
+    try {
+      viewportMirrorRef.current = { x: 0, y: 0, scale: 1, at: Date.now() };
+    } catch {
+      // best-effort; state reset below still applies
+    }
+    setScale(1);
+    setStagePos({ x: 0, y: 0 });
     setRemoteStrokes({});
   }, [roomId, resetStrokeStream, clearPreviewTimer, resetPreviewStream]);
 
@@ -1123,20 +1132,22 @@ export default function useCanvasDrawing({
   }, []);
 
   const applyRemoteViewport = useCallback((input = {}) => {
-    // Dual-envelope unpack (flat or nested) with numeric coercion. Scale
-    // outside local bounds is CLAMPED, never dropped, so a valid pan is
-    // never rejected for its zoom; a missing scale falls back to live.
-    const { stagePos, scale } = unpackViewportPayload(input);
-    const nextScale = scale !== null ? Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, scale)) : null;
+    // Dual-envelope unpack (flat or nested) with numeric coercion.
+    // Zoom stays strictly local: the remote `scale` is intentionally
+    // ignored so a peer sitting at 400% can never drag this client off
+    // its 100% (1.0) default — incoming packets retarget pan position
+    // only, and zoom-only packets are no-ops. Outbound broadcasts still
+    // carry our scale (protocol unchanged).
+    const { stagePos } = unpackViewportPayload(input);
     const nextPos = stagePos;
-    if (nextScale === null && nextPos === null) return;
+    if (nextPos === null) return;
     // Retarget (never snap): the rAF loop eases toward the newest packet;
     // a newer packet simply moves the target — no backlog, no jitter.
     const stage = stageRef.current;
     viewportLerpTargetRef.current = {
       x: nextPos?.x ?? stage?.x?.() ?? viewportMirrorRef.current.x,
       y: nextPos?.y ?? stage?.y?.() ?? viewportMirrorRef.current.y,
-      scale: nextScale ?? stage?.scaleX?.() ?? viewportMirrorRef.current.scale,
+      scale: stage?.scaleX?.() ?? viewportMirrorRef.current.scale,
     };
     if (!viewportLerpRafRef.current) {
       viewportLerpRafRef.current = requestAnimationFrame(stepViewportLerp);

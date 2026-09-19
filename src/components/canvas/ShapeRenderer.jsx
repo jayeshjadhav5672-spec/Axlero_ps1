@@ -315,6 +315,11 @@ const ShapeNode = React.memo(
       : DEFAULTS.strokeWidth;
     const common = {
       id: shape.id,
+      // Keep stroke weights visually uniform under Stage zoom: Konva
+      // otherwise scales strokeWidth with the node transform (a 2px
+      // stroke renders as 8px at 400% zoom). Inherited by every stroked
+      // node below via spread; hit-testing still uses hitStrokeWidth.
+      strokeScaleEnabled: false,
       // Remote in-progress stroke previews render only: never register
       // their nodes (keeps the Transformer and drag ownership local-only).
       ref: setNodeRef,

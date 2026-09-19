@@ -20,13 +20,13 @@ export default function WhiteboardPanel({
 }) {
   const canvasMounted = !isLoading && !error && Boolean(children);
   return (
-    <section className={`flex h-full min-h-0 w-full min-w-0 flex-1 flex-col p-2 pl-3 ${className}`} aria-label={title} role="region">
+    <section className={`flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-white p-2 pl-3 ${className}`} aria-label={title} role="region">
       {!canvasMounted && (
-        <div className="flex shrink-0 items-center justify-between px-1 pb-2">
+        <div className="flex h-12 shrink-0 items-center justify-between px-1">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{title}</h2>
         </div>
       )}
-      <div className="relative min-h-0 w-full flex-1">
+      <div className="relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden">
         {isLoading && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-xl border border-teal-100 bg-teal-50/80">
             <span className="h-8 w-8 animate-spin rounded-full border-[3px] border-teal-600 border-t-transparent" aria-hidden="true" />
@@ -51,11 +51,13 @@ export default function WhiteboardPanel({
           </div>
         )}
         {!isLoading && !error && !children && (
-          <div className="flex h-full min-h-[420px] items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white text-slate-400">
+          <div className="flex h-full min-h-0 flex-1 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white text-slate-400">
             <p className="text-sm">Whiteboard is not mounted</p>
           </div>
         )}
-        {children}
+        {children && (
+          <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden">{children}</div>
+        )}
       </div>
     </section>
   );

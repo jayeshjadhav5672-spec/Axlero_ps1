@@ -1011,7 +1011,7 @@ export function Whiteboard({
   });
 
   return (
-    <div className="flex h-full min-h-[520px] min-w-0 w-full flex-1 flex-col">
+    <div className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden">
       {/* Header row: full-width toolbar bar. The header sits above
       the popover backdrop (relative z-50) so tools and the 3-dot toggle
       stay interactive while the panel is open. */}
@@ -1119,9 +1119,9 @@ export function Whiteboard({
           </div>
       </div>
       {/* Expanded canvas boundary: fills all remaining height/width. */}
-      <section className="flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-[#f8f9fa] shadow-sm">
-      <div className="relative min-h-0 flex-1" ref={canvasWrapRef}>
-        <div className="relative h-full min-h-[420px] overflow-hidden">
+      <section className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-[#f8f9fa] shadow-sm">
+      <div className="relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden" ref={canvasWrapRef}>
+        <div className="relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden">
           <CanvasStage
             // renderShapes = committed + local draft + remote in-progress
             // pen previews (display-only; exports/counts use visibleShapes).
