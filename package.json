@@ -12,13 +12,9 @@
     "test": "node --test test/*.test.cjs test/*.test.mjs"
   },
   "dependencies": {
-    "bcryptjs": "^3.0.3",
     "express": "^5.2.1",
-    "google-auth-library": "^11.1.0",
-    "jsonwebtoken": "^9.0.3",
     "jspdf": "^4.2.1",
     "konva": "^10.5.0",
-    "mongoose": "^9.10.1",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-konva": "^19.2.7",

@@ -1,5 +1,6 @@
 import React from 'react';
 import WorkspaceHeader from '../layout/WorkspaceHeader';
+import { LobbyStatus, isLobbyRoomId } from '../lobby';
 import WhiteboardPanel from './WhiteboardPanel';
 import CodeEditorPanel from './CodeEditorPanel';
 
@@ -44,6 +45,9 @@ export default function Workspace({
         onLeaveRoom={onLeaveRoom}
         onShareRoom={onShareRoom}
       />
+      {/* Lobby readout for lobby-mode rooms only (room-id based, pure UI —
+          no enforcement). Regular rooms render exactly as before. */}
+      {isLobbyRoomId(roomId) && <LobbyStatus users={users} />}
       <div id="workspace-content" className="w-full flex-1 py-1.5 pl-2 pr-1.5 sm:py-2 sm:pl-3 sm:pr-2">
         <div className="grid min-h-[calc(100vh-120px)] grid-cols-1 gap-2 sm:gap-2 lg:grid-cols-2">
           <WhiteboardPanel
