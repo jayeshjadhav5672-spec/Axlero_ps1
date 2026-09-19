@@ -343,25 +343,23 @@ export default function Toolbar({
   const zoomPct = Math.round((Number.isFinite(zoom) ? zoom : 1) * 100);
 
   return (
-    // Outer scroller: compact floating pill (`w-fit`) hugging its content
-    // instead of stretching across the column; unconditionally `flex` (no
-    // breakpoint locks — renders on 13"/15" laptop screens as well as 27"
-    // monitors). `max-w-full` + `overflow-x-auto` guarantees the pill never
-    // blows out past its column; `no-scrollbar` keeps it clean.
+    // Outer bar: full-width wrapping pill. Sections flow onto additional
+    // rows on narrow columns instead of clipping behind a scroll strip, so
+    // every tool stays visibly discoverable without hidden scrolling.
+    // Unconditionally `flex` (no breakpoint locks).
     <div
       role="toolbar"
       aria-label="Whiteboard tools"
       aria-orientation="horizontal"
-      className="pointer-events-auto flex w-fit max-w-full select-none overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm no-scrollbar"
+      className="pointer-events-auto flex w-full max-w-full select-none flex-wrap rounded-xl border border-gray-200 bg-white shadow-sm"
     >
-      {/* Inner pill row: `min-w-max` so narrow viewports scroll the full
-      row instead of clipping its start; `min-h-12` keeps the bar at the
-      shared 48px panel-header height so the canvas card below starts on
-      the same baseline as the code editor card. Every section/divider is
-      `shrink-0` so nothing wraps or squeezes out of view. */}
-      <div className="flex min-h-12 w-full min-w-max flex-1 items-center justify-between gap-1.5 px-2 py-1">
+      {/* Inner pill content: wraps instead of forcing `min-w-max` scroll;
+      `min-h-12` keeps the bar at the shared 48px panel-header height so the
+      canvas card below starts on the same baseline as the code editor card.
+      Every section/divider is `shrink-0` so nothing squeezes out of view. */}
+      <div className="flex min-h-12 w-full flex-1 flex-wrap items-center justify-between gap-1.5 px-2 py-1">
       {/* SECTION 1: DRAWING TOOLS (LEFT) */}
-      <div className="flex shrink-0 flex-nowrap items-center gap-1">
+      <div className="flex min-w-0 flex-wrap items-center gap-1">
       {TOOLS.map((option) => {
         const isActive = tool === option.value;
         return (
