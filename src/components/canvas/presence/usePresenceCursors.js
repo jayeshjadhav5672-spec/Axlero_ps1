@@ -92,34 +92,48 @@ export default function usePresenceCursors({
   }, [color, emit, enabled, throttleMs, userId, userName]);
 
   // Stage pointer tracking (canvas-space coords).
+  // Attached to the CONTAINER (always mounted), resolving the live stage
+  // lazily per event: the Konva Stage itself mounts asynchronously behind
+  // a size gate, so binding `stage.on(...)` once at hook setup silently
+  // misses it and cursor broadcast would stay dead until an unrelated
+  // re-subscribe. Container tracking works from the first frame and
+  // converges to identical world coords once the stage exists.
   useEffect(() => {
-    if (!enabled || !stageRef?.current) return undefined;
-    const stage = stageRef.current;
-    if (!stage || typeof stage.on !== 'function') return undefined;
-    const onMove = () => {
+    if (!enabled) return undefined;
+    const container = containerRef?.current ?? null;
+    const toWorld = (clientX, clientY) => {
       try {
-        const p = stage.getRelativePointerPosition?.();
-        if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) broadcastMove({ x: p.x, y: p.y });
+        const stage = stageRef?.current ?? null;
+        if (stage && typeof stage.getRelativePointerPosition === 'function') {
+          const p = stage.getRelativePointerPosition();
+          if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) return { x: p.x, y: p.y };
+        }
+        if (stage && container && typeof stage.getAbsoluteTransform === 'function') {
+          const rect = container.getBoundingClientRect();
+          const abs = stage.getAbsoluteTransform()?.copy?.()?.invert?.();
+          if (abs && typeof abs.point === 'function') {
+            const w = abs.point({ x: clientX - rect.left, y: clientY - rect.top });
+            if (w && Number.isFinite(w.x) && Number.isFinite(w.y)) return { x: w.x, y: w.y };
+          }
+        }
       } catch {
         // ignore pointer read failures
       }
+      return null;
+    };
+    const onMove = (e) => {
+      const world = toWorld(e?.clientX, e?.clientY);
+      if (world) broadcastMove(world);
     };
     const onLeave = () => broadcastLeave();
-    stage.on('pointermove', onMove);
-    stage.on('pointerleave', onLeave);
-    // DOM-level leave (pointer exits the canvas container entirely).
-    const container = containerRef?.current ?? null;
+    // DOM-level tracking (pointer moves + exits over the canvas container).
     if (container && typeof container.addEventListener === 'function') {
+      container.addEventListener('pointermove', onMove);
       container.addEventListener('pointerleave', onLeave);
     }
     return () => {
-      try {
-        stage.off?.('pointermove', onMove);
-        stage.off?.('pointerleave', onLeave);
-      } catch {
-        // ignore teardown failures
-      }
       if (container && typeof container.removeEventListener === 'function') {
+        container.removeEventListener('pointermove', onMove);
         container.removeEventListener('pointerleave', onLeave);
       }
       broadcastLeave();

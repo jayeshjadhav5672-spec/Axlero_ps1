@@ -16,9 +16,16 @@ const MAX_STREAM_POINTS = 20000;
  * older client re-broadcasts. `roomState` tracks the authoritative shape
  * array per room from every validated mutation channel (unified +
  * legacy ops); `room:join` delivers it as `canvas:sync-init` to the
- * joiner only. Bounded (rooms + shapes caps, oldest evicted) so memory
+ * joiner only. Bounded (rooms + shapes caps, oldest idle evicted) so memory
  * cannot grow unboundedly. Ephemeral streams (previews, cursors, trails,
  * in-progress strokes) never touch it.
+ *
+ * Capacity contract (explicit, never silent): a mutation that would push a
+ * room past MAX_ROOM_SHAPES is REJECTED with `connection:error` ("room
+ * shape limit reached") and is neither relayed nor stored — so the stored
+ * snapshot is always complete and a late joiner can never receive a
+ * silently truncated board. Room eviction likewise only targets rooms with
+ * no live presence (nothing connected to lose state).
  */
 const MAX_ROOMS = 200;
 const MAX_ROOM_SHAPES = 2000;
@@ -250,11 +257,11 @@ function assertLiveCollabPayload(payload, event) {
       if (!isPlainObject(data) || !isFiniteCoord(data.x) || !isFiniteCoord(data.y)) {
         throw new Error("cursor move must include finite x/y");
       }
-      if (data.user !== undefined && typeof data.user !== "string") {
-        throw new Error("cursor user must be a string");
+      if (data.user !== undefined && (typeof data.user !== "string" || data.user.length > 128)) {
+        throw new Error("cursor user must be a string of at most 128 characters");
       }
-      if (data.tool !== undefined && typeof data.tool !== "string") {
-        throw new Error("cursor tool must be a string");
+      if (data.tool !== undefined && (typeof data.tool !== "string" || data.tool.length > 32)) {
+        throw new Error("cursor tool must be a string of at most 32 characters");
       }
       break;
     }
@@ -316,8 +323,11 @@ function assertLiveCollabPayload(payload, event) {
       break;
     }
     case "canvas:history-sync": {
-      if (!isPlainObject(data) || !Array.isArray(data.shapes) || data.shapes.length > MAX_BATCH_SHAPES) {
-        throw new Error("history sync must include a shapes array within the cap");
+      // Full-array undo/redo restores: count-capped at the room snapshot
+      // cap (not the incremental 500-op cap) so undo on a large-but-legal
+      // board still propagates; the byte cap below still bounds abuse.
+      if (!isPlainObject(data) || !Array.isArray(data.shapes) || data.shapes.length > MAX_ROOM_SHAPES) {
+        throw new Error("history sync must include a shapes array within the room cap");
       }
       if (!hasAcceptableSize(data.shapes)) {
         throw new Error("history snapshot exceeds the size cap");
@@ -340,6 +350,12 @@ function assertLiveCollabPayload(payload, event) {
         if (data[field] !== undefined && typeof data[field] !== "string") {
           throw new Error(`selection ${field} must be a string`);
         }
+      }
+      if (typeof data.userName === "string" && data.userName.length > 128) {
+        throw new Error("selection userName must be at most 128 characters");
+      }
+      if (typeof data.color === "string" && data.color.length > 64) {
+        throw new Error("selection color must be at most 64 characters");
       }
       break;
     }
@@ -381,22 +397,35 @@ function createSocketServer(httpServer, options = {}) {
   }
 
   function setRoomShapes(roomId, shapes) {
-    const clean = validShapeEntries(shapes).slice(-MAX_ROOM_SHAPES);
-    if (!roomState.has(roomId) && roomState.size >= MAX_ROOMS) {
-      roomState.delete(roomState.keys().next().value); // evict oldest room
+    const clean = validShapeEntries(shapes);
+    // Recency refresh: rooms written to re-insert at the end, so eviction
+    // below only targets rooms nobody has touched recently.
+    if (roomState.has(roomId)) roomState.delete(roomId);
+    // Bounded memory: evict rooms with no live presence first — their state
+    // is unobservable (nobody connected to lose it), so eviction can never
+    // silently empty a board out from under connected clients. Only when
+    // every tracked room has live peers, evict the oldest-written room.
+    while (roomState.size >= MAX_ROOMS) {
+      const idle = [...roomState.keys()].find((id) => (roomPresence.get(id) ?? []).length === 0);
+      roomState.delete(idle ?? roomState.keys().next().value);
     }
     roomState.set(roomId, { shapes: clean, updatedAt: Date.now() });
   }
 
-  /** Fold a validated mutation into the room snapshot (no-op for others). */
-  function trackRoomMutation(roomId, event, data) {
-    try {
-      const prev = getRoomShapes(roomId);
-      const next = applyRoomMutation(prev, event, data);
-      if (next !== prev) setRoomShapes(roomId, next);
-    } catch {
-      // snapshot tracking is best-effort; relay already succeeded
+  /**
+   * Fold a validated mutation into the room snapshot and store it.
+   * MUST be called BEFORE relaying the op: mutations that would overflow
+   * MAX_ROOM_SHAPES throw (converted to `connection:error` by callers),
+   * so an over-cap op is never relayed without being stored — peers and
+   * the snapshot can never silently diverge.
+   */
+  function commitRoomMutation(roomId, event, data) {
+    const next = applyRoomMutation(getRoomShapes(roomId), event, data);
+    if (next.length > MAX_ROOM_SHAPES) {
+      throw new Error(`room shape limit reached (${MAX_ROOM_SHAPES} shapes)`);
     }
+    setRoomShapes(roomId, next);
+    return next;
   }
 
   function presenceFor(roomId) {
@@ -523,9 +552,11 @@ function createSocketServer(httpServer, options = {}) {
           }
 
           // Track legacy whiteboard ops in the room snapshot (code/cursor
-          // payloads are ignored by the reducer).
+          // payloads are ignored by the reducer). Runs BEFORE relay so an
+          // over-cap mutation is rejected (connection:error) instead of
+          // relayed-but-unstored.
           if (event === "canvas:update") {
-            trackRoomMutation(socket.data.roomId, event, payload.data);
+            commitRoomMutation(socket.data.roomId, event, payload.data);
           }
           socket.to(socket.data.roomId).emit(event, {
             roomId: socket.data.roomId,
@@ -600,9 +631,11 @@ function createSocketServer(httpServer, options = {}) {
 
           // Relay strictly to all other peers in the target room.
           // Stroke completions also fold into the room snapshot (the
-          // authoritative commit op follows and dedupes by id).
+          // authoritative commit op follows and dedupes by id). Stored
+          // BEFORE relay so an over-cap completion is rejected loudly
+          // instead of relayed-but-unstored.
           if (event === "draw:stroke-complete") {
-            trackRoomMutation(targetRoom, event, payload.data);
+            commitRoomMutation(targetRoom, event, payload.data);
           }
           socket.to(targetRoom).emit(event, {
             roomId: targetRoom,
@@ -655,7 +688,9 @@ function createSocketServer(httpServer, options = {}) {
           // Committed mutations: broadcast to other peers (sender already
           // applied locally — loop-free by construction). Committed
           // mutations also fold into the room snapshot for late joiners;
-          // ephemeral streams never touch it.
+          // ephemeral streams never touch it. Stored BEFORE relay so an
+          // over-cap mutation is rejected loudly instead of
+          // relayed-but-unstored.
           if (
             event === "shapes:commit" ||
             event === "shapes:update-batch" ||
@@ -663,7 +698,7 @@ function createSocketServer(httpServer, options = {}) {
             event === "canvas:clear" ||
             event === "canvas:history-sync"
           ) {
-            trackRoomMutation(targetRoom, event, payload.data);
+            commitRoomMutation(targetRoom, event, payload.data);
           }
           socket.to(targetRoom).emit(event, {
             roomId: targetRoom,

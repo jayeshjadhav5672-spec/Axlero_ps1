@@ -165,4 +165,86 @@ describe("room snapshots over sockets", () => {
     await waitForEvent(other, "room:joined");
     assert.deepEqual((await syncInit)[0].shapes, []);
   });
+
+  test("mutations past the 2000-shape cap are rejected, never silently truncated", async () => {
+    const filler = client();
+    const peer = client();
+    await Promise.all([waitForEvent(filler, "connect"), waitForEvent(peer, "connect")]);
+    filler.emit("room:join", { roomId: "cap-room", userId: "filler" });
+    await waitForEvent(filler, "room:joined");
+    peer.emit("room:join", { roomId: "cap-room", userId: "peer" });
+    await waitForEvent(peer, "room:joined");
+
+    // Fill exactly to the cap with four full batches (500 ids each).
+    for (let b = 0; b < 4; b += 1) {
+      const ids = Array.from({ length: 500 }, (_, i) => ({ id: `cap-${b * 500 + i}` }));
+      const ack = waitForEvent(peer, "shapes:update-batch");
+      filler.emit("shapes:update-batch", { roomId: "cap-room", data: { shapes: ids } });
+      await ack;
+    }
+
+    // The 2001st shape is rejected loudly and never relayed...
+    const err = waitForEvent(filler, "connection:error");
+    const leaked = waitForEvent(peer, "shapes:commit");
+    filler.emit("shapes:commit", { roomId: "cap-room", data: { shape: { id: "cap-overflow" } } });
+    const [errPayload] = await err;
+    assert.equal(errPayload.event, "shapes:commit");
+    assert.match(errPayload.message, /shape limit/);
+    await assert.rejects(
+      Promise.race([leaked, new Promise((_, reject) => setTimeout(() => reject(new Error("not-leaked")), 150))]),
+      /not-leaked/,
+    );
+
+    // ...and the stored snapshot is still exactly the complete 2000.
+    const late = client();
+    await waitForEvent(late, "connect");
+    const syncInit = waitForEvent(late, "canvas:sync-init");
+    late.emit("room:join", { roomId: "cap-room", userId: "late" });
+    await waitForEvent(late, "room:joined");
+    assert.equal((await syncInit)[0].shapes.length, 2000);
+  });
+
+  test("a 600-shape history-sync (undo on a large board) still propagates", async () => {
+    const a = client();
+    const b = client();
+    await Promise.all([waitForEvent(a, "connect"), waitForEvent(b, "connect")]);
+    a.emit("room:join", { roomId: "big-undo-room", userId: "a" });
+    await waitForEvent(a, "room:joined");
+    b.emit("room:join", { roomId: "big-undo-room", userId: "b" });
+    await waitForEvent(b, "room:joined");
+
+    const shapes = Array.from({ length: 600 }, (_, i) => ({ id: `big-${i}` }));
+    const got = waitForEvent(b, "canvas:history-sync");
+    a.emit("canvas:history-sync", { roomId: "big-undo-room", data: { shapes } });
+    assert.equal((await got)[0].data.shapes.length, 600);
+  });
+
+  test("eviction never drops a room with live presence", async () => {
+    const keeper = client();
+    await waitForEvent(keeper, "connect");
+    keeper.emit("room:join", { roomId: "keep-room", userId: "keeper" });
+    await waitForEvent(keeper, "room:joined");
+    keeper.emit("shapes:commit", { roomId: "keep-room", data: { shape: { id: "keep-1" } } });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Churn 200 idle rooms (join then leave): keeper stays connected, so
+    // if eviction ever targeted live rooms, keep-room would lose its own
+    // snapshot while still observed by the keeper.
+    const churner = client();
+    await waitForEvent(churner, "connect");
+    for (let i = 0; i < 200; i += 1) {
+      const rid = `churn-${i}`;
+      churner.emit("room:join", { roomId: rid, userId: "churn" });
+      await waitForEvent(churner, "room:joined");
+      churner.emit("room:leave", { roomId: rid });
+      await waitForEvent(churner, "room:left");
+    }
+
+    const late = client();
+    await waitForEvent(late, "connect");
+    const syncInit = waitForEvent(late, "canvas:sync-init");
+    late.emit("room:join", { roomId: "keep-room", userId: "late" });
+    await waitForEvent(late, "room:joined");
+    assert.deepEqual((await syncInit)[0].shapes.map((s) => s.id), ["keep-1"]);
+  });
 });

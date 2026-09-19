@@ -561,11 +561,9 @@ export default function Toolbar({
             <button
               type="button"
               onClick={() => onZoomChange && onZoomChange(zoom + 0.1)}
-              disabled={zoom >= 1.0}
-              className="px-2 py-0.5 text-gray-600 hover:text-black font-bold disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-gray-600"
-              title={zoom >= 1.0 ? "Maximum zoom (100%)" : "Zoom in"}
+              className="px-2 py-0.5 text-gray-600 hover:text-black font-bold"
+              title="Zoom in"
               aria-label="Zoom in"
-              aria-disabled={zoom >= 1.0}
             >
               +
             </button>
