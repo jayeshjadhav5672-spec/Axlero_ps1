@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
 import GoogleButton from './GoogleButton';
+import { loginRequest } from '../../lib/auth';
 
 /**
- * LoginPage — frontend-only sign-in form.
+ * LoginPage — sign-in form backed by the real auth API.
  *
- * Fields: Email, Password. Validation is client-side only; on success
- * the entered email is handed to `onSuccess` (in-memory React state in
- * App — nothing is persisted and nothing is sent to a backend; the auth
- * teammate wires that up).
+ * Fields: Email, Password. Client-side validation first, then
+ * POST /api/auth/login; on success the session ({ user, token }) is
+ * handed to `onSuccess`. Server failures render as a form-level alert.
  *
- * Props: { onSuccess({ email }), onSwitchToSignup(), onBack() }
+ * Props: { onSuccess({ user, token }), onSwitchToSignup(), onBack() }
  */
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -20,8 +20,9 @@ export default function LoginPage({ onSuccess, onSwitchToSignup, onBack }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState({});
+  const [busy, setBusy] = useState(false);
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
     const nextErrors = {};
     if (!email.trim()) nextErrors.email = 'Please enter your email.';
@@ -29,8 +30,15 @@ export default function LoginPage({ onSuccess, onSwitchToSignup, onBack }) {
     if (!password) nextErrors.password = 'Please enter your password.';
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
-    // Frontend-only: hand the valid form up; no network, no storage.
-    onSuccess?.({ email: email.trim() });
+    setBusy(true);
+    try {
+      const session = await loginRequest({ email: email.trim(), password });
+      onSuccess?.(session);
+    } catch (err) {
+      setErrors({ form: err?.message || 'Could not log in.' });
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -96,10 +104,16 @@ export default function LoginPage({ onSuccess, onSwitchToSignup, onBack }) {
             </div>
             <button
               type="submit"
-              className="mt-1 flex w-full items-center justify-center rounded-lg bg-[#111111] px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#2A2A2A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#111111] focus-visible:ring-offset-2 focus-visible:ring-offset-[#F5F1E8]"
+              disabled={busy}
+              className="mt-1 flex w-full items-center justify-center rounded-lg bg-[#111111] px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#2A2A2A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#111111] focus-visible:ring-offset-2 focus-visible:ring-offset-[#F5F1E8] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Login
+              {busy ? 'Logging in…' : 'Login'}
             </button>
+            {errors.form && (
+              <p role="alert" className="text-sm text-rose-700">
+                {errors.form}
+              </p>
+            )}
           </form>
           <div className="my-5 flex items-center gap-3" aria-hidden="true">
             <span className="h-px flex-1 bg-[#E7DFCC]" />

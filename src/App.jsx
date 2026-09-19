@@ -10,8 +10,9 @@
  * - Shree (pending): room→doc mapping + op contract documented in
  *   docs/INTEGRATION.md; socket relay is the transport her Yjs sync
  *   provider will reuse
- * - Vaishnavi (pending): identity via getOrCreateIdentity (localStorage);
- *   server already honors socket.user for future auth middleware
+ * - Auth: real JWT sessions (signup/login/me/logout) persisted in
+ *   localStorage and re-validated on load; the JWT travels in the
+ *   Socket.io handshake where server middleware sets socket.user
  *
  * Offline honesty: when the realtime server is unreachable the banner
  * says so and the whiteboard/editor keep working locally.
@@ -44,10 +45,25 @@ import {
   urlForDashboardView,
   urlForWorkspaceView,
 } from './lib/room';
+import { clearStoredSession, getStoredSession, meRequest, setStoredSession } from './lib/auth';
 
 export default function App() {
   const [roomId] = useState(() => getRoomIdFromUrl());
-  const [identity] = useState(() => getOrCreateIdentity());
+  // Auth session ({ token, user } | null), persisted in localStorage.
+  // Restored on load and re-validated against GET /api/auth/me; a dead
+  // token falls back to anonymous Guest collaboration.
+  const [session, setSession] = useState(() => getStoredSession());
+  // Collaboration identity: the signed-in account when a session exists,
+  // otherwise the stable per-browser Guest identity (unchanged behavior).
+  const identity = useMemo(() => {
+    if (session?.user) {
+      return {
+        userId: String(session.user.id ?? session.user.email ?? 'guest'),
+        displayName: session.user.displayName || session.user.email || 'Guest',
+      };
+    }
+    return getOrCreateIdentity();
+  }, [session]);
   const [shareNote, setShareNote] = useState('');
   // Day 3 full Dashboard: the home/start screen. Shown by default when the
   // URL carries no explicit `?room=`, and entered later via "Go to
@@ -72,16 +88,41 @@ export default function App() {
   );
   // Frontend-only auth views extend the existing useState-based view
   // switching — no router. One of null | 'login' | 'signup' | 'profile'.
-  // `sessionUser` ({ name, email, username } | null) lives in memory
-  // only: nothing is persisted and nothing is sent to a backend. The
-  // auth teammate will replace this seam with real authentication.
   const [authView, setAuthView] = useState(null);
-  const [sessionUser, setSessionUser] = useState(null);
+
+  // Re-validate a restored session once per load: an expired or revoked
+  // token drops back to Guest instead of impersonating a dead account.
+  useEffect(() => {
+    let cancelled = false;
+    const stored = getStoredSession();
+    if (!stored?.token) return undefined;
+    meRequest(stored.token)
+      .then((data) => {
+        if (cancelled) return;
+        if (data?.user) {
+          const fresh = { token: stored.token, user: data.user };
+          setStoredSession(fresh);
+          setSession(fresh);
+        } else {
+          clearStoredSession();
+          setSession(null);
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        clearStoredSession();
+        setSession(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const { socket, status, presence, error, left, reconnect, leaveRoom } = useRoomConnection({
     roomId,
     userId: identity.userId,
     displayName: identity.displayName,
+    authToken: session?.token ?? null,
   });
 
   const live = !left && status !== 'error';
@@ -171,24 +212,26 @@ export default function App() {
 
   const goDashboard = useCallback(() => setAuthView(null), []);
 
-  const handleSignupSuccess = useCallback(({ name, email }) => {
-    // New account → profile, so a username can be chosen there.
-    setSessionUser({ name, email, username: '' });
-    setAuthView('profile');
-  }, []);
-
-  const handleLoginSuccess = useCallback(({ email }) => {
-    // Frontend-only sign-in; the name arrives with real auth later.
-    setSessionUser({ name: '', email, username: '' });
+  const handleSignupSuccess = useCallback((nextSession) => {
+    // New account → straight into the workspace with a live session.
+    if (nextSession?.token && nextSession?.user) {
+      setStoredSession(nextSession);
+      setSession(nextSession);
+    }
     setAuthView(null);
   }, []);
 
-  const handleUsernameSaved = useCallback((username) => {
-    setSessionUser((current) => (current ? { ...current, username } : current));
+  const handleLoginSuccess = useCallback((nextSession) => {
+    if (nextSession?.token && nextSession?.user) {
+      setStoredSession(nextSession);
+      setSession(nextSession);
+    }
+    setAuthView(null);
   }, []);
 
   const handleLogout = useCallback(() => {
-    setSessionUser(null);
+    clearStoredSession();
+    setSession(null);
     setAuthView(null);
   }, []);
 
@@ -232,8 +275,7 @@ export default function App() {
         />
       ) : authView === 'profile' ? (
         <ProfilePage
-          user={sessionUser}
-          onUsernameSaved={handleUsernameSaved}
+          user={session?.user ?? null}
           onLogout={handleLogout}
           onBack={goDashboard}
           onLogin={() => setAuthView('login')}
@@ -244,7 +286,7 @@ export default function App() {
           currentRoomId={roomId}
           hasActiveRoom={initialPresence.hasRoom}
           onReturnToWorkspace={handleRejoin}
-          user={sessionUser}
+          user={session?.user ? { ...session.user, name: session.user.displayName } : null}
           onLogin={() => setAuthView('login')}
           onSignup={() => setAuthView('signup')}
           onProfile={() => setAuthView('profile')}

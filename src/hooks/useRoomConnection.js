@@ -17,7 +17,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { getSocket } from '../lib/socket.js';
 import { isValidRoomId } from '../lib/room.js';
 
-export default function useRoomConnection({ roomId, userId, displayName }) {
+export default function useRoomConnection({ roomId, userId, displayName, authToken = null }) {
   const [status, setStatus] = useState('connecting');
   const [presence, setPresence] = useState([]);
   const [error, setError] = useState(null);
@@ -38,6 +38,16 @@ export default function useRoomConnection({ roomId, userId, displayName }) {
       return undefined;
     }
     setError(null);
+
+    // Carry the JWT (if any) in the handshake so the server can attribute
+    // the connection to the signed-in account. Guests (null token) connect
+    // exactly as before. Re-runs when the token changes (login/logout),
+    // performing a clean re-join under the new identity.
+    try {
+      socket.auth = authToken ? { token: authToken } : {};
+    } catch {
+      // never break connecting on auth plumbing
+    }
 
     const joinPayload = () => ({
       roomId: roomRef.current,
@@ -107,7 +117,7 @@ export default function useRoomConnection({ roomId, userId, displayName }) {
         // unmount path — never throw
       }
     };
-  }, [roomId, userId, displayName]);
+  }, [roomId, userId, displayName, authToken]);
 
   const reconnect = useCallback(() => {
     setError(null);
