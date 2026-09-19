@@ -66,15 +66,33 @@ function isConnected() {
   return cachedDb !== null;
 }
 
+/**
+ * Explicitly redact credential-bearing material from arbitrary text
+ * (driver error messages, topology descriptions). Truncation alone is
+ * not a guarantee, so URIs, userinfo, and credential parameters are
+ * pattern-redacted first, then the result is single-lined and capped.
+ */
+function redactCredentials(text) {
+  let out = String(text ?? "");
+  // Full connection strings, including any embedded userinfo:
+  // mongodb://user:pass@host/... and mongodb+srv://user:pass@host/...
+  out = out.replace(/mongodb(\+srv)?:\/\/[^\s"'`\\]*/gi, "mongodb://<redacted>");
+  // Bare userinfo fragments outside a matched URI (drop the whole
+  // user:password@ token, not just the password).
+  out = out.replace(/(^|[\s"'`(])[A-Za-z0-9_.%+-]+:[^@\s"'`\\]+@/g, "$1<redacted>@");
+  // Credential-bearing query/connection parameters, whether &-joined,
+  // whitespace-separated, or at the start of the message.
+  out = out.replace(/(^|[\s?&;])(password|passwd|pwd|secret|token|authMechanismProperties)=[^&\s"'`\\]*/gi, "$1$2=<redacted>");
+  const firstLine = out.split("\n")[0].slice(0, 300);
+  return firstLine;
+}
+
 /** Strip any credential-like material from driver error messages. */
 function sanitizedError(err) {
   const message = err && err.message ? String(err.message) : "MongoDB connection failed";
-  // Defensive: the driver can echo the host/user in topology errors.
-  // Keep only the first line and never include the full URI.
-  const firstLine = message.split("\n")[0].slice(0, 300);
-  const error = new Error(`MongoDB connection failed: ${firstLine}`);
+  const error = new Error(`MongoDB connection failed: ${redactCredentials(message)}`);
   if (err && err.code !== undefined) error.code = err.code;
   return error;
 }
 
-module.exports = { connectMongo, getDb, isConnected, DB_NAME };
+module.exports = { connectMongo, getDb, isConnected, DB_NAME, sanitizedError };

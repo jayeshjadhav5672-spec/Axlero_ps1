@@ -1,8 +1,10 @@
 /**
  * mongo-connection.test.cjs — MongoDB connection infrastructure tests.
  * No live Atlas credentials required: verifies the missing-variable
- * failure path, the singleton/no-reconnect behavior contract, and that
- * failure messages never leak connection secrets.
+ * failure path, concurrent/sequential failure reset (shared in-flight
+ * attempt settles for all callers; failures never wedge later calls),
+ * and explicit credential redaction in failure messages. Uses fake
+ * credentials only.
  */
 const assert = require("node:assert/strict");
 const { afterEach, test } = require("node:test");
@@ -40,5 +42,48 @@ test("unreachable host rejects without leaking credentials", async () => {
     assert.ok(!String(err && err.message).includes("mongodb://"), "connection URI leaked in error");
     return true;
   });
+  assert.equal(isConnected(), false);
+});
+
+test("sanitizedError redacts credential-bearing URIs, userinfo, and secret params", () => {
+  const { sanitizedError } = loadFresh();
+  const fakeAwsUri = "mongodb://appuser:F4ke-P4ssw0rd@docdb.local:27017/axlero?retryWrites=true";
+  const fakeSrvUri = "mongodb+srv://appuser:F4ke-P4ssw0rd@cluster0.example.net/axlero?appName=Cluster0";
+  for (const message of [
+    `connect failed ${fakeAwsUri} end`,
+    `topology ${fakeSrvUri} unreachable`,
+    "auth failed forbruch user appuser:F4ke-P4ssw0rd@host",
+    "bad request password=F4ke-P4ssw0rd&retryWrites=true",
+  ]) {
+    const out = String(sanitizedError(new Error(message)).message);
+    assert.ok(out.startsWith("MongoDB connection failed: "), "generic prefix lost");
+    assert.ok(out.includes("<redacted>"), `nothing redacted: ${out}`);
+    assert.ok(!out.includes("F4ke-P4ssw0rd"), `password leaked: ${out}`);
+    assert.ok(!out.includes("appuser:"), `userinfo leaked: ${out}`);
+    assert.ok(!out.includes("cluster0.example.net"), `URI host leaked: ${out}`);
+    assert.ok(!out.includes("docdb.local"), `URI host leaked: ${out}`);
+  }
+  // Multiline truncation drops later lines entirely — nothing to redact,
+  // and the leaked line must not survive.
+  const multi = String(sanitizedError(new Error(`first line ok\nsecond line leaks ${fakeAwsUri}`)).message);
+  assert.equal(multi, "MongoDB connection failed: first line ok");
+  // Non-URI content and the driver code survive redaction.
+  const plain = sanitizedError(Object.assign(new Error("getaddrinfo ENOTFOUND docdb.local"), { code: 42 }));
+  assert.match(String(plain.message), /getaddrinfo ENOTFOUND/);
+  assert.equal(plain.code, 42);
+  assert.ok(String(sanitizedError(null).message).includes("MongoDB connection failed"));
+});
+
+test("concurrent and sequential failures share reset state without hanging", async () => {
+  process.env.MONGODB_URI = "mongodb://u:p@127.0.0.1:1/db?serverSelectionTimeoutMS=1500";
+  const { connectMongo, isConnected } = loadFresh();
+  // Concurrent callers share the single in-flight attempt: both settle.
+  const [first, second] = await Promise.allSettled([connectMongo(), connectMongo()]);
+  assert.equal(first.status, "rejected");
+  assert.equal(second.status, "rejected");
+  assert.equal(isConnected(), false);
+  // A failed attempt resets so the next call retries instead of hanging
+  // on a dead promise.
+  await assert.rejects(connectMongo(), /MongoDB connection failed/);
   assert.equal(isConnected(), false);
 });
