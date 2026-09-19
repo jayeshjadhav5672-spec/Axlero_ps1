@@ -48,19 +48,30 @@ export default function WorkspaceHeader({
         <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5">
           <ConnectionStatus status={connectionStatus} showLabel />
         </span>
-        <button
-          type="button"
+        {/* People toggle: a div with button semantics (not a <button>)
+            because PresenceList renders a block-level list when
+            participants exist, which is invalid inside <button>.
+            Keyboard activation via Enter/Space matches native buttons. */}
+        <div
+          role="button"
+          tabIndex={0}
           onClick={() => setPeopleOpen((open) => !open)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              setPeopleOpen((open) => !open);
+            }
+          }}
           aria-haspopup="dialog"
           aria-expanded={peopleOpen}
           aria-label={`People in this room, ${users.length} participant${users.length === 1 ? '' : 's'}`}
-          className="flex items-center gap-3 rounded-lg px-1 py-1 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 sm:gap-4"
+          className="flex cursor-pointer items-center gap-3 rounded-lg px-1 py-1 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 sm:gap-4"
         >
           <span className="hidden text-sm text-slate-500 md:inline" aria-hidden="true">
             {users.length} user{users.length === 1 ? '' : 's'}
           </span>
           <PresenceList users={users} maxVisible={4} />
-        </button>
+        </div>
         {peopleOpen && (
           <PeoplePanel
             users={users}
