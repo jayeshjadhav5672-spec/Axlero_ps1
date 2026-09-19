@@ -14,10 +14,10 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { getSocket } from '../lib/socket.js';
+import { getSocket, setSocketAuthToken } from '../lib/socket.js';
 import { isValidRoomId } from '../lib/room.js';
 
-export default function useRoomConnection({ roomId, userId, displayName }) {
+export default function useRoomConnection({ roomId, userId, displayName, authToken }) {
   const [status, setStatus] = useState('connecting');
   const [presence, setPresence] = useState([]);
   const [error, setError] = useState(null);
@@ -27,6 +27,7 @@ export default function useRoomConnection({ roomId, userId, displayName }) {
   roomRef.current = roomId;
   const identityRef = useRef({ userId, displayName });
   identityRef.current = { userId, displayName };
+  const prevTokenRef = useRef(authToken ?? null);
 
   useEffect(() => {
     const socket = getSocket();
@@ -38,6 +39,22 @@ export default function useRoomConnection({ roomId, userId, displayName }) {
       return undefined;
     }
     setError(null);
+
+    // Carry the JWT in the handshake so the server middleware can set
+    // socket.user. When the token changes (login/logout) the handshake
+    // must run again, so force a reconnect — the 'connect' handler below
+    // re-joins the same room with the new identity. Guests (no token)
+    // follow the exact path they always have.
+    const nextToken = authToken ?? null;
+    setSocketAuthToken(nextToken);
+    if (prevTokenRef.current !== nextToken) {
+      prevTokenRef.current = nextToken;
+      try {
+        if (socket.connected) socket.disconnect();
+      } catch {
+        // reconnect path — never throw
+      }
+    }
 
     const joinPayload = () => ({
       roomId: roomRef.current,
@@ -107,7 +124,7 @@ export default function useRoomConnection({ roomId, userId, displayName }) {
         // unmount path — never throw
       }
     };
-  }, [roomId, userId, displayName]);
+  }, [roomId, userId, displayName, authToken]);
 
   const reconnect = useCallback(() => {
     setError(null);

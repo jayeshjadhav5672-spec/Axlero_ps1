@@ -1,8 +1,22 @@
 const { Server } = require("socket.io");
+const { verifyToken } = require("./auth.cjs");
 
 const ROOM_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_PAYLOAD_BYTES = 256 * 1024;
 const COLLABORATION_EVENTS = ["canvas:update", "code:update", "cursor:update"];
+
+// Lobby-mode rooms: a two-person room (one instructor + one student).
+// Scoped by room-id convention — ids starting with `lobby-` are lobbies,
+// every other room keeps today's unrestricted behavior. Room ids are the
+// existing addressing mechanism, so no new event/protocol is needed.
+const LOBBY_ROOM_PREFIX = "lobby-";
+const LOBBY_CAPACITY = 2;
+const LOBBY_ROLES = ["instructor", "student"];
+const LOBBY_FULL_MESSAGE = "Lobby is full. Only one instructor and one student can join.";
+
+function isLobbyRoom(roomId) {
+  return typeof roomId === "string" && roomId.startsWith(LOBBY_ROOM_PREFIX);
+}
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -35,6 +49,27 @@ function createSocketServer(httpServer, options = {}) {
   });
   const roomPresence = new Map();
 
+  // Auth handshake — the ONLY place socket.user is set. A valid JWT in
+  // `auth.token` becomes socket.user; connections without a token stay
+  // anonymous (Guest flow, unchanged). An invalid token refuses the
+  // handshake rather than silently downgrading identity.
+  io.use((socket, next) => {
+    try {
+      const token = socket.handshake?.auth?.token;
+      if (!token) return next();
+      const decoded = verifyToken(token);
+      socket.user = {
+        id: decoded.sub,
+        displayName: decoded.name,
+        username: decoded.username ?? null,
+        role: decoded.role ?? null,
+      };
+      return next();
+    } catch {
+      return next(new Error("Invalid or expired auth token"));
+    }
+  });
+
   function presenceFor(roomId) {
     return [...(roomPresence.get(roomId) || [])].map((entry) => ({ ...entry }));
   }
@@ -64,13 +99,36 @@ function createSocketServer(httpServer, options = {}) {
   function addToPresence(socket, roomId, payload) {
     const users = roomPresence.get(roomId) || [];
     const identity = socket.user || {};
-    users.push({
+    const entry = {
       socketId: socket.id,
       userId: identity.id || payload.userId,
       displayName: identity.displayName || payload.displayName,
       roomId,
-    });
+    };
+    // Authenticated extras only — never from client-sent fields.
+    if (identity.username) entry.username = identity.username;
+    if (identity.role) entry.role = identity.role;
+    users.push(entry);
     roomPresence.set(roomId, users);
+  }
+
+  /**
+   * Server-enforced two-person lobby rule. Returns the rejection message
+   * when the join must be refused, or null when it may proceed. Reads the
+   * incoming role from socket.user only — a client-provided role field is
+   * never trusted. Pure w.r.t. roomPresence (no mutation) so the caller
+   * runs it before touching any room state.
+   */
+  function lobbyJoinRejection(roomId, incomingRole) {
+    const occupants = roomPresence.get(roomId) || [];
+    if (occupants.length >= LOBBY_CAPACITY) return LOBBY_FULL_MESSAGE;
+    if (
+      LOBBY_ROLES.includes(incomingRole) &&
+      occupants.some((entry) => entry.role === incomingRole)
+    ) {
+      return LOBBY_FULL_MESSAGE;
+    }
+    return null;
   }
 
   io.on("connection", (socket) => {
@@ -88,6 +146,17 @@ function createSocketServer(httpServer, options = {}) {
             presence: presenceFor(payload.roomId),
           });
           return;
+        }
+
+        // Lobby capacity/role gate — before any room state changes, so a
+        // rejected joiner keeps whatever room they were in. Uses the
+        // existing connection:error event with a machine-readable code.
+        if (isLobbyRoom(payload.roomId)) {
+          const rejection = lobbyJoinRejection(payload.roomId, socket.user?.role);
+          if (rejection) {
+            sendError(socket, "room:join", rejection, "LOBBY_FULL");
+            return;
+          }
         }
 
         const prevRoom = socket.data.roomId;
@@ -162,4 +231,4 @@ function createSocketServer(httpServer, options = {}) {
   return { io, roomPresence };
 }
 
-module.exports = { createSocketServer, isValidRoomId };
+module.exports = { createSocketServer, isValidRoomId, isLobbyRoom };
