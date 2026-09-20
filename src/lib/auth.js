@@ -61,6 +61,18 @@ export function loginRequest({ email, password }) {
   return request('/api/auth/login', { method: 'POST', body: { email, password } });
 }
 
+/**
+ * Google Sign-In: exchange a GIS credential for the standard Axlero
+ * session ({ user, token }). Never sends anything but the credential;
+ * never stores the Google token (only the Axlero session is stored).
+ */
+export function googleLoginRequest(credential) {
+  if (typeof credential !== 'string' || !credential) {
+    return Promise.reject(new Error('Google credential is required.'));
+  }
+  return request('/api/auth/google', { method: 'POST', body: { credential } });
+}
+
 export function meRequest(token) {
   return request('/api/auth/me', { token });
 }

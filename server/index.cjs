@@ -1,5 +1,6 @@
 require("dotenv").config();
 const express = require("express");
+const cors = require("cors");
 const http = require("node:http");
 const { createSocketServer } = require("./socket.cjs");
 const { connectMongo } = require("./db/mongodb.cjs");
@@ -7,6 +8,16 @@ const { verifyToken } = require("./auth/tokens.cjs");
 const { createAuthRouter } = require("./auth/routes.cjs");
 
 const app = express();
+
+// CORS for the browser frontend (Vite :5173 by default). Explicit origin
+// list from FRONTEND_ORIGIN (comma-separated) — never a wildcard, and no
+// cookies/credentials are used (JWT travels in the Authorization header),
+// so cross-origin auth calls succeed without unsafe wildcard+credentials.
+const frontendOrigins = String(process.env.FRONTEND_ORIGIN || "http://localhost:5173")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+app.use(cors({ origin: frontendOrigins }));
 
 const port = Number(process.env.PORT) || 3000;
 
