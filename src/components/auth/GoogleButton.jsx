@@ -94,7 +94,18 @@ export default function GoogleButton({ onCredential, onError, disabled = false }
 
   return (
     <div>
-      <div ref={containerRef} aria-label="Continue with Google" />
+      {/* GIS renders its own control and exposes no disabled API, so the
+          disabled state is enforced around it: `inert` removes the embedded
+          iframe from tab order and hit-testing while a submission is in
+          flight, preventing duplicate auth attempts. Visual dimming matches
+          the surrounding form buttons. */}
+      <div
+        ref={containerRef}
+        aria-label="Continue with Google"
+        aria-disabled={disabled ? true : undefined}
+        inert={disabled ? true : undefined}
+        className={disabled ? 'pointer-events-none opacity-60' : undefined}
+      />
       {notice && (
         <p role="status" className="mt-2 text-center text-xs text-[#57534E]">
           {notice}
