@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import GoogleButton from './GoogleButton';
+import { googleLoginRequest } from '../../lib/auth';
 import { signupRequest } from '../../lib/auth';
 
 /**
@@ -148,7 +149,20 @@ export default function SignupPage({ onSuccess, onSwitchToLogin, onBack }) {
             <span className="text-xs font-medium text-[#57534E]">or</span>
             <span className="h-px flex-1 bg-[#E7DFCC]" />
           </div>
-          <GoogleButton />
+          <GoogleButton
+            onCredential={async (credential) => {
+              setBusy(true);
+              try {
+                onSuccess?.(await googleLoginRequest(credential));
+              } catch (err) {
+                setErrors({ form: err?.message || 'Google sign-in failed.' });
+              } finally {
+                setBusy(false);
+              }
+            }}
+            onError={(message) => setErrors({ form: message || 'Google sign-in failed.' })}
+            disabled={busy}
+          />
           <p className="mt-6 text-center text-sm text-[#57534E]">
             Already have an account?{' '}
             <button

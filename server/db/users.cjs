@@ -3,9 +3,15 @@
  *
  * Collection: `users`, documents:
  *   { _id, email, passwordHash, displayName, createdAt, updatedAt }
+ * Google-linked accounts additionally carry:
+ *   { googleId }
+ * with `passwordHash: null` (they can never password-login).
  *
  * - Email is normalized (trim + lowercase) everywhere, enforced unique
  *   via a MongoDB unique index AND a duplicate-key guard.
+ * - `googleId` has its own unique SPARSE index; duplicate googleIds and
+ *   duplicate emails are rejected — existing password accounts are NEVER
+ *   silently merged with a Google account (see createGoogleUser).
  * - Plaintext passwords never reach this module's callers: hashing lives
  *   here (bcryptjs), comparison via `verifyPassword`.
  * - `toSafeUser` strips `passwordHash` — the only shape ever returned
@@ -72,6 +78,11 @@ function createUserStore(collection) {
     } catch {
       // Best-effort: concurrent boot or restricted roles must not crash auth.
       // Uniqueness is still enforced by the duplicate-key guard below.
+    }
+    try {
+      await collection.createIndex({ googleId: 1 }, { unique: true, sparse: true });
+    } catch {
+      // Same best-effort policy as above.
     }
   }
 
@@ -156,7 +167,86 @@ function createUserStore(collection) {
     }
   }
 
-  return { createUser, findByEmail, findById, verifyPassword, toSafeUser, ensureIndexes, validateNewUser, normalizeEmail };
+  function validGoogleId(value) {
+    return typeof value === "string" && value.trim().length > 0 && value.trim().length <= 128
+      ? value.trim()
+      : null;
+  }
+
+  async function findByGoogleId(googleId) {
+    const clean = validGoogleId(googleId);
+    if (!clean) return null;
+    return collection.findOne({ googleId: clean });
+  }
+
+  /**
+   * Create a Google-backed account. No password is ever set
+   * (`passwordHash: null`), so these accounts can never log in via
+   * email/password. Never merges: an existing email owned by a
+   * password account (or a different googleId) yields DUPLICATE_EMAIL
+   * instead of linking — account linking is explicitly out of scope.
+   */
+  async function createGoogleUser({ googleId, email, displayName }) {
+    const cleanGoogleId = validGoogleId(googleId);
+    if (!cleanGoogleId) {
+      const err = new Error("Google account identifier is required.");
+      err.code = "VALIDATION_ERROR";
+      throw err;
+    }
+    const cleanEmail = normalizeEmail(email);
+    if (!cleanEmail || cleanEmail.length > MAX_EMAIL_LENGTH || !EMAIL_PATTERN.test(cleanEmail)) {
+      const err = new Error("Enter a valid email address.");
+      err.code = "VALIDATION_ERROR";
+      throw err;
+    }
+    const cleanName =
+      typeof displayName === "string" && displayName.trim()
+        ? displayName.trim().slice(0, MAX_DISPLAY_NAME_LENGTH)
+        : cleanEmail.split("@")[0];
+    if (await collection.findOne({ googleId: cleanGoogleId })) {
+      const err = new Error("This Google account is already linked.");
+      err.code = "DUPLICATE_GOOGLE_ID";
+      throw err;
+    }
+    if (await collection.findOne({ email: cleanEmail })) {
+      const err = new Error(
+        "An Axlero account already exists with that email. Sign in with email and password instead — automatic account linking is not enabled."
+      );
+      err.code = "DUPLICATE_EMAIL";
+      throw err;
+    }
+    const now = new Date();
+    const doc = {
+      email: cleanEmail,
+      passwordHash: null,
+      googleId: cleanGoogleId,
+      displayName: cleanName,
+      createdAt: now,
+      updatedAt: now,
+    };
+    try {
+      const result = await collection.insertOne(doc);
+      doc._id = result.insertedId;
+    } catch (err) {
+      if (isDuplicateKeyError(err)) {
+        const keyValue = (err && err.keyValue) || {};
+        if (keyValue.email !== undefined && keyValue.googleId === undefined) {
+          const dup = new Error(
+            "An Axlero account already exists with that email. Sign in with email and password instead — automatic account linking is not enabled."
+          );
+          dup.code = "DUPLICATE_EMAIL";
+          throw dup;
+        }
+        const dup = new Error("This Google account is already linked.");
+        dup.code = "DUPLICATE_GOOGLE_ID";
+        throw dup;
+      }
+      throw err;
+    }
+    return toSafeUser(doc);
+  }
+
+  return { createUser, findByEmail, findById, verifyPassword, toSafeUser, ensureIndexes, validateNewUser, normalizeEmail, findByGoogleId, createGoogleUser };
 }
 
 let defaultStore = null;
