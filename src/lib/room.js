@@ -78,6 +78,28 @@ export function colorForId(id) {
   return PRESENCE_PALETTE[hash % PRESENCE_PALETTE.length];
 }
 
+// Matches the auto-generated guest tags produced by getOrCreateIdentity
+// (`Guest-XXXX`, 4 base-36 chars) so their avatars can show the
+// distinguishing suffix instead of a generic "G" for everyone.
+const GUEST_TAG_PATTERN = /^guest[-_ ]?([A-Za-z0-9]{4})$/i;
+
+/**
+ * Avatar initials from a presence display name. Real names follow the
+ * established convention (first letters, up to 2: "Avantee Sarve" →
+ * "AS", "Avantee" → "A"); auto guest tags resolve to their unique
+ * suffix ("Guest-ABCD" → "A"); anything else falls back to '?'.
+ * Pure display helper — never invents identity, never touches ids.
+ */
+export function initialsForDisplayName(name) {
+  if (typeof name !== 'string') return '?';
+  const trimmed = name.trim();
+  const tagMatch = trimmed.match(GUEST_TAG_PATTERN);
+  const source = tagMatch ? tagMatch[1] : trimmed;
+  const parts = source.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  return parts.map((part) => part[0]).join('').toUpperCase().slice(0, 2) || '?';
+}
+
 /**
  * Map Arun's presence entries [{ socketId, userId, displayName }]
  * to Avantee's PresenceList shape [{ id, name, color, isActive }].
@@ -86,9 +108,10 @@ export function presenceToUsers(presence) {
   if (!Array.isArray(presence)) return [];
   return presence.map((entry) => {
     const id = entry?.userId || entry?.socketId || 'unknown';
+    const rawName = typeof entry?.displayName === 'string' ? entry.displayName.trim() : '';
     return {
       id: String(id),
-      name: entry?.displayName || 'Guest',
+      name: rawName || '?',
       color: colorForId(id),
       isActive: true,
     };

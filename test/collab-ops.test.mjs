@@ -125,7 +125,7 @@ test('room helpers: validation, presence mapping, stable colors', () => {
   assert.equal(users.length, 2);
   assert.deepEqual(users[0], { id: 'u1', name: 'Ada', color: colorForId('u1'), isActive: true });
   assert.equal(users[1].id, 's2');
-  assert.equal(users[1].name, 'Guest');
+  assert.equal(users[1].name, '?');
   assert.equal(colorForId('u1'), colorForId('u1')); // deterministic
   assert.deepEqual(presenceToUsers('garbage'), []);
 });
