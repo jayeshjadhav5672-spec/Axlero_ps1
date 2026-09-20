@@ -66,6 +66,6 @@ if (process.env.MONGODB_URI) {
   console.warn("MONGODB_URI is not set; continuing without persistence (see .env.example)");
 }
 
-httpServer.listen(port, () => {
+httpServer.listen(port, '0.0.0.0', () => {
   console.log(`SyncSpace realtime server listening on port ${port}`);
 });
