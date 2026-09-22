@@ -104,20 +104,19 @@ function createAuthRouter({ getUserStore, signTokenFn, requireAuth, verifyFireba
     return res.status(200).json({ user: req.user });
   });
 
-  /**
-   * Firebase Authentication (Google provider):
-   *   POST /api/auth/firebase  { idToken } -> 200 { user, token }
-   *
-   * The frontend authenticates with Firebase (Google provider), obtains
-   * a Firebase ID token, and sends it to this endpoint. The backend
-   * verifies the token using Firebase Admin SDK, finds/creates the
-   * Axlero user, and issues the standard Axlero JWT.
-   *
-   * - Known firebaseUid (stored as googleId) → log in.
-   * - Unknown firebaseUid + new email → create a Firebase-backed account.
-   * - Unknown firebaseUid + taken email → 409, no silent merge (account
-   *   linking is explicitly out of scope).
-   */
+   /**
+    * Firebase Authentication:
+    *   POST /api/auth/firebase  { idToken } -> 200 { user, token }
+    *
+    * The frontend authenticates with Firebase (email/password or Google),
+    * obtains a Firebase ID token, and sends it to this endpoint. The backend
+    * verifies the token using Firebase Admin SDK, finds/creates the
+    * Axlero user by firebaseUid, and issues the standard Axlero JWT.
+    *
+    * - Known firebaseUid → log in.
+    * - Unknown firebaseUid + new email → create a Firebase-backed account.
+    * - Unknown firebaseUid + taken email → 409, no silent merge.
+    */
   router.post("/firebase", async (req, res) => {
     return withStore(res, async (store) => {
       const idToken = req.body && req.body.idToken;
@@ -137,16 +136,15 @@ function createAuthRouter({ getUserStore, signTokenFn, requireAuth, verifyFireba
         return res.status(401).json({ error: "Invalid Firebase ID token." });
       }
 
-      // Use Firebase UID as googleId for consistency with existing schema
-      const existing = await store.findByGoogleId(uid).catch(() => null);
+      const existing = await store.findByFirebaseUid(uid).catch(() => null);
       if (existing) {
         const user = store.toSafeUser(existing);
         return res.status(200).json({ user, token: sign(user) });
       }
 
       try {
-        const created = await store.createGoogleUser({
-          googleId: uid,
+        const created = await store.createFirebaseUser({
+          firebaseUid: uid,
           email,
           displayName: displayName || email.split("@")[0],
         });
@@ -155,7 +153,7 @@ function createAuthRouter({ getUserStore, signTokenFn, requireAuth, verifyFireba
         if (err && err.code === "DUPLICATE_EMAIL") {
           return res.status(409).json({ error: err.message });
         }
-        if (err && (err.code === "DUPLICATE_GOOGLE_ID" || err.code === "VALIDATION_ERROR")) {
+        if (err && (err.code === "DUPLICATE_FIREBASE_UID" || err.code === "VALIDATION_ERROR")) {
           return res.status(409).json({ error: err.message });
         }
         throw err;

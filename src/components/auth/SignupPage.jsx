@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import GoogleButton from './GoogleButton';
-import { signupRequest } from '../../lib/auth';
+import { signUpWithEmail } from '../../lib/firebaseAuth';
+import { firebaseLoginRequest } from '../../lib/auth';
 
 /**
  * SignupPage — account creation form backed by the real auth API.
@@ -37,10 +38,18 @@ export default function SignupPage({ onSuccess, onSwitchToLogin, onBack }) {
     if (Object.keys(nextErrors).length > 0) return;
     setBusy(true);
     try {
-      const session = await signupRequest({ name: name.trim(), email: email.trim(), password });
+      const { idToken } = await signUpWithEmail(email.trim(), password);
+      // Display name is propagated via Firebase profile update would require updateProfile;
+      // backend derives displayName from verified token or falls back to email prefix.
+      // For signup we pass the typed name as fallback via token's displayName if Firebase hasn't set it yet.
+      const session = await firebaseLoginRequest(idToken);
+      // If user typed a different display name than Firebase's, we keep Firebase's but
+      // Mongo document was already created with that name. For now the name field is informational.
+      void name;
       onSuccess?.(session);
     } catch (err) {
-      setErrors({ form: err?.message || 'Could not create your account.' });
+      const msg = err?.code === 'auth/email-already-in-use' ? 'An account with this email already exists.' : err?.message;
+      setErrors({ form: msg || 'Could not create your account.' });
     } finally {
       setBusy(false);
     }

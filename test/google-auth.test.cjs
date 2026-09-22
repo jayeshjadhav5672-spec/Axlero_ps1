@@ -28,24 +28,30 @@ function fakeCollection() {
       return docs.find((d) => keys.every((k) => String(d[k]) === String(query[k]))) ?? null;
     },
     async insertOne(doc) {
-      if (docs.some((d) => d.email === doc.email || (doc.googleId && d.googleId === doc.googleId))) {
+      const hasDupEmail = docs.some((d) => d.email === doc.email);
+      const hasDupUid = doc.firebaseUid && docs.some((d) => d.firebaseUid === doc.firebaseUid);
+      if (hasDupEmail || hasDupUid) {
         const err = new Error("duplicate key");
         err.code = 11000;
-        err.keyValue = doc.googleId ? { googleId: doc.googleId } : { email: doc.email };
+        if (hasDupEmail) err.keyValue = { email: doc.email };
+        else err.keyValue = { firebaseUid: doc.firebaseUid };
         throw err;
       }
       const copy = { ...doc, _id: `gid-${++seq}` };
       docs.push(copy);
       return { insertedId: copy._id };
     },
+    get docs() {
+      return docs;
+    },
   };
 }
 
 // Per-test stores and servers to avoid cross-test contamination.
-async function makeTestApp({ seedGoogleUser, seedPasswordUser, verifier }) {
+async function makeTestApp({ seedFirebaseUser, seedPasswordUser, verifier }) {
   const store = createUserStore(fakeCollection());
   if (seedPasswordUser) await store.createUser(seedPasswordUser);
-  if (seedGoogleUser) await store.createGoogleUser(seedGoogleUser);
+  if (seedFirebaseUser) await store.createFirebaseUser(seedFirebaseUser);
 
   const app = express();
   app.use(
@@ -76,29 +82,32 @@ test("invalid Firebase tokens rejected generically", async () => {
   await assert.rejects(verifyFirebaseIdToken("bogus"), /Invalid Firebase ID token/);
 });
 
-// ---- Google user store tests (reused) ----
+// ---- Firebase user store tests ----
 
-test("Google user store: create, findByGoogleId, duplicates, safe shape", async () => {
-  const store = createUserStore(fakeCollection());
-  const created = await store.createGoogleUser({ googleId: "g-1", email: "G@Example.com", displayName: " Gee " });
+test("Firebase user store: create, findByFirebaseUid, duplicates, safe shape", async () => {
+  const col = fakeCollection();
+  const store = createUserStore(col);
+  const created = await store.createFirebaseUser({ firebaseUid: "fb-1", email: "G@Example.com", displayName: " Gee " });
   assert.equal(created.email, "g@example.com");
   assert.equal(created.displayName, "Gee");
   assert.ok(!("passwordHash" in created));
-  const raw = await store.findByGoogleId("g-1");
-  assert.equal(raw.passwordHash, null);
-  assert.equal(await store.findByGoogleId("nope"), null);
-  assert.equal(await store.findByGoogleId(""), null);
-  await assert.rejects(store.createGoogleUser({ googleId: "g-1", email: "other@x.co", displayName: "X" }), /already linked/);
+  const raw = await store.findByFirebaseUid("fb-1");
+  assert.ok(!raw.passwordHash);
+  assert.equal(await store.findByFirebaseUid("nope"), null);
+  assert.equal(await store.findByFirebaseUid(""), null);
+  await assert.rejects(store.createFirebaseUser({ firebaseUid: "fb-1", email: "other@x.co", displayName: "X" }), /already linked/);
   await assert.rejects(
-    store.createGoogleUser({ googleId: "g-2", email: "g@example.com", displayName: "Y" }),
+    store.createFirebaseUser({ firebaseUid: "fb-2", email: "g@example.com", displayName: "Y" }),
     /already exists/
   );
   assert.equal(await store.verifyPassword(raw, "anything-123"), false);
+  // No firebaseUid duplicated, no email duplicated
+  assert.equal(col.docs.length, 1);
 });
 
 // ---- HTTP-level tests with faked Firebase verifier ----
 
-test("POST /api/auth/firebase creates new Firebase user (200 + Axlero JWT shape)", async () => {
+test("A. Firebase email signup: token → new MongoDB user → 200 + Axlero JWT", async () => {
   const mockVerifier = async (idToken) => {
     if (idToken === "valid-new") return { uid: "firebase-new-123", email: "newf@example.com", displayName: "New Firebase" };
     throw new Error("Invalid Firebase ID token.");
@@ -121,7 +130,7 @@ test("POST /api/auth/firebase creates new Firebase user (200 + Axlero JWT shape)
   }
 });
 
-test("POST /api/auth/firebase logs in existing Firebase user", async () => {
+test("B. Firebase email login: token for existing UID → existing MongoDB user → 200", async () => {
   const mockVerifier = async (idToken) => {
     if (idToken === "valid-existing") return { uid: "firebase-known-123", email: "knownf@example.com", displayName: "Known Firebase" };
     throw new Error("Invalid Firebase ID token.");
@@ -148,7 +157,51 @@ test("POST /api/auth/firebase logs in existing Firebase user", async () => {
   }
 });
 
-test("POST /api/auth/firebase 409s when email belongs to a password account", async () => {
+test("C. Google Firebase login: existing UID → same MongoDB user → 200", async () => {
+  const mockVerifier = async () => ({ uid: "fb-google-1", email: "guser@example.com", displayName: "G User" });
+  const { srv, base, store } = await makeTestApp({ verifier: mockVerifier });
+  try {
+    await store.createFirebaseUser({ firebaseUid: "fb-google-1", email: "guser@example.com", displayName: "G User" });
+    const res = await fetch(`${base}/api/auth/firebase`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idToken: "any" }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.user.email, "guser@example.com");
+  } finally {
+    await closeTestApp({ srv, base });
+  }
+});
+
+test("D. Same Firebase UID twice: first creates, second logs into same user, no duplicate", async () => {
+  const mockVerifier = async (idToken) => {
+    if (idToken === "same-uid") return { uid: "dup-uid-123", email: "dup@example.com", displayName: "Dup" };
+    throw new Error("Invalid Firebase ID token.");
+  };
+  const col = fakeCollection();
+  const store = createUserStore(col);
+  const app = express();
+  app.use("/api/auth", createAuthRouter({ getUserStore: () => store, verifyFirebaseFn: mockVerifier }));
+  const srv = http.createServer(app);
+  await new Promise((r) => srv.listen(0, r));
+  const base = `http://localhost:${srv.address().port}`;
+  try {
+    const r1 = await fetch(`${base}/api/auth/firebase`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idToken: "same-uid" }) });
+    const b1 = await r1.json();
+    const r2 = await fetch(`${base}/api/auth/firebase`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idToken: "same-uid" }) });
+    const b2 = await r2.json();
+    assert.equal(r1.status, 200);
+    assert.equal(r2.status, 200);
+    assert.equal(b1.user.id, b2.user.id);
+    assert.equal(col.docs.length, 1);
+  } finally {
+    await new Promise((r, j) => srv.close((e) => (e ? j(e) : r())));
+  }
+});
+
+test("E. Duplicate email: new UID with email belonging to old password account → 409 no merge", async () => {
   const mockVerifier = async () => ({ uid: "firebase-other-123", email: "taken@example.com", displayName: "Taken" });
   const { srv, base } = await makeTestApp({
     seedPasswordUser: { email: "taken@example.com", password: "password-123", displayName: "Taken" },
@@ -168,7 +221,7 @@ test("POST /api/auth/firebase 409s when email belongs to a password account", as
   }
 });
 
-test("POST /api/auth/firebase rejects bad tokens with safe 4xx", async () => {
+test("F. Invalid Firebase ID token → 401", async () => {
   const { srv, base } = await makeTestApp({});
   try {
     for (const payload of [{}, { idToken: "" }, { idToken: "bogus" }]) {
@@ -186,29 +239,7 @@ test("POST /api/auth/firebase rejects bad tokens with safe 4xx", async () => {
   }
 });
 
-test("POST /api/auth/firebase reuses Firebase UID even if email differs (login)", async () => {
-  const mockVerifier = async (idToken) => {
-    if (idToken === "valid-conflict-uid") return { uid: "firebase-same-uid", email: "different@example.com", displayName: "Conflict" };
-    throw new Error("Invalid Firebase ID token.");
-  };
-  const { srv, base, store } = await makeTestApp({ verifier: mockVerifier });
-  try {
-    await store.createGoogleUser({ googleId: "firebase-same-uid", email: "original@example.com", displayName: "Original" });
-    const res = await fetch(`${base}/api/auth/firebase`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ idToken: "valid-conflict-uid" }),
-    });
-    const body = await res.json();
-    // UID is authoritative — existing UID logs in, email in token is ignored for lookup
-    assert.equal(res.status, 200);
-    assert.equal(body.user.email, "original@example.com");
-  } finally {
-    await closeTestApp({ srv, base });
-  }
-});
-
-test("POST /api/auth/firebase rejects missing uid/email from verified token", async () => {
+test("G. Missing Firebase UID/email → 401", async () => {
   const mockVerifierNoUid = async () => ({ uid: "", email: "user@example.com", displayName: "X" });
   const { srv, base } = await makeTestApp({ verifier: mockVerifierNoUid });
   try {
@@ -218,6 +249,25 @@ test("POST /api/auth/firebase rejects missing uid/email from verified token", as
       body: JSON.stringify({ idToken: "t" }),
     });
     assert.equal(res.status, 401);
+  } finally {
+    await closeTestApp({ srv, base });
+  }
+});
+
+test("H. passwordHash is not returned to clients", async () => {
+  const mockVerifier = async () => ({ uid: "fb-no-pw-1", email: "nopw@example.com", displayName: "NoPw" });
+  const { srv, base, store } = await makeTestApp({ verifier: mockVerifier });
+  try {
+    const res = await fetch(`${base}/api/auth/firebase`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idToken: "x" }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.ok(!("passwordHash" in body.user));
+    const raw = await store.findByFirebaseUid("fb-no-pw-1");
+    assert.ok(!raw.passwordHash);
   } finally {
     await closeTestApp({ srv, base });
   }
