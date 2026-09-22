@@ -6,7 +6,8 @@
  * verified identity fields (uid, email, displayName).
  */
 
-const admin = require('firebase-admin');
+const { initializeApp, cert } = require('firebase-admin/app');
+const { getAuth } = require('firebase-admin/auth');
 
 let app = null;
 
@@ -23,8 +24,8 @@ function initializeFirebaseAdmin() {
     );
   }
 
-  app = admin.initializeApp({
-    credential: admin.credential.cert({
+  app = initializeApp({
+    credential: cert({
       projectId,
       clientEmail,
       privateKey: privateKey.replace(/\\n/g, '\n'),
@@ -47,7 +48,7 @@ async function verifyFirebaseIdToken(idToken) {
 
   try {
     initializeFirebaseAdmin();
-    const decodedToken = await admin.auth().verifyIdToken(idToken.trim());
+    const decodedToken = await getAuth().verifyIdToken(idToken.trim());
     return {
       uid: decodedToken.uid,
       email: decodedToken.email ?? null,
