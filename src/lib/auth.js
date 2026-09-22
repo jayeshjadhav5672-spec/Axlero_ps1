@@ -2,10 +2,9 @@
  * auth.js — frontend auth client (no React).
  *
  * Thin fetch wrapper over the backend auth API (POST /api/auth/signup,
- * POST /api/auth/login, GET /api/auth/me) plus localStorage session
- * handling ({ token, user }). Server URL resolution mirrors
- * src/lib/socket.js so both point at the same host. No Google OAuth —
- * the Google button stays an honest "not connected" notice.
+ * POST /api/auth/login, POST /api/auth/firebase, GET /api/auth/me)
+ * plus localStorage session handling ({ token, user }). Server URL
+ * resolution mirrors src/lib/socket.js so both point at the same host.
  */
 
 const API_BASE =
@@ -62,15 +61,14 @@ export function loginRequest({ email, password }) {
 }
 
 /**
- * Redeem the short-lived single-use grant the OAuth callback drops in
- * `?code=` for the standard Axlero session ({ user, token }). The grant
- * is consumed server-side on first use; this only forwards it once.
+ * Exchange a Firebase ID token for the standard Axlero session ({ user, token }).
+ * The Firebase ID token is verified by the backend using Firebase Admin SDK.
  */
-export function consumeGoogleGrant(code) {
-  if (typeof code !== 'string' || !code) {
-    return Promise.reject(new Error('Authorization grant is required.'));
+export function firebaseLoginRequest(idToken) {
+  if (typeof idToken !== 'string' || !idToken) {
+    return Promise.reject(new Error('Firebase ID token is required.'));
   }
-  return request('/api/auth/google/consume', { method: 'POST', body: { code } });
+  return request('/api/auth/firebase', { method: 'POST', body: { idToken } });
 }
 
 export function meRequest(token) {
