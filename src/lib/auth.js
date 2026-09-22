@@ -62,15 +62,15 @@ export function loginRequest({ email, password }) {
 }
 
 /**
- * Google Sign-In: exchange a GIS credential for the standard Axlero
- * session ({ user, token }). Never sends anything but the credential;
- * never stores the Google token (only the Axlero session is stored).
+ * Redeem the short-lived single-use grant the OAuth callback drops in
+ * `?code=` for the standard Axlero session ({ user, token }). The grant
+ * is consumed server-side on first use; this only forwards it once.
  */
-export function googleLoginRequest(credential) {
-  if (typeof credential !== 'string' || !credential) {
-    return Promise.reject(new Error('Google credential is required.'));
+export function consumeGoogleGrant(code) {
+  if (typeof code !== 'string' || !code) {
+    return Promise.reject(new Error('Authorization grant is required.'));
   }
-  return request('/api/auth/google', { method: 'POST', body: { credential } });
+  return request('/api/auth/google/consume', { method: 'POST', body: { code } });
 }
 
 export function meRequest(token) {
