@@ -120,7 +120,7 @@ export default function LoginPage({ onSuccess, onSwitchToSignup, onBack }) {
             <span className="text-xs font-medium text-[#57534E]">or</span>
             <span className="h-px flex-1 bg-[#E7DFCC]" />
           </div>
-          <GoogleButton disabled={busy} />
+          <GoogleButton onSuccess={onSuccess} disabled={busy} />
           <p className="mt-6 text-center text-sm text-[#57534E]">
             Don&apos;t have an account?{' '}
             <button

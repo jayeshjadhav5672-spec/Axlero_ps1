@@ -45,7 +45,8 @@ import {
   urlForDashboardView,
   urlForWorkspaceView,
 } from './lib/room';
-import { clearStoredSession, consumeGoogleGrant, getStoredSession, meRequest, setStoredSession } from './lib/auth';
+import { clearStoredSession, getStoredSession, meRequest, setStoredSession } from './lib/auth';
+import { auth } from './lib/firebase';
 
 export default function App() {
   const [roomId] = useState(() => getRoomIdFromUrl());
@@ -92,58 +93,8 @@ export default function App() {
 
   // Re-validate a restored session once per load: an expired or revoked
   // token drops back to Guest instead of impersonating a dead account.
-  // Also redeems an OAuth grant (?code=...) or surfaces an OAuth failure
-  // (?authError=...) left by the backend Google callback, then cleans the
-  // URL so neither value lingers in history/bookmarks.
-  const [authNotice, setAuthNotice] = useState('');
   useEffect(() => {
     let cancelled = false;
-    let params = null;
-    try {
-      params = new URLSearchParams(window.location.search);
-    } catch {
-      params = null;
-    }
-    const grant = params?.get('code');
-    const grantError = params?.get('authError');
-    const cleanUrlParam = (name) => {
-      try {
-        const url = new URL(window.location.href);
-        url.searchParams.delete(name);
-        window.history.replaceState(null, '', url.toString());
-      } catch {
-        // non-browser — ignore
-      }
-    };
-    if (grant) {
-      cleanUrlParam('code');
-      consumeGoogleGrant(grant)
-        .then((data) => {
-          if (cancelled) return;
-          if (data?.user && data?.token) {
-            setStoredSession(data);
-            setSession(data);
-          } else {
-            setAuthNotice('Google sign-in did not complete. Please try again.');
-          }
-        })
-        .catch(() => {
-          if (cancelled) return;
-          setAuthNotice('Google sign-in did not complete. Please try again.');
-        });
-      return () => {
-        cancelled = true;
-      };
-    }
-    if (grantError) {
-      cleanUrlParam('authError');
-      const messages = {
-        access_denied: 'Google sign-in was cancelled.',
-        account_conflict:
-          'An Axlero account already exists with that email. Sign in with email and password instead.',
-      };
-      if (!cancelled) setAuthNotice(messages[grantError] || 'Google sign-in did not complete. Please try again.');
-    }
     const stored = getStoredSession();
     if (!stored?.token) return undefined;
     meRequest(stored.token)
@@ -279,30 +230,19 @@ export default function App() {
     setAuthView(null);
   }, []);
 
-  const handleLogout = useCallback(() => {
+  const handleLogout = useCallback(async () => {
     clearStoredSession();
     setSession(null);
     setAuthView(null);
+    try {
+      await auth.signOut();
+    } catch {
+      // Firebase sign-out failed, but we've cleared our session
+    }
   }, []);
 
   return (
     <AppLayout>
-      {authNotice && (
-        <div
-          role="alert"
-          className="mx-auto mt-3 flex w-full max-w-[1600px] flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800"
-        >
-          <span className="min-w-0 flex-1">{authNotice}</span>
-          <button
-            type="button"
-            onClick={() => setAuthNotice('')}
-            aria-label="Dismiss"
-            className="shrink-0 rounded-md px-2 py-1 text-xs font-semibold hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
       {banner && (
         <div
           role="alert"
