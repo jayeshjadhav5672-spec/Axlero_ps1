@@ -89,7 +89,8 @@ Local keystroke → `onLocalChange(text)` → rev++ → emit
 Concurrent same-rev edits: last arrival wins (documented limitation until
 Y.Text lands). The editor is Monaco (`src/components/editor/CodeEditor.jsx`),
 bundled locally with its language workers wired through Vite; it exposes the
-minimal `{ value, onChange }` contract so the sync hooks stay editor-agnostic.
+minimal `{ value, onChange }` contract so the sync hooks stay editor-agnostic
+(`CollabTextEditor.jsx` remains as a fallback textarea with the same props).
 
 ## 6. Persistence / replay (reserved for Vaishnavi)
 
