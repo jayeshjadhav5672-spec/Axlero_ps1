@@ -1,12 +1,19 @@
 /**
- * CodeEditor — Monaco collaboration editor.
+ * CodeEditor — Monaco collaboration editor (Kishan, leader-integrated).
  *
  * Fills the documented integration seam (docs/INTEGRATION.md §5): the shell
- * only knows `{ value, onChange }`, so this drops in wherever the temporary
- * textarea fallback was used — no change to the sync hooks or panels.
+ * only knows `{ value, onChange }`, so this drops in wherever the
+ * `CollabTextEditor` fallback was used — no change to the sync hooks or
+ * panels. `useCollaborativeCode` stays the LWW transport; Monaco is the
+ * presentation layer only.
  *
  * Monaco is bundled locally (no CDN loader) and its language workers are
  * wired through Vite's `?worker` imports, so the editor works offline.
+ *
+ * Remote-echo guard: Monaco's `editor.setValue()` fires model-content
+ * change events, so adopting a remote value would otherwise re-enter
+ * `onChange` and echo back over `code:update`. Remote application runs
+ * under `controlledEditorSync` suppression; user typing never does.
  */
 
 import React, { useEffect, useRef } from 'react';
@@ -16,6 +23,7 @@ import jsonWorker from 'monaco-editor/language/json/json.worker.js?worker';
 import cssWorker from 'monaco-editor/language/css/css.worker.js?worker';
 import htmlWorker from 'monaco-editor/language/html/html.worker.js?worker';
 import tsWorker from 'monaco-editor/language/typescript/ts.worker.js?worker';
+import { createRemoteSync } from '../../lib/controlledEditorSync.js';
 
 globalThis.MonacoEnvironment = {
   getWorker(_workerId, label) {
@@ -33,12 +41,18 @@ export default function CodeEditor({
   language = 'javascript',
   theme = 'vs-dark',
   ariaLabel = 'Shared code editor',
-  placeholder = '// Start typing — collaborators in this room see every keystroke…',
+  // Accepted for contract compatibility with the textarea fallback, but
+  // intentionally NOT passed to Monaco: the standalone editor has no
+  // `placeholder` construction option, so claiming one would mislead.
+  placeholder,
   disabled = false,
   className = '',
 }) {
+  void placeholder;
   const hostRef = useRef(null);
   const editorRef = useRef(null);
+  const syncRef = useRef(null);
+  if (!syncRef.current) syncRef.current = createRemoteSync();
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
@@ -48,7 +62,6 @@ export default function CodeEditor({
       language,
       theme,
       ariaLabel,
-      placeholder,
       automaticLayout: true,
       readOnly: disabled,
       minimap: { enabled: false },
@@ -61,7 +74,7 @@ export default function CodeEditor({
     editorRef.current = editor;
 
     const subscription = editor.onDidChangeModelContent(() => {
-      onChangeRef.current?.(editor.getValue());
+      syncRef.current.handleModelContent(() => editor.getValue(), onChangeRef.current);
     });
 
     return () => {
@@ -73,12 +86,17 @@ export default function CodeEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Remote collaborators (or a reset) push a new value down: adopt it
-  // without echoing back, which would otherwise loop through onChange.
+  // Remote collaborators (or a reset) push a new value down: adopt it under
+  // suppression so the model-content listener above does NOT re-enter
+  // onChange (which would rebroadcast as a local edit → echo loop).
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor) return;
-    if (editor.getValue() !== value) editor.setValue(value ?? '');
+    syncRef.current.applyRemote(
+      () => editor.getValue(),
+      (next) => editor.setValue(next),
+      value,
+    );
   }, [value]);
 
   useEffect(() => {
