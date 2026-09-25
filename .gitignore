@@ -6,3 +6,9 @@ dist/
 .env
 .env.*
 !.env.example
+# Firebase / Google service-account keys must never be committed.
+# Admin credentials belong in server environment variables, not files.
+*-firebase-adminsdk-*.json
+service-account*.json
+*service-account*.json
+*-key.json

@@ -48,17 +48,22 @@ function fakeCollection() {
 }
 
 // Per-test stores and servers to avoid cross-test contamination.
-async function makeTestApp({ seedFirebaseUser, seedPasswordUser, verifier }) {
-  const store = createUserStore(fakeCollection());
-  if (seedPasswordUser) await store.createUser(seedPasswordUser);
-  if (seedFirebaseUser) await store.createFirebaseUser(seedFirebaseUser);
+// Pass `logWarn` to capture server-side stage diagnostics instead of
+// printing them; pass `getUserStore` through to simulate store outages.
+async function makeTestApp({ seedFirebaseUser, seedPasswordUser, verifier, logWarn, getUserStore, storeOverrides, signTokenFn }) {
+  const baseStore = createUserStore(fakeCollection());
+  if (seedPasswordUser) await baseStore.createUser(seedPasswordUser);
+  if (seedFirebaseUser) await baseStore.createFirebaseUser(seedFirebaseUser);
+  const store = storeOverrides ? Object.assign(baseStore, storeOverrides) : baseStore;
 
   const app = express();
   app.use(
     "/api/auth",
     createAuthRouter({
-      getUserStore: () => store,
+      getUserStore: getUserStore || (() => store),
       verifyFirebaseFn: verifier || (async () => { throw new Error("Invalid Firebase ID token."); }),
+      logWarn: logWarn || (() => {}),
+      signTokenFn,
     })
   );
   const srv = http.createServer(app);
@@ -183,7 +188,7 @@ test("D. Same Firebase UID twice: first creates, second logs into same user, no 
   const col = fakeCollection();
   const store = createUserStore(col);
   const app = express();
-  app.use("/api/auth", createAuthRouter({ getUserStore: () => store, verifyFirebaseFn: mockVerifier }));
+  app.use("/api/auth", createAuthRouter({ getUserStore: () => store, verifyFirebaseFn: mockVerifier, logWarn: () => {} }));
   const srv = http.createServer(app);
   await new Promise((r) => srv.listen(0, r));
   const base = `http://localhost:${srv.address().port}`;
@@ -268,6 +273,91 @@ test("H. passwordHash is not returned to clients", async () => {
     assert.ok(!("passwordHash" in body.user));
     const raw = await store.findByFirebaseUid("fb-no-pw-1");
     assert.ok(!raw.passwordHash);
+  } finally {
+    await closeTestApp({ srv, base });
+  }
+});
+
+test("I. Mongo unavailable → 503 with store-unavailable stage log", async () => {
+  const prevUri = process.env.MONGODB_URI;
+  delete process.env.MONGODB_URI;
+  const logs = [];
+  const mockVerifier = async () => ({ uid: "u-1", email: "u1@example.com", displayName: "U" });
+  const app = express();
+  app.use(
+    "/api/auth",
+    createAuthRouter({
+      getUserStore: () => {
+        throw new Error("MongoDB is not connected");
+      },
+      verifyFirebaseFn: mockVerifier,
+      logWarn: (m) => logs.push(m),
+    })
+  );
+  const srv = http.createServer(app);
+  await new Promise((r) => srv.listen(0, r));
+  const base = `http://localhost:${srv.address().port}`;
+  try {
+    const res = await fetch(`${base}/api/auth/firebase`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idToken: "x" }),
+    });
+    assert.equal(res.status, 503);
+    const body = await res.json();
+    assert.equal(body.error, "Authentication service unavailable. Try again shortly.");
+    assert.ok(logs.some((m) => m.includes("store unavailable")), `expected stage log, got: ${logs.join(" | ")}`);
+  } finally {
+    await new Promise((r, j) => srv.close((e) => (e ? j(e) : r())));
+    if (prevUri !== undefined) process.env.MONGODB_URI = prevUri;
+  }
+});
+
+test("J. findByFirebaseUid failure → 503 with find stage log (fail closed, no duplicate)", async () => {
+  const mockVerifier = async () => ({ uid: "fb-flaky-1", email: "flaky@example.com", displayName: "Flaky" });
+  const logs = [];
+  const { srv, base, store } = await makeTestApp({
+    verifier: mockVerifier,
+    logWarn: (m) => logs.push(m),
+    storeOverrides: {
+      findByFirebaseUid: async () => {
+        throw new Error("db flake");
+      },
+    },
+  });
+  try {
+    const res = await fetch(`${base}/api/auth/firebase`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idToken: "secret-token-xyz" }),
+    });
+    assert.equal(res.status, 503);
+    assert.ok(logs.some((m) => m.includes("findByFirebaseUid failed")), `expected stage log, got: ${logs.join(" | ")}`);
+    assert.ok(!logs.join(" ").includes("secret-token-xyz"), "stage logs must never contain tokens");
+    assert.equal(await store.findByEmail("flaky@example.com").catch(() => "threw"), null);
+  } finally {
+    await closeTestApp({ srv, base });
+  }
+});
+
+test("K. token signing failure → 503 with signing stage log", async () => {
+  const mockVerifier = async () => ({ uid: "fb-sign-1", email: "sign@example.com", displayName: "Sign" });
+  const logs = [];
+  const { srv, base } = await makeTestApp({
+    verifier: mockVerifier,
+    logWarn: (m) => logs.push(m),
+    signTokenFn: () => {
+      throw new Error("bad secret");
+    },
+  });
+  try {
+    const res = await fetch(`${base}/api/auth/firebase`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idToken: "x" }),
+    });
+    assert.equal(res.status, 503);
+    assert.ok(logs.some((m) => m.includes("token signing failed")), `expected stage log, got: ${logs.join(" | ")}`);
   } finally {
     await closeTestApp({ srv, base });
   }

@@ -22,11 +22,14 @@ const { verifyFirebaseIdToken } = require("./firebase.cjs");
  * Firebase verifier default to production implementations).
  * Injection keeps tests hermetic (no Firebase network calls).
  */
-function createAuthRouter({ getUserStore, signTokenFn, requireAuth, verifyFirebaseFn } = {}) {
+function createAuthRouter({ getUserStore, signTokenFn, requireAuth, verifyFirebaseFn, logWarn } = {}) {
   const resolveStore = getUserStore || require("../db/users.cjs").getUserStore;
   const sign = signTokenFn || signToken;
   const verifyFirebase = verifyFirebaseFn || verifyFirebaseIdToken;
   const auth = requireAuth || createAuthMiddleware({ getUserStore: resolveStore });
+  // Server-side stage diagnostics. Logs contain stage tags only — never
+  // tokens, passwords, URIs, keys, or credentials. Injectable for tests.
+  const warn = typeof logWarn === "function" ? logWarn : (message) => console.warn(message);
   const router = express.Router();
 
   router.use(express.json({ limit: "64kb" }));
@@ -47,16 +50,18 @@ function createAuthRouter({ getUserStore, signTokenFn, requireAuth, verifyFireba
     }
   }
 
-  async function withStore(res, fn) {
+  async function withStore(res, fn, stage) {
     let store;
     try {
       store = await readyStore();
     } catch {
+      if (stage) warn(`[AUTH] ${stage}: store unavailable`);
       return store503(res);
     }
     try {
       return await fn(store);
     } catch {
+      if (stage) warn(`[AUTH] ${stage}: handler failed`);
       return store503(res);
     }
   }
@@ -136,10 +141,27 @@ function createAuthRouter({ getUserStore, signTokenFn, requireAuth, verifyFireba
         return res.status(401).json({ error: "Invalid Firebase ID token." });
       }
 
-      const existing = await store.findByFirebaseUid(uid).catch(() => null);
+      function issueToken(user) {
+        try {
+          return sign(user);
+        } catch (err) {
+          warn("[AUTH] firebase exchange: token signing failed");
+          throw err;
+        }
+      }
+
+      // Fail closed on lookup errors (a flaky store must not be mistaken
+      // for "user not found", which could otherwise create duplicates).
+      let existing = null;
+      try {
+        existing = await store.findByFirebaseUid(uid);
+      } catch (err) {
+        warn("[AUTH] firebase exchange: findByFirebaseUid failed");
+        throw err;
+      }
       if (existing) {
         const user = store.toSafeUser(existing);
-        return res.status(200).json({ user, token: sign(user) });
+        return res.status(200).json({ user, token: issueToken(user) });
       }
 
       try {
@@ -148,7 +170,7 @@ function createAuthRouter({ getUserStore, signTokenFn, requireAuth, verifyFireba
           email,
           displayName: displayName || email.split("@")[0],
         });
-        return res.status(200).json({ user: created, token: sign(created) });
+        return res.status(200).json({ user: created, token: issueToken(created) });
       } catch (err) {
         if (err && err.code === "DUPLICATE_EMAIL") {
           return res.status(409).json({ error: err.message });
@@ -156,9 +178,10 @@ function createAuthRouter({ getUserStore, signTokenFn, requireAuth, verifyFireba
         if (err && (err.code === "DUPLICATE_FIREBASE_UID" || err.code === "VALIDATION_ERROR")) {
           return res.status(409).json({ error: err.message });
         }
+        warn("[AUTH] firebase exchange: createFirebaseUser failed");
         throw err;
       }
-    });
+    }, "firebase exchange");
   });
 
   return router;
