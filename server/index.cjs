@@ -9,15 +9,18 @@ const { createAuthRouter } = require("./auth/routes.cjs");
 
 const app = express();
 
-// CORS for the browser frontend (Vite :5173 by default). Explicit origin
-// list from FRONTEND_ORIGIN (comma-separated) — never a wildcard, and no
+// CORS for the browser frontend. Explicit origins from FRONTEND_ORIGIN
+// (comma-separated) are always honored — never a wildcard, and no
 // cookies/credentials are used (JWT travels in the Authorization header),
 // so cross-origin auth calls succeed without unsafe wildcard+credentials.
-const frontendOrigins = String(process.env.FRONTEND_ORIGIN || "http://localhost:5173")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
-app.use(cors({ origin: frontendOrigins }));
+// Development nicety: Vite picks any free port (5173, 5174, ...), so any
+// http(s) localhost/loopback origin is also allowed while NOT in
+// production. Production (NODE_ENV=production) allows ONLY the explicit
+// FRONTEND_ORIGIN list.
+const { parseAllowedOrigins, createOriginChecker, createCorsDelegate } = require("./cors.cjs");
+const frontendOrigins = parseAllowedOrigins(process.env.FRONTEND_ORIGIN || "http://localhost:5173");
+const isOriginAllowed = createOriginChecker(frontendOrigins);
+app.use(cors({ origin: createCorsDelegate(isOriginAllowed) }));
 
 const port = Number(process.env.PORT) || 3000;
 

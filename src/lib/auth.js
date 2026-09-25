@@ -24,9 +24,10 @@ export function getApiBase() {
 }
 
 async function request(path, { method = 'GET', body, token } = {}) {
+  const url = `${getApiBase()}${path}`;
   let response;
   try {
-    response = await fetch(`${getApiBase()}${path}`, {
+    response = await fetch(url, {
       method,
       headers: {
         'Content-Type': 'application/json',
@@ -34,8 +35,13 @@ async function request(path, { method = 'GET', body, token } = {}) {
       },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
-  } catch {
-    throw new Error('Could not reach the server. Is the backend running?');
+  } catch (err) {
+    // Network-level failure (server down, wrong backend URL, or CORS
+    // rejection — browsers surface all three as a TypeError with no HTTP
+    // status). Name the target URL so a misconfigured VITE_SYNCSPACE_SERVER_URL
+    // is diagnosable; CORS details remain in the browser console.
+    const detail = err && err.message ? ` (${err.message})` : '';
+    throw new Error(`Could not reach the server at ${getApiBase()}.${detail} Check that the backend is running and allows this origin.`);
   }
   let data = null;
   try {
