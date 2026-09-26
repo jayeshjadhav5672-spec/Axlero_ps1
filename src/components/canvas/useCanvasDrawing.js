@@ -26,10 +26,12 @@ import {
   DEFAULTS,
   duplicateShape,
   estimateTextWidth,
+  getShapeAnchors,
   getShapeBounds,
   isFiniteNum,
   isShapeInsideFrame,
   isShapeIntersectingPoint,
+  moveArrowEndpoint,
   normalizeRect,
   normalizeSelectBox,
   sanitizePoints,
@@ -619,6 +621,55 @@ export default function useCanvasDrawing({
       return hits.length;
     },
     [shapes, detachTransformerFrom, deleteShape],
+  );
+
+  // ---- connector follow: re-attach bound arrow ends after a shape settles.
+  // Declared HERE (above all pointer/shape handlers) on purpose, same TDZ
+  // rule as the eraser callbacks above: `handleShapeDragEnd` lists this
+  // callback in its useCallback dep array, which evaluates eagerly during
+  // render — a declaration below it throws `ReferenceError: can't access
+  // lexical declaration before initialization` and white-screens the board.
+  // `movedShape` is the committed post-drag descriptor; each attached arrow
+  // commits once (own history entry + broadcast). Arrows bound to a
+  // missing/renamed anchor keep their coordinates. No-op for shapes without
+  // anchors (arrows/lines/strokes can't be snap targets).
+  const followBoundArrows = useCallback(
+    (movedId, movedShape) => {
+      const anchors = getShapeAnchors(movedShape);
+      if (anchors.length === 0) return;
+      for (const a of shapes ?? []) {
+        if (!a || a.type !== 'arrow' || a.remotePreview) continue;
+        if (!Array.isArray(a.points) || a.points.length < 4) continue;
+        let next = null;
+        for (const end of ['start', 'end']) {
+          const key = end === 'start' ? 'startBinding' : 'endBinding';
+          const binding = a[key];
+          if (!binding || binding.shapeId !== movedId) continue;
+          const anchor = anchors.find((k) => k.anchor === binding.anchor);
+          if (!anchor) continue;
+          const aNode = shapeNodesRef.current.get(a.id);
+          const ox = aNode ? aNode.x() : 0;
+          const oy = aNode ? aNode.y() : 0;
+          next = moveArrowEndpoint(next ?? a.points, end, anchor.x - ox, anchor.y - oy);
+          if (!next) break;
+        }
+        if (next) {
+          // Imperative nudge so the arrow tracks immediately; the commit
+          // below re-renders authoritatively with identical values.
+          try {
+            const aNode = shapeNodesRef.current.get(a.id);
+            if (aNode) {
+              aNode.points(next);
+              aNode.getLayer()?.batchDraw();
+            }
+          } catch {
+            // best-effort; the commit still converges
+          }
+          commitUpdate(a.id, { points: next });
+        }
+      }
+    },
+    [shapes, commitUpdate],
   );
 
   // ---- coordinate helpers: viewport <-> world ----
@@ -1493,6 +1544,12 @@ export default function useCanvasDrawing({
           node.position({ x: 0, y: 0 });
         }
         commitUpdate(shapeId, changes);
+        // Connector follow: settled descriptor in world coords (positioned
+        // shapes commit x/y; point-path shapes fold into points).
+        followBoundArrows(
+          shapeId,
+          isPointBased ? { ...shape, ...changes } : { ...shape, x: nodeX, y: nodeY },
+        );
       } else {
         // Reset transient node offset for point-based shapes even if ~0.
         // Absolute-points nodes rest at (0, 0) — never at a stale
@@ -1513,7 +1570,7 @@ export default function useCanvasDrawing({
         transformer?.getLayer()?.batchDraw();
       }
     },
-    [commitUpdate, shapes, clearPreviewTimer, emitStrokeEvent, resetPreviewStream],
+    [commitUpdate, shapes, clearPreviewTimer, emitStrokeEvent, resetPreviewStream, followBoundArrows],
   );
 
   const handleTransformEnd = useCallback(
