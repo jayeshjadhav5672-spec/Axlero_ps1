@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import GoogleButton from './GoogleButton';
-import { loginRequest } from '../../lib/auth';
+import { signInWithEmail } from '../../lib/firebaseAuth';
+import { firebaseLoginRequest } from '../../lib/auth';
 
 /**
  * LoginPage — sign-in form backed by the real auth API.
@@ -32,10 +33,13 @@ export default function LoginPage({ onSuccess, onSwitchToSignup, onBack }) {
     if (Object.keys(nextErrors).length > 0) return;
     setBusy(true);
     try {
-      const session = await loginRequest({ email: email.trim(), password });
+      const { idToken } = await signInWithEmail(email.trim(), password);
+      const session = await firebaseLoginRequest(idToken);
       onSuccess?.(session);
     } catch (err) {
-      setErrors({ form: err?.message || 'Could not log in.' });
+      const code = err?.code;
+      const msg = code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found' ? 'Invalid email or password.' : err?.message;
+      setErrors({ form: msg || 'Could not log in.' });
     } finally {
       setBusy(false);
     }
@@ -120,7 +124,7 @@ export default function LoginPage({ onSuccess, onSwitchToSignup, onBack }) {
             <span className="text-xs font-medium text-[#57534E]">or</span>
             <span className="h-px flex-1 bg-[#E7DFCC]" />
           </div>
-          <GoogleButton disabled={busy} />
+          <GoogleButton onSuccess={onSuccess} disabled={busy} />
           <p className="mt-6 text-center text-sm text-[#57534E]">
             Don&apos;t have an account?{' '}
             <button

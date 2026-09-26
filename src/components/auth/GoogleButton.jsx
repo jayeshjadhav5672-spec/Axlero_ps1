@@ -1,28 +1,31 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { signInWithGoogle } from '../../lib/firebaseAuth';
+import { firebaseLoginRequest } from '../../lib/auth';
 
 /**
- * GoogleButton — starts the OAuth 2.0 authorization-code flow by
- * navigating the browser to the backend (`GET /api/auth/google`),
- * which redirects to Google. No Google Identity Services script, no
- * credential callback, no client secret anywhere near the browser —
- * the confidential exchange happens server-side and the app session
- * returns through the existing Axlero `{ user, token }` path.
+ * GoogleButton — initiates Google sign-in through Firebase Authentication.
+ * Uses Firebase's signInWithPopup and exchanges the Firebase ID token
+ * for an Axlero session via the backend.
  *
- * Props: { disabled? }
+ * Props: { onSuccess(session), disabled? }
  */
-export default function GoogleButton({ disabled = false }) {
-  const handleClick = () => {
-    if (disabled) return;
+export default function GoogleButton({ onSuccess, disabled = false }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleClick = async () => {
+    if (disabled || busy) return;
+    setBusy(true);
+    setError('');
     try {
-      const base =
-        (typeof import.meta !== 'undefined' &&
-          import.meta.env &&
-          import.meta.env.VITE_SYNCSPACE_SERVER_URL) ||
-        'http://localhost:3000';
-      const root = String(base).replace(/\/+$/, '');
-      window.location.assign(`${root}/api/auth/google`);
-    } catch {
-      // navigation unavailable (non-browser) — stay put
+      const { idToken } = await signInWithGoogle();
+      const session = await firebaseLoginRequest(idToken);
+      onSuccess?.(session);
+    } catch (err) {
+      const message = err?.message || 'Google sign-in failed. Please try again.';
+      setError(message);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -31,7 +34,7 @@ export default function GoogleButton({ disabled = false }) {
       <button
         type="button"
         onClick={handleClick}
-        disabled={disabled}
+        disabled={disabled || busy}
         className="flex w-full items-center justify-center gap-2.5 rounded-lg border border-[#E7DFCC] bg-white px-5 py-3 text-sm font-semibold text-[#111111] transition-colors hover:bg-[#EDE6D6] disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#111111] focus-visible:ring-offset-2 focus-visible:ring-offset-[#F5F1E8]"
       >
         <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
@@ -52,8 +55,13 @@ export default function GoogleButton({ disabled = false }) {
             d="M12 4.7c1.8 0 3 .8 3.7 1.4l3.3-3.2C17.9 1.1 15.2 0 12 0 7.5 0 3.5 2.6 1.4 6.8l3.8 2.9c.9-2.9 3.6-5 6.8-5z"
           />
         </svg>
-        Continue with Google
+        {busy ? 'Signing in…' : 'Continue with Google'}
       </button>
+      {error && (
+        <p role="alert" className="mt-2 text-center text-xs text-rose-700">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

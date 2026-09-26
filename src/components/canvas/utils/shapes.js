@@ -472,6 +472,127 @@ export function tensionForArrowType(arrowType, pointCount = 4) {
 }
 
 /**
+ * Arrow endpoint snapping (Sayon — connectors).
+ *
+ * World-space snap threshold for arrow tip/tail magnets. An endpoint
+ * dragged within this radius of a target anchor snaps onto it.
+ */
+export const ARROW_SNAP_THRESHOLD = 14;
+
+/**
+ * Candidate connection anchors of a shape in WORLD coordinates.
+ * Edge midpoints (+ center) for box-like shapes; the four vertices (+
+ * center) for diamonds; the cardinal perimeter points (+ center) for
+ * ellipses. Returns [] for shapes arrows cannot snap to (other arrows,
+ * lines, freehand strokes, groups, unknown types).
+ *
+ * Each entry: { x, y, anchor: 'top' | 'right' | 'bottom' | 'left' | 'center' }.
+ * Coordinates assume the at-rest convention (positioned shapes store world
+ * x/y; point-path shapes store world points with the node pinned at 0).
+ */
+export function getShapeAnchors(shape) {
+  if (!shape || typeof shape !== 'object') return [];
+  if (shape.type === 'circle') {
+    if (!isFiniteNum(shape.x) || !isFiniteNum(shape.y)) return [];
+    const { rx, ry } = circleRadii(shape);
+    const cx = shape.x;
+    const cy = shape.y;
+    return [
+      { x: cx, y: cy - ry, anchor: 'top' },
+      { x: cx + rx, y: cy, anchor: 'right' },
+      { x: cx, y: cy + ry, anchor: 'bottom' },
+      { x: cx - rx, y: cy, anchor: 'left' },
+      { x: cx, y: cy, anchor: 'center' },
+    ];
+  }
+  if (
+    shape.type === 'rectangle' ||
+    shape.type === 'diamond' ||
+    shape.type === 'frame' ||
+    shape.type === 'image'
+  ) {
+    if (
+      !isFiniteNum(shape.x) ||
+      !isFiniteNum(shape.y) ||
+      !isFiniteNum(shape.width) ||
+      !isFiniteNum(shape.height)
+    ) {
+      return [];
+    }
+    const { x, y, width, height } = shape;
+    return [
+      { x: x + width / 2, y, anchor: 'top' },
+      { x: x + width, y: y + height / 2, anchor: 'right' },
+      { x: x + width / 2, y: y + height, anchor: 'bottom' },
+      { x, y: y + height / 2, anchor: 'left' },
+      { x: x + width / 2, y: y + height / 2, anchor: 'center' },
+    ];
+  }
+  return [];
+}
+
+/**
+ * Nearest snap anchor to a world point across candidate shapes.
+ * Skips the dragged arrow itself (`excludeId`), remote-preview ghosts,
+ * and shapes without anchors. Returns
+ * { x, y, shapeId, anchor } or null when nothing is within threshold.
+ */
+export function findSnapAnchor(worldX, worldY, shapes, opts = {}) {
+  if (!isFiniteNum(worldX) || !isFiniteNum(worldY)) return null;
+  const threshold = isFiniteNum(opts.threshold) ? Math.max(0, opts.threshold) : ARROW_SNAP_THRESHOLD;
+  const excludeId = opts.excludeId ?? null;
+  let best = null;
+  let bestDist = Infinity;
+  for (const s of shapes ?? []) {
+    if (!s || s.remotePreview || s.id === excludeId) continue;
+    for (const a of getShapeAnchors(s)) {
+      const dist = Math.hypot(worldX - a.x, worldY - a.y);
+      if (dist <= threshold && dist < bestDist) {
+        bestDist = dist;
+        best = { x: a.x, y: a.y, shapeId: s.id, anchor: a.anchor };
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * New local points array with one arrow endpoint moved, middle bend
+ * points preserved verbatim (curvature re-derives from the endpoints via
+ * the stored tension/arrowType at render time).
+ * `end` is 'start' (first pair) or 'end' (last pair). Returns null when
+ * the input points or coordinates are unusable — callers must not commit.
+ */
+export function moveArrowEndpoint(points, end, x, y) {
+  if (!Array.isArray(points) || points.length < 4) return null;
+  if (!isFiniteNum(x) || !isFiniteNum(y)) return null;
+  if (points.some((v) => !isFiniteNum(v))) return null;
+  const next = [...points];
+  if (end === 'start') {
+    next[0] = x;
+    next[1] = y;
+  } else if (end === 'end') {
+    next[next.length - 2] = x;
+    next[next.length - 1] = y;
+  } else {
+    return null;
+  }
+  return next;
+}
+
+/**
+ * Stored endpoint binding descriptor: { shapeId, anchor }.
+ * Binds one arrow end to a target shape's named anchor so the arrow can
+ * follow that shape on later moves. Null clears the binding.
+ */
+export function isValidBinding(binding) {
+  if (binding === null || binding === undefined) return true;
+  if (!binding || typeof binding !== 'object') return false;
+  if (typeof binding.shapeId !== 'string' || !binding.shapeId) return false;
+  return ['top', 'right', 'bottom', 'left', 'center'].includes(binding.anchor);
+}
+
+/**
  * Normalize a 0-100 opacity slider value to Konva 0-1.
  * Pass-through for already-normalized 0-1 values.
  */

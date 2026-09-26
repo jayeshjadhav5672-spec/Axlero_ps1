@@ -320,8 +320,8 @@ export function Whiteboard({
 
   // The active tool persists after every commit — including the text
   // tool, which stays on 'text' after each placed block so users can
-  // keep clicking to add more text without re-picking T. Tool changes
-  // happen only via explicit user action (toolbar, shortcuts).
+  // keep clicking to add more text without re-picking the Text button.
+  // Tool changes happen only via explicit toolbar clicks.
   // Kept as a stable no-op callback to preserve the `onDrawingCommitted`
   // integration boundary with useCanvasDrawing.
   const handleDrawingCommitted = useCallback(
@@ -979,6 +979,22 @@ export function Whiteboard({
     },
     [commitUpdate],
   );
+  // ---- arrow tip/tail endpoint drags: one committed update per gesture
+  // (`points` + endpoint bindings). Flows through the standard
+  // commitUpdate path, so the edit lands in undo/redo history and
+  // broadcasts to peers via `shapes:update-batch` (uncontrolled+socket)
+  // or the controlled shell's onShapeUpdate.
+  const handleEndpointCommit = useCallback(
+    (shapeId, points, bindings = {}) => {
+      const changes = { points };
+      if (bindings && typeof bindings === 'object') {
+        if ('startBinding' in bindings) changes.startBinding = bindings.startBinding ?? null;
+        if ('endBinding' in bindings) changes.endBinding = bindings.endBinding ?? null;
+      }
+      commitUpdate(shapeId, changes);
+    },
+    [commitUpdate],
+  );
   const handleStraighten = useCallback(() => {
     if (!selectedShape || selectedShape.type !== 'arrow') return;
     const p = selectedShape.points ?? [];
@@ -1000,8 +1016,9 @@ export function Whiteboard({
     if (selectedId) sendBackward(selectedId);
   }, [selectedId, sendBackward]);
 
-  // ---- global keyboard hotkeys (V/P/R/C/T/F tools, Cmd+D duplicate,
-  // Cmd+G group, Cmd+Shift+G ungroup). Typing targets + text editor ignored.
+  // ---- global keyboard hotkeys (Cmd+D duplicate, Cmd+G group,
+  // Cmd+Shift+G ungroup). Tool switching is click-only (no tool keys).
+  // Typing targets + text editor ignored.
   useCanvasHotkeys({
     onToolChange: handleToolChange,
     onDuplicate: duplicateSelected,
@@ -1011,10 +1028,13 @@ export function Whiteboard({
   });
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden">
-      {/* Header row: full-width toolbar bar. The header sits above
-      the popover backdrop (relative z-50) so tools and the 3-dot toggle
-      stay interactive while the panel is open. */}
+    <div className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col gap-2 overflow-hidden">
+      {/* Header row: full-width toolbar bar (fixed h-12 single row). The
+      `gap-2` above keeps an 8px breathing room between the toolbar and the
+      canvas card; the canvas section below stays `flex-1 min-h-0` so the
+      gap never overflows the viewport. The header sits above the popover
+      backdrop (relative z-50) so tools and the 3-dot toggle stay
+      interactive while the panel is open. */}
       <div className="relative z-50 w-full shrink-0">
         <div className="relative w-full min-w-0">
             <Toolbar
@@ -1119,7 +1139,7 @@ export function Whiteboard({
           </div>
       </div>
       {/* Expanded canvas boundary: fills all remaining height/width. */}
-      <section className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-[#f8f9fa] shadow-sm">
+      <section className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-[#f8f9fa] shadow-sm">
       <div className="relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden" ref={canvasWrapRef}>
         <div className="relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden">
           <CanvasStage
@@ -1156,6 +1176,7 @@ export function Whiteboard({
             onTransformEnd={handleTransformEnd}
             onTextDoubleClick={openTextEditorForShape}
             onBendCommit={handleBendCommit}
+            onEndpointCommit={handleEndpointCommit}
           />
           <TextEditorOverlay
             editor={textEditor}

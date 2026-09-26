@@ -27,40 +27,36 @@ const SELECT_ICON = (
 // Excalidraw-order tools (selection, rectangle, diamond, ellipse, arrow,
 // line, pen, text, eraser). Diamond maps to the `diamond` shape type in
 // utils/shapes.js and renders as a closed 4-point polygon.
+// Tool switching is click-only: no keyboard shortcuts, no shortcut badges.
 const TOOLS = [
   {
     value: 'select',
     label: 'Selection',
-    shortcut: '1',
-    title: 'Selection (1 or V)',
+    title: 'Selection',
     icon: SELECT_ICON,
   },
   {
     value: 'rectangle',
     label: 'Rectangle',
-    shortcut: '2',
-    title: 'Rectangle (2 or R — drag any direction)',
+    title: 'Rectangle — drag any direction',
     icon: <rect x="3" y="3" width="18" height="18" rx="2" />,
   },
   {
     value: 'circle',
     label: 'Ellipse',
-    shortcut: '3',
-    title: 'Ellipse (3 or C — center + radius)',
+    title: 'Ellipse — center + radius',
     icon: <ellipse cx="12" cy="12" rx="9" ry="7" />,
   },
   {
     value: 'diamond',
     label: 'Diamond',
-    shortcut: 'D',
-    title: 'Diamond (D — drag any direction)',
+    title: 'Diamond — drag any direction',
     icon: <path d="M12 3 L21 12 L12 21 L3 12 Z" />,
   },
   {
     value: 'arrow',
     label: 'Arrow',
-    shortcut: 'A',
-    title: 'Arrow (A — drag, then drag the midpoint handle to bend)',
+    title: 'Arrow — drag, then drag the midpoint handle to bend',
     icon: (
       <>
         <line x1="5" y1="19" x2="19" y2="5" />
@@ -71,22 +67,19 @@ const TOOLS = [
   {
     value: 'line',
     label: 'Line',
-    shortcut: 'L',
-    title: 'Line (L — two points)',
+    title: 'Line — two points',
     icon: <line x1="5" y1="19" x2="19" y2="5" />,
   },
   {
     value: 'freehand',
     label: 'Pen',
-    shortcut: 'P',
-    title: 'Pen — freehand (P)',
+    title: 'Pen — freehand',
     icon: <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />,
   },
   {
     value: 'text',
     label: 'Text',
-    shortcut: 'T',
-    title: 'Text (T — click to place, Enter to commit)',
+    title: 'Text — click to place, Enter to commit',
     icon: (
       <>
         <polyline points="4 7 4 4 20 4 20 7" />
@@ -98,8 +91,7 @@ const TOOLS = [
   {
     value: 'frame',
     label: 'Frame',
-    shortcut: 'F',
-    title: 'Frame (F — drag to create a slide container; moving it carries children)',
+    title: 'Frame — drag to create a slide container; moving it carries children',
     icon: (
       <>
         <rect x="3" y="5" width="18" height="15" rx="2" strokeDasharray="4 3" />
@@ -110,8 +102,7 @@ const TOOLS = [
   {
     value: 'eraser',
     label: 'Eraser',
-    shortcut: 'E',
-    title: 'Eraser (E — click a shape to delete)',
+    title: 'Eraser — click a shape to delete',
     icon: (
       <>
         <path d="M20 20H8L3 15a1.5 1.5 0 0 1 0-2.1l9.2-9.2a1.5 1.5 0 0 1 2.1 0l5.2 5.2a1.5 1.5 0 0 1 0 2.1L13 18" />
@@ -124,8 +115,7 @@ const TOOLS = [
 const PAN_TOOL = {
   value: 'pan',
   label: 'Pan',
-  shortcut: 'H',
-  title: 'Pan (H — drag canvas, wheel to zoom)',
+  title: 'Pan — drag canvas, wheel to zoom',
   icon: (
     <>
       <path d="M8 12V5.5a1.5 1.5 0 0 1 3 0V11m0-5.5v-1a1.5 1.5 0 0 1 3 0V11m0-4.5a1.5 1.5 0 0 1 3 0V12m0-3a1.5 1.5 0 0 1 3 0v4a7 7 0 0 1-7 7h-1a7 7 0 0 1-6-3.3l-2-3.4a1.5 1.5 0 0 1 2.6-1.5L8 12" />
@@ -219,19 +209,27 @@ const EXPORT_SELECTION_OPTIONS = [
   { value: 'pdf-selection', label: 'PDF — selection only' },
 ];
 const BTN_BASE =
-  'relative flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg border text-[15px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-1';
-const BTN_ACTIVE = 'bg-violet-100 text-violet-700 border-violet-200 shadow-[inset_0_0_0_1px_rgba(109,88,246,0.15)]';
-const BTN_IDLE = 'border-transparent text-gray-700 hover:bg-gray-100 hover:text-gray-900';
+  'flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-[15px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:ring-offset-1';
+const BTN_ACTIVE = 'bg-purple-100 text-purple-700';
+const BTN_IDLE = 'text-gray-700 hover:bg-gray-100 hover:text-gray-900';
 
 /**
- * Toolbar — responsive 2-section header bar docked at the top of the
- * whiteboard: drawing tools (left), canvas status (shape count + zoom
- * steppers) with history/actions + 3-dot customization toggle (right).
- * The bar is unconditionally `flex` (no breakpoint locks) and scrolls
- * horizontally within `max-w-[calc(100vw-32px)]`, so it stays visible on
- * 13"/15" laptop screens as well as 27" monitors.
- * Stroke/fill color controls live exclusively in the PropertySidebar
- * customization panel — this bar carries no color swatches by design.
+ * Toolbar — wrapping header bar docked at the top of the whiteboard:
+ * drawing tools (left), divider, canvas status + zoom + history/actions +
+ * options toggle (right).
+ * Three strict rules: (1) NO horizontal scrolling ever — no
+ * `overflow-x-auto`, no `overflow-x-scroll`, no scrollbar utilities; the
+ * bar reflows with `flex-wrap` when the container narrows instead of
+ * clipping. (2) ZERO layout shift on tool selection — every button owns
+ * a fixed `h-9 w-9` box in both states (active changes background + text
+ * color only, never border/margin/padding), and nothing mounts or
+ * unmounts inside this row when the tool changes: the options (⋮) slot
+ * is permanently mounted (disabled when there is nothing to customize),
+ * and all tool settings live in the floating customization popover below
+ * the bar (`absolute`/`fixed`, detached from this flex row). (3) Shape
+ * changes happen ONLY when the container width changes — at normal
+ * widths everything sits on one single horizontal row; narrowing wraps
+ * cleanly onto a second line without scrolling.
  * Back-compat: still accepts the legacy props (locked, onLockedChange,
  * onDelete, color, strokeWidth, currentStyle, onColorChange,
  * onStrokeWidthChange, onStyleChange) and ignores them. Status/action
@@ -303,9 +301,8 @@ export default function Toolbar({
   const exportMenuRef = useRef(null);
   // Fixed-position menu anchor (viewport coords measured from the toggle
   // button when the menu opens). The menu renders with `position: fixed`
-  // so it escapes the tool strip's `overflow-x-auto` clipping — an
-  // `absolute` child here would be cut off at the 52px bar (overflow-y
-  // computes to auto) and its items would never receive clicks.
+  // so it escapes the toolbar bounds — an `absolute` child here would be
+  // cut off by the bar height and its items would never receive clicks.
   const [exportMenuPos, setExportMenuPos] = useState({ top: 0, left: 0 });
   const openExportMenu = useCallback(() => {
     const rect = exportBtnRef.current?.getBoundingClientRect?.();
@@ -343,23 +340,19 @@ export default function Toolbar({
   const zoomPct = Math.round((Number.isFinite(zoom) ? zoom : 1) * 100);
 
   return (
-    // Outer bar: full-width wrapping pill. Sections flow onto additional
-    // rows on narrow columns instead of clipping behind a scroll strip, so
-    // every tool stays visibly discoverable without hidden scrolling.
+    // Outer bar: wrapping pill, never a scroll strip. `flex-wrap` reflows
+    // the groups ONLY when the container width shrinks (splitter drag);
+    // tool selection mounts/unmounts nothing here, so height, width,
+    // padding, and arrangement stay identical across tools.
     // Unconditionally `flex` (no breakpoint locks).
     <div
       role="toolbar"
       aria-label="Whiteboard tools"
-      aria-orientation="horizontal"
-      className="pointer-events-auto flex w-full max-w-full select-none flex-wrap rounded-xl border border-gray-200 bg-white shadow-sm"
+      className="pointer-events-auto flex w-full max-w-full select-none flex-wrap items-center justify-between gap-2 rounded-xl border border-gray-200 bg-white px-3 py-1.5 shadow-sm"
     >
-      {/* Inner pill content: wraps instead of forcing `min-w-max` scroll;
-      `min-h-12` keeps the bar at the shared 48px panel-header height so the
-      canvas card below starts on the same baseline as the code editor card.
-      Every section/divider is `shrink-0` so nothing squeezes out of view. */}
-      <div className="flex min-h-12 w-full flex-1 flex-wrap items-center justify-between gap-1.5 px-2 py-1">
-      {/* SECTION 1: DRAWING TOOLS (LEFT) */}
-      <div className="flex min-w-0 flex-wrap items-center gap-1">
+      {/* SECTION 1: DRAWING TOOLS (LEFT) — single row when space permits,
+      wraps only when the column narrows */}
+      <div className="flex flex-wrap items-center gap-1">
       {TOOLS.map((option) => {
         const isActive = tool === option.value;
         return (
@@ -367,20 +360,12 @@ export default function Toolbar({
             key={option.value}
             type="button"
             title={option.title}
-            aria-label={`${option.label} (${option.shortcut})`}
+            aria-label={option.label}
             aria-pressed={isActive}
             onClick={() => onToolChange(option.value)}
             className={`${BTN_BASE} shrink-0 ${isActive ? BTN_ACTIVE : BTN_IDLE}`}
           >
             <ToolIcon>{option.icon}</ToolIcon>
-            <span
-              aria-hidden="true"
-              className={`pointer-events-none absolute bottom-0.5 right-1 text-[11px] font-semibold leading-none ${
-                isActive ? 'text-violet-500' : 'text-gray-400'
-              }`}
-            >
-              {option.shortcut}
-            </span>
           </button>
         );
       })}
@@ -390,20 +375,12 @@ export default function Toolbar({
       <button
         type="button"
         title={PAN_TOOL.title}
-        aria-label={`${PAN_TOOL.label} (${PAN_TOOL.shortcut})`}
+        aria-label={PAN_TOOL.label}
         aria-pressed={tool === 'pan'}
         onClick={() => onToolChange('pan')}
         className={`${BTN_BASE} shrink-0 ${tool === 'pan' ? BTN_ACTIVE : BTN_IDLE}`}
       >
         <ToolIcon>{PAN_TOOL.icon}</ToolIcon>
-        <span
-          aria-hidden="true"
-          className={`pointer-events-none absolute bottom-0.5 right-1 text-[11px] font-semibold leading-none ${
-            tool === 'pan' ? 'text-violet-500' : 'text-gray-400'
-          }`}
-        >
-          {PAN_TOOL.shortcut}
-        </span>
       </button>
 
       {showProductivity && (
@@ -533,10 +510,12 @@ export default function Toolbar({
       )}
       </div>
 
-      <div className="mx-1 h-7 w-px shrink-0 bg-gray-200 md:mx-2" aria-hidden="true" />
+      {/* Divider — always mounted so the gap never recalculates */}
+      <div className="h-6 w-px shrink-0 bg-gray-200" aria-hidden="true" />
 
-      {/* SECTION 2: STATUS + ACTIONS & MORE MENU (RIGHT) */}
-      <div className="flex shrink-0 items-center gap-1">
+      {/* SECTION 2: STATUS + ACTIONS & MORE MENU (RIGHT) — always
+      rendered with static-width elements, same row at normal widths */}
+      <div className="flex shrink-0 items-center gap-1.5">
         {/* Shape count badge — text hidden on compact viewports */}
         <span className="hidden whitespace-nowrap rounded-full bg-gray-100 px-2.5 py-1 text-sm font-medium text-gray-500 sm:inline-block">
           {shapeCount} {shapeCount === 1 ? 'shape' : 'shapes'}
@@ -603,33 +582,40 @@ export default function Toolbar({
           </button>
         )}
 
-        {(showUndo || showRedo || showClear) && showPropertiesToggle && (
+        {/* Options divider — always mounted (fixed slot, no reflow) */}
+        {(showUndo || showRedo || showClear) && (
           <div className="mx-1 h-6 w-px shrink-0 bg-gray-200" aria-hidden="true" />
         )}
 
-        {/* 3-dot more menu */}
-        {showPropertiesToggle && (
-          <div className="relative shrink-0">
-            <button
-              type="button"
-              onClick={onToggleProperties}
-              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition ${
-                isPropertiesOpen ? 'bg-indigo-50 text-indigo-600' : 'text-gray-700 hover:bg-gray-100'
-              }`}
-              title="All Properties"
-              aria-label="Customize — more options"
-              aria-expanded={isPropertiesOpen}
-              aria-pressed={isPropertiesOpen}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <circle cx="12" cy="5" r="1.8" />
-                <circle cx="12" cy="12" r="1.8" />
-                <circle cx="12" cy="19" r="1.8" />
-              </svg>
-            </button>
-          </div>
-        )}
-      </div>
+        {/* 3-dot options button — PERMANENTLY mounted with a fixed h-9 w-9
+        box in every tool mode (`select` and all drawing tools). When there
+        is nothing to customize it renders disabled (dimmed) instead of
+        unmounting, so toggling tools never adds/removes width here and the
+        zoom/undo/redo/trash controls stay pinned to the same single row.
+        The panel itself floats below the bar (absolute/fixed), never
+        inside this flex row. */}
+        <div className="relative h-9 w-9 shrink-0">
+          <button
+            type="button"
+            onClick={onToggleProperties}
+            disabled={!showPropertiesToggle}
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition ${
+              isPropertiesOpen
+                ? 'bg-indigo-50 text-indigo-600'
+                : 'text-gray-700 hover:bg-gray-100'
+            } disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent`}
+            title={showPropertiesToggle ? 'All Properties' : 'All Properties (select a shape or pick a drawing tool)'}
+            aria-label="Customize — more options"
+            aria-expanded={showPropertiesToggle ? isPropertiesOpen : undefined}
+            aria-pressed={showPropertiesToggle ? isPropertiesOpen : undefined}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <circle cx="12" cy="5" r="1.8" />
+              <circle cx="12" cy="12" r="1.8" />
+              <circle cx="12" cy="19" r="1.8" />
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
   );
