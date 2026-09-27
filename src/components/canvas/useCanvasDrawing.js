@@ -20,6 +20,7 @@ import {
   bakeTransform,
   boxesIntersect,
   circleRadius,
+  computeBoundArrowTargets,
   createFrameShape,
   createGroupShape,
   createShape,
@@ -99,6 +100,7 @@ export default function useCanvasDrawing({
     selectedId,
     commitCreate,
     commitUpdate: storeCommitUpdate,
+    commitUpdates: storeCommitUpdates,
     deleteShape,
     selectShape,
     applyRemoteShapes,
@@ -583,6 +585,29 @@ export default function useCanvasDrawing({
     [storeCommitUpdate],
   );
 
+  // Batched multi-shape commit with the same draft-shape sync as
+  // commitUpdate: the in-progress draft follows whichever committed entry
+  // matches its id, so bound-arrow propagation never desyncs the draft.
+  const commitUpdates = useCallback(
+    (updates) => {
+      if (!Array.isArray(updates) || updates.length === 0) return;
+      storeCommitUpdates(updates);
+      const clean = [];
+      for (const u of updates) {
+        if (!u || typeof u.id !== 'string' || !u.changes || typeof u.changes !== 'object') continue;
+        if (Object.keys(u.changes).length === 0) continue;
+        clean.push({ id: u.id, changes: JSON.parse(JSON.stringify(u.changes)) });
+      }
+      if (clean.length === 0) return;
+      setDraftShape((d) => {
+        if (!d) return d;
+        const hit = clean.find((u) => u.id === d.id);
+        return hit ? { ...d, ...hit.changes } : d;
+      });
+    },
+    [storeCommitUpdates],
+  );
+
   const commitDelete = useCallback(
     (shapeId) => {
       // Detach the Transformer BEFORE removal so it never holds a
@@ -629,47 +654,49 @@ export default function useCanvasDrawing({
   // callback in its useCallback dep array, which evaluates eagerly during
   // render — a declaration below it throws `ReferenceError: can't access
   // lexical declaration before initialization` and white-screens the board.
-  // `movedShape` is the committed post-drag descriptor; each attached arrow
-  // commits once (own history entry + broadcast). Arrows bound to a
-  // missing/renamed anchor keep their coordinates. No-op for shapes without
-  // anchors (arrows/lines/strokes can't be snap targets).
+  // `movedShape` is the committed post-drag descriptor. Returns [{ id,
+  // changes }] for every bound arrow — the caller folds these into the SAME
+  // batch commit as the moved shape, so one gesture is one coherent state
+  // transition (no per-arrow commits against a stale snapshot, one history
+  // entry, one broadcast). Arrows bound to a missing/renamed anchor keep
+  // their coordinates. No-op for shapes without anchors (arrows/lines/
+  // strokes can't be snap targets).
   const followBoundArrows = useCallback(
     (movedId, movedShape) => {
-      const anchors = getShapeAnchors(movedShape);
-      if (anchors.length === 0) return;
-      for (const a of shapes ?? []) {
-        if (!a || a.type !== 'arrow' || a.remotePreview) continue;
-        if (!Array.isArray(a.points) || a.points.length < 4) continue;
+      const out = [];
+      for (const t of computeBoundArrowTargets(shapes ?? [], movedId, movedShape)) {
+        const base = (shapes ?? []).find((s) => s && s.id === t.id);
+        if (!base || !Array.isArray(base.points)) continue;
+        // Stored arrow points live in the node-local frame; convert each
+        // world-space target with the live node offset (0,0 at rest).
+        const aNode = shapeNodesRef.current.get(t.id);
+        const ox = aNode ? aNode.x() : 0;
+        const oy = aNode ? aNode.y() : 0;
         let next = null;
-        for (const end of ['start', 'end']) {
-          const key = end === 'start' ? 'startBinding' : 'endBinding';
-          const binding = a[key];
-          if (!binding || binding.shapeId !== movedId) continue;
-          const anchor = anchors.find((k) => k.anchor === binding.anchor);
-          if (!anchor) continue;
-          const aNode = shapeNodesRef.current.get(a.id);
-          const ox = aNode ? aNode.x() : 0;
-          const oy = aNode ? aNode.y() : 0;
-          next = moveArrowEndpoint(next ?? a.points, end, anchor.x - ox, anchor.y - oy);
-          if (!next) break;
-        }
-        if (next) {
-          // Imperative nudge so the arrow tracks immediately; the commit
-          // below re-renders authoritatively with identical values.
-          try {
-            const aNode = shapeNodesRef.current.get(a.id);
-            if (aNode) {
-              aNode.points(next);
-              aNode.getLayer()?.batchDraw();
-            }
-          } catch {
-            // best-effort; the commit still converges
+        let usable = true;
+        for (const e of t.ends) {
+          next = moveArrowEndpoint(next ?? base.points, e.end, e.x - ox, e.y - oy);
+          if (!next) {
+            usable = false;
+            break;
           }
-          commitUpdate(a.id, { points: next });
         }
+        if (!usable || !next) continue;
+        // Imperative nudge so the arrow tracks immediately; the batch
+        // commit below re-renders authoritatively with identical values.
+        try {
+          if (aNode) {
+            aNode.points(next);
+            aNode.getLayer()?.batchDraw();
+          }
+        } catch {
+          // best-effort; the commit still converges
+        }
+        out.push({ id: t.id, changes: { points: next } });
       }
+      return out;
     },
-    [shapes, commitUpdate],
+    [shapes],
   );
 
   // ---- coordinate helpers: viewport <-> world ----
@@ -1543,13 +1570,17 @@ export default function useCanvasDrawing({
           // and the re-render pins the node back at (0, 0).
           node.position({ x: 0, y: 0 });
         }
-        commitUpdate(shapeId, changes);
-        // Connector follow: settled descriptor in world coords (positioned
-        // shapes commit x/y; point-path shapes fold into points).
-        followBoundArrows(
-          shapeId,
-          isPointBased ? { ...shape, ...changes } : { ...shape, x: nodeX, y: nodeY },
-        );
+        // Connector follow folded into the SAME batch commit: one gesture,
+        // one coherent state transition, one history entry, one broadcast.
+        // Settled descriptor in world coords (positioned shapes commit x/y;
+        // point-path shapes fold into points).
+        commitUpdates([
+          { id: shapeId, changes },
+          ...followBoundArrows(
+            shapeId,
+            isPointBased ? { ...shape, ...changes } : { ...shape, x: nodeX, y: nodeY },
+          ),
+        ]);
       } else {
         // Reset transient node offset for point-based shapes even if ~0.
         // Absolute-points nodes rest at (0, 0) — never at a stale
@@ -1570,7 +1601,7 @@ export default function useCanvasDrawing({
         transformer?.getLayer()?.batchDraw();
       }
     },
-    [commitUpdate, shapes, clearPreviewTimer, emitStrokeEvent, resetPreviewStream, followBoundArrows],
+    [commitUpdate, commitUpdates, shapes, clearPreviewTimer, emitStrokeEvent, resetPreviewStream, followBoundArrows],
   );
 
   const handleTransformEnd = useCallback(
