@@ -17,7 +17,7 @@ export default function CodeEditorPanel({
   className = '',
 }) {
   return (
-    <section className={`flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-white p-2 pr-3 ${className}`} aria-label={title} role="region">
+    <section className={`flex h-full min-h-0 w-full min-w-0 flex-1 flex-col gap-2 overflow-hidden bg-white p-2 pr-3 ${className}`} aria-label={title} role="region">
       <div className="flex h-12 shrink-0 items-center justify-between px-1">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{title}</h2>
         {language && (

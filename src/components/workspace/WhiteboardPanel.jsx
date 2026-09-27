@@ -56,7 +56,7 @@ export default function WhiteboardPanel({
           </div>
         )}
         {children && (
-          <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden">{children}</div>
+          <div className="flex h-full min-h-0 w-full flex-1 flex-col gap-2 overflow-hidden">{children}</div>
         )}
       </div>
     </section>

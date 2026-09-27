@@ -472,6 +472,242 @@ export function tensionForArrowType(arrowType, pointCount = 4) {
 }
 
 /**
+ * Arrow endpoint snapping (Sayon — connectors).
+ *
+ * World-space snap threshold for arrow tip/tail magnets. An endpoint
+ * dragged within this radius of a target anchor snaps onto it.
+ */
+export const ARROW_SNAP_THRESHOLD = 14;
+
+/**
+ * Rotate a world point around a pivot by `degrees` clockwise (Konva's
+ * screen-space convention: +y points down, positive rotation turns
+ * clockwise). Matches Konva's own node transform algebra exactly
+ * (verified against Konva 10.5.0 Transformer's getCenter: rotating the
+ * rest center about the node position reproduces its formula term by
+ * term). Returns null on non-finite input — callers must not commit it.
+ */
+export function rotatePoint(px, py, pivotX, pivotY, degrees) {
+  if (!isFiniteNum(px) || !isFiniteNum(py) || !isFiniteNum(pivotX) || !isFiniteNum(pivotY)) {
+    return null;
+  }
+  const theta = isFiniteNum(degrees) ? (degrees * Math.PI) / 180 : 0;
+  if (theta === 0) return { x: px, y: py };
+  const cos = Math.cos(theta);
+  const sin = Math.sin(theta);
+  const dx = px - pivotX;
+  const dy = py - pivotY;
+  const x = pivotX + dx * cos - dy * sin;
+  const y = pivotY + dx * sin + dy * cos;
+  if (!isFiniteNum(x) || !isFiniteNum(y)) return null;
+  return { x, y };
+}
+
+/**
+ * Candidate connection anchors of a shape in WORLD coordinates.
+ * Edge midpoints (+ center) for box-like shapes; the four vertices (+
+ * center) for diamonds; the cardinal perimeter points (+ center) for
+ * ellipses. Returns [] for shapes arrows cannot snap to (other arrows,
+ * lines, freehand strokes, groups, unknown types).
+ *
+ * Rotation-aware: ShapeRenderer applies `shape.rotation` (degrees,
+ * clockwise) at the Konva node level with no center offset, so the visual
+ * geometry is the at-rest geometry rotated about the node's position
+ * point — (x, y), i.e. top-left for box-likes (diamond vertices included)
+ * and the center for circles/ellipses. Every anchor below is rotated
+ * about exactly that pivot, so snapping and bound-arrow following track
+ * the rendered shape. rotation = 0 (or missing) returns the at-rest
+ * coordinates unchanged for full backward compatibility.
+ *
+ * Each entry: { x, y, anchor: 'top' | 'right' | 'bottom' | 'left' | 'center' }.
+ * Coordinates assume the at-rest convention (positioned shapes store world
+ * x/y; point-path shapes store world points with the node pinned at 0).
+ */
+export function getShapeAnchors(shape) {
+  if (!shape || typeof shape !== 'object') return [];
+  // Rotation pivot = the Konva node position (no offset is ever set):
+  // top-left for box-likes, the center for circles/ellipses.
+  const pivotX = shape.x;
+  const pivotY = shape.y;
+  const rotation = isFiniteNum(shape.rotation) ? shape.rotation : 0;
+  const place = (x, y, anchor) => {
+    if (rotation === 0) return { x, y, anchor };
+    const p = rotatePoint(x, y, pivotX, pivotY, rotation);
+    return p ? { x: p.x, y: p.y, anchor } : { x, y, anchor };
+  };
+  if (shape.type === 'circle') {
+    if (!isFiniteNum(shape.x) || !isFiniteNum(shape.y)) return [];
+    const { rx, ry } = circleRadii(shape);
+    const cx = shape.x;
+    const cy = shape.y;
+    return [
+      place(cx, cy - ry, 'top'),
+      place(cx + rx, cy, 'right'),
+      place(cx, cy + ry, 'bottom'),
+      place(cx - rx, cy, 'left'),
+      // The pivot IS the center: rotation-invariant by construction, and
+      // therefore always the exact visual center.
+      { x: cx, y: cy, anchor: 'center' },
+    ];
+  }
+  if (
+    shape.type === 'rectangle' ||
+    shape.type === 'diamond' ||
+    shape.type === 'frame' ||
+    shape.type === 'image'
+  ) {
+    if (
+      !isFiniteNum(shape.x) ||
+      !isFiniteNum(shape.y) ||
+      !isFiniteNum(shape.width) ||
+      !isFiniteNum(shape.height)
+    ) {
+      return [];
+    }
+    const { x, y, width, height } = shape;
+    return [
+      place(x + width / 2, y, 'top'),
+      place(x + width, y + height / 2, 'right'),
+      place(x + width / 2, y + height, 'bottom'),
+      place(x, y + height / 2, 'left'),
+      place(x + width / 2, y + height / 2, 'center'),
+    ];
+  }
+  return [];
+}
+
+/**
+ * Nearest snap anchor to a world point across candidate shapes.
+ * Skips the dragged arrow itself (`excludeId`), remote-preview ghosts,
+ * and shapes without anchors. Returns
+ * { x, y, shapeId, anchor } or null when nothing is within threshold.
+ */
+export function findSnapAnchor(worldX, worldY, shapes, opts = {}) {
+  if (!isFiniteNum(worldX) || !isFiniteNum(worldY)) return null;
+  const threshold = isFiniteNum(opts.threshold) ? Math.max(0, opts.threshold) : ARROW_SNAP_THRESHOLD;
+  const excludeId = opts.excludeId ?? null;
+  let best = null;
+  let bestDist = Infinity;
+  for (const s of shapes ?? []) {
+    if (!s || s.remotePreview || s.id === excludeId) continue;
+    for (const a of getShapeAnchors(s)) {
+      const dist = Math.hypot(worldX - a.x, worldY - a.y);
+      if (dist <= threshold && dist < bestDist) {
+        bestDist = dist;
+        best = { x: a.x, y: a.y, shapeId: s.id, anchor: a.anchor };
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * New local points array with one arrow endpoint moved, middle bend
+ * points preserved verbatim (curvature re-derives from the endpoints via
+ * the stored tension/arrowType at render time).
+ * `end` is 'start' (first pair) or 'end' (last pair). Returns null when
+ * the input points or coordinates are unusable — callers must not commit.
+ */
+export function moveArrowEndpoint(points, end, x, y) {
+  if (!Array.isArray(points) || points.length < 4) return null;
+  if (!isFiniteNum(x) || !isFiniteNum(y)) return null;
+  if (points.some((v) => !isFiniteNum(v))) return null;
+  const next = [...points];
+  if (end === 'start') {
+    next[0] = x;
+    next[1] = y;
+  } else if (end === 'end') {
+    next[next.length - 2] = x;
+    next[next.length - 1] = y;
+  } else {
+    return null;
+  }
+  return next;
+}
+
+/**
+ * World-space follow targets for every arrow end bound to a moved shape.
+ * Pure: computed from ONE shape snapshot, so several arrows bound to the
+ * same target can never overwrite one another (see applyBatchUpdates).
+ *
+ * Returns [{ id, ends: [{ end: 'start' | 'end', x, y }] }] in WORLD
+ * coordinates — the caller converts to node-local frames (subtracting any
+ * live Konva node offset) and commits once via commitUpdates. Arrows bound
+ * to a missing/renamed anchor, remote-preview ghosts, and degenerate
+ * point arrays are skipped exactly like the previous per-arrow loop did.
+ *
+ * The binding descriptor itself ({ shapeId, anchor }) is never mutated.
+ */
+export function computeBoundArrowTargets(shapes, movedId, movedShape) {
+  const out = [];
+  if (!movedId || !movedShape || typeof movedShape !== 'object') return out;
+  const anchors = getShapeAnchors(movedShape);
+  if (anchors.length === 0) return out;
+  const byAnchor = new Map(anchors.map((a) => [a.anchor, a]));
+  for (const a of shapes ?? []) {
+    if (!a || a.type !== 'arrow' || a.remotePreview) continue;
+    if (!Array.isArray(a.points) || a.points.length < 4) continue;
+    const ends = [];
+    let usable = true;
+    for (const end of ['start', 'end']) {
+      const key = end === 'start' ? 'startBinding' : 'endBinding';
+      const binding = a[key];
+      if (!binding || binding.shapeId !== movedId) continue;
+      const anchor = byAnchor.get(binding.anchor);
+      if (!anchor) continue;
+      // Validate the endpoint rewrite up-front (same guard as
+      // moveArrowEndpoint): a degenerate arrow drops out entirely rather
+      // than committing a half-rewritten path.
+      const probe = moveArrowEndpoint(a.points, end, anchor.x, anchor.y);
+      if (!probe) {
+        usable = false;
+        break;
+      }
+      ends.push({ end, x: anchor.x, y: anchor.y });
+    }
+    if (usable && ends.length > 0) out.push({ id: a.id, ends });
+  }
+  return out;
+}
+
+/**
+ * Apply several `{ id, changes }` updates to ONE shape snapshot,
+ * returning the merged array. Later entries win per shape id; shapes
+ * without updates keep their reference. Pure — the single-commit
+ * primitive behind batched bound-arrow propagation: every dependent
+ * update derives from the same base, so no update can clobber another.
+ * Entries with missing/invalid ids or empty non-object changes are
+ * skipped. Merged shapes pass through normalizeShape like commitUpdate.
+ */
+export function applyBatchUpdates(shapes, updates) {
+  const list = Array.isArray(shapes) ? shapes : [];
+  if (!Array.isArray(updates) || updates.length === 0) return list;
+  const merged = new Map();
+  for (const u of updates) {
+    if (!u || typeof u.id !== 'string' || !u.id) continue;
+    if (!u.changes || typeof u.changes !== 'object' || Object.keys(u.changes).length === 0) continue;
+    merged.set(u.id, { ...(merged.get(u.id) ?? {}), ...u.changes });
+  }
+  if (merged.size === 0) return list;
+  return list.map((s) => {
+    if (!s || !merged.has(s.id)) return s;
+    return normalizeShape({ ...s, ...merged.get(s.id) });
+  });
+}
+
+/**
+ * Stored endpoint binding descriptor: { shapeId, anchor }.
+ * Binds one arrow end to a target shape's named anchor so the arrow can
+ * follow that shape on later moves. Null clears the binding.
+ */
+export function isValidBinding(binding) {
+  if (binding === null || binding === undefined) return true;
+  if (!binding || typeof binding !== 'object') return false;
+  if (typeof binding.shapeId !== 'string' || !binding.shapeId) return false;
+  return ['top', 'right', 'bottom', 'left', 'center'].includes(binding.anchor);
+}
+
+/**
  * Normalize a 0-100 opacity slider value to Konva 0-1.
  * Pass-through for already-normalized 0-1 values.
  */

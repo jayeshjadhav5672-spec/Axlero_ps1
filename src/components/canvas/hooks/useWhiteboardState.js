@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { isValidShape, normalizeShape, serializeShape, serializeShapes } from '../utils/shapes.js';
+import { applyBatchUpdates, isValidShape, normalizeShape, serializeShape, serializeShapes } from '../utils/shapes.js';
 import useCanvasHistory, { HISTORY_LIMIT } from './useCanvasHistory.js';
 
 /**
@@ -154,6 +154,43 @@ export default function useWhiteboardState({
       recordHistory(next);
       onShapeUpdate?.(shapeId, clean);
       if (!fromRemote) emitUnified('shapes:update-batch', { shapes: [{ id: shapeId, ...clean }] });
+    },
+    [isControlled, onShapeUpdate, recordHistory, shapes, emitUnified],
+  );
+
+  /**
+   * Batched multi-shape commit: one coherent snapshot for N dependent
+   * updates (e.g. a dragged shape plus every arrow bound to it). Every
+   * entry derives from the SAME base array, so updates can never clobber
+   * one another the way sequential per-shape commits against a stale
+   * closure can. Exactly one history entry and (uncontrolled) one
+   * `shapes:update-batch` broadcast cover the whole batch; in controlled
+   * mode each entry still fires its own `onShapeUpdate` (parent contract),
+   * while history records the single merged snapshot so undo restores the
+   * pre-gesture state atomically. Same socket protocol as commitUpdate —
+   * receivers merge the entry list identically.
+   */
+  const commitUpdates = useCallback(
+    (updates, { fromRemote = false } = {}) => {
+      if (!Array.isArray(updates) || updates.length === 0) return;
+      const clean = [];
+      for (const u of updates) {
+        if (!u || typeof u.id !== 'string' || !u.id) continue;
+        if (!u.changes || typeof u.changes !== 'object' || Object.keys(u.changes).length === 0) continue;
+        const ser = serializeShape(withNormalizedOpacity(u.changes));
+        if (!ser) continue;
+        clean.push({ id: u.id, changes: ser });
+      }
+      if (clean.length === 0) return;
+      const next = applyBatchUpdates(shapes ?? [], clean);
+      if (!isControlled) setInternalShapes(next);
+      recordHistory(next);
+      for (const { id, changes } of clean) onShapeUpdate?.(id, changes);
+      if (!fromRemote) {
+        emitUnified('shapes:update-batch', {
+          shapes: clean.map(({ id, changes }) => ({ id, ...changes })),
+        });
+      }
     },
     [isControlled, onShapeUpdate, recordHistory, shapes, emitUnified],
   );
@@ -457,6 +494,7 @@ export default function useWhiteboardState({
     isControlled,
     commitCreate,
     commitUpdate,
+    commitUpdates,
     commitDelete,
     deleteShape,
     selectShape,

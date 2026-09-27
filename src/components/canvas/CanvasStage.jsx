@@ -156,8 +156,8 @@ const RemoteSelectionOverlay = React.memo(function RemoteSelectionOverlay({
 
 /**
  * CanvasStage — Sayon (Whiteboard / Konva.js Engineer)
- * Excalidraw aesthetic: off-white canvas, fine dot-grid, violet
- * transformer accents (#6965db) with rounded anchor dots.
+ * Plain solid-white canvas with violet transformer accents (#6965db)
+ * and rounded anchor dots. No dot-grid, no background pattern.
  * - Responsive sizing via ResizeObserver (preserved foundation).
  * - Viewport = Stage scale/position; shape data stays in world coords.
  * - Wheel = zoom to pointer; stage draggable = pan (pan tool).
@@ -199,6 +199,11 @@ export default function CanvasStage({
   onTransformEnd,
   onTextDoubleClick,
   onBendCommit,
+  // Arrow tip/tail endpoint commit (drag with snap-to-anchor):
+  // (shapeId, localPoints, { startBinding, endBinding }).
+  onEndpointCommit,
+  // Committed shapes used as snap-anchor targets for arrow endpoints.
+  anchorShapes = null,
 }) {
   const containerRef = useRef(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -432,8 +437,12 @@ export default function CanvasStage({
   return (
     <div
       ref={containerRef}
-      className="h-full min-h-0 w-full flex-1 touch-none overflow-hidden bg-[#ffffff] bg-[radial-gradient(#d3d8de_1px,transparent_1.25px)] [background-size:20px_20px]"
-      style={{ cursor: cursorForTool() }}
+      className="h-full min-h-0 w-full flex-1 touch-none overflow-hidden bg-white"
+      style={{
+        cursor: cursorForTool(),
+        backgroundColor: '#ffffff',
+        backgroundImage: 'none',
+      }}
       data-testid="excalidraw-canvas"
     >
       {size.width > 0 && size.height > 0 && (
@@ -475,6 +484,8 @@ export default function CanvasStage({
                 scale={scale}
                 shapeNodesRef={shapeNodesRef}
                 onCommitBend={onBendCommit}
+                shapes={anchorShapes ?? committedShapes}
+                onCommitEndpoints={onEndpointCommit}
               />
             )}
             <Transformer
