@@ -534,6 +534,7 @@ export default function CanvasStage({
                 onDragMove={onShapeDragMove}
                 onTransformEnd={onTransformEnd}
                 onTextDoubleClick={onTextDoubleClick}
+                enableFrameGroups={false}
               />
             </Layer>
           )}
@@ -545,10 +546,10 @@ export default function CanvasStage({
                 y={Math.min(selectBox.y, selectBox.y + selectBox.height)}
                 width={Math.abs(selectBox.width)}
                 height={Math.abs(selectBox.height)}
-                fill="rgba(59, 130, 246, 0.15)"
+                fill="rgba(59, 130, 246, 0.1)"
                 stroke="#3b82f6"
                 strokeWidth={1}
-                dash={[6, 4]}
+                dash={[4, 4]}
                 listening={false}
               />
             </Layer>

@@ -12,6 +12,7 @@ import {
   applyWhiteboardOp,
   isValidCodeOp,
   isValidWhiteboardOp,
+  toBatchUpdates,
 } from '../src/lib/collabOps.js';
 import { colorForId, isValidRoomId, presenceToUsers } from '../src/lib/room.js';
 
@@ -51,6 +52,83 @@ test('whiteboard ops: valid ops apply, garbage is dropped', () => {
   const cleared = applyWhiteboardOp(updated.shapes, { op: 'clear', actorId: 'a' }, 'b');
   assert.equal(cleared.applied, true);
   assert.deepEqual(cleared.shapes, []);
+});
+
+test('whiteboard ops: update-many applies a frame block atomically', () => {
+  const frame = { ...shape, id: 'frame-1', type: 'frame', x: 0, y: 0, width: 200, height: 200 };
+  const child = { ...shape, id: 'shape-2', x: 10, y: 10 };
+  const outsider = { ...shape, id: 'shape-3', x: 500, y: 500 };
+  const list = [frame, child, outsider];
+  const op = {
+    op: 'update-many',
+    updates: [
+      { shapeId: 'frame-1', changes: { x: 100, y: 50 } },
+      { shapeId: 'shape-2', changes: { x: 110, y: 60 } },
+    ],
+    actorId: 'a',
+  };
+  assert.equal(isValidWhiteboardOp(op), true);
+  const res = applyWhiteboardOp(list, op, 'b');
+  assert.equal(res.applied, true);
+  // Single pass: frame + child move together, outsider untouched, order kept
+  assert.deepEqual(res.shapes.map((s) => s.id), ['frame-1', 'shape-2', 'shape-3']);
+  assert.deepEqual([res.shapes[0].x, res.shapes[0].y], [100, 50]);
+  assert.deepEqual([res.shapes[1].x, res.shapes[1].y], [110, 60]);
+  assert.deepEqual([res.shapes[2].x, res.shapes[2].y], [500, 500]);
+
+  // Garbage rejected, never crashes
+  assert.equal(isValidWhiteboardOp({ op: 'update-many', updates: [], actorId: 'a' }), false);
+  assert.equal(isValidWhiteboardOp({ op: 'update-many', actorId: 'a' }), false);
+  assert.equal(
+    isValidWhiteboardOp({ op: 'update-many', updates: [{ shapeId: '', changes: {} }], actorId: 'a' }),
+    false,
+  );
+  assert.equal(
+    isValidWhiteboardOp({ op: 'update-many', updates: [{ shapeId: 'x', changes: {} }], actorId: 'a' }),
+    false,
+  );
+  const oversized = { op: 'update-many', updates: new Array(501).fill({ shapeId: 'x', changes: { x: 1 } }), actorId: 'a' };
+  assert.equal(isValidWhiteboardOp(oversized), false);
+  // No known ids -> no-op (same ref, no re-render)
+  const noop = applyWhiteboardOp(list, { ...op, updates: [{ shapeId: 'nope', changes: { x: 1 } }] }, 'b');
+  assert.equal(noop.applied, false);
+  assert.equal(noop.shapes, list);
+  // Self-echo suppressed
+  assert.equal(applyWhiteboardOp(list, { ...op, actorId: 'b' }, 'b').applied, false);
+});
+
+test('whiteboard ops: store-to-shell batch handoff stays nested end to end', () => {
+  // The store emits flat [{ id, ...changes }]; the shell + update-many
+  // validation read nested [{ id, changes }]. toBatchUpdates bridges them.
+  // A flat batch passed straight through must NOT silently vanish (the
+  // frame-drag blackout: peers observed nothing at all).
+  const flatBatch = [
+    { id: 'frame-1', x: 100, y: 50 },
+    { id: 'shape-2', x: 110, y: 60 },
+  ];
+  const nested = toBatchUpdates(flatBatch);
+  assert.deepEqual(nested, [
+    { id: 'frame-1', changes: { x: 100, y: 50 } },
+    { id: 'shape-2', changes: { x: 110, y: 60 } },
+  ]);
+  assert.deepEqual(toBatchUpdates(null), []);
+  assert.deepEqual(toBatchUpdates([{ nope: 1 }]), []);
+
+  // Full chain: nested batch -> shell emit envelope -> peer validate+apply
+  const emitted = {
+    op: 'update-many',
+    updates: nested.map((u) => ({ shapeId: u.id, changes: u.changes })),
+    actorId: 'a',
+  };
+  assert.equal(isValidWhiteboardOp(emitted), true);
+  const before = [
+    { id: 'frame-1', type: 'frame', x: 0, y: 0, width: 200, height: 200 },
+    { id: 'shape-2', type: 'rectangle', x: 10, y: 10, width: 40, height: 40 },
+  ];
+  const after = applyWhiteboardOp(before, emitted, 'b');
+  assert.equal(after.applied, true);
+  assert.equal(after.shapes[0].x, 100);
+  assert.equal(after.shapes[1].x, 110);
 });
 
 test('whiteboard ops: reorder replaces order, drops garbage, suppresses echo', () => {

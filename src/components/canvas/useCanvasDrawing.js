@@ -21,12 +21,14 @@ import {
   boxesIntersect,
   circleRadius,
   computeBoundArrowTargets,
+  computeFrameDropBatch,
   createFrameShape,
   createGroupShape,
   createShape,
   DEFAULTS,
   duplicateShape,
   estimateTextWidth,
+  frameMembers,
   getShapeAnchors,
   getShapeBounds,
   isFiniteNum,
@@ -36,6 +38,7 @@ import {
   normalizeRect,
   normalizeSelectBox,
   sanitizePoints,
+  toggleSelectionId,
   ungroupShape,
 } from './utils/shapes.js';
 
@@ -77,6 +80,7 @@ export default function useCanvasDrawing({
   selectedShapeId: controlledSelection,
   onShapeCreate,
   onShapeUpdate,
+  onShapesBatchUpdate,
   onShapeDelete,
   onCanvasClear,
   onSelectionChange,
@@ -118,6 +122,7 @@ export default function useCanvasDrawing({
     selectedShapeId: controlledSelection,
     onShapeCreate,
     onShapeUpdate,
+    onShapesBatchUpdate,
     onShapeDelete,
     onCanvasClear,
     onSelectionChange,
@@ -230,6 +235,7 @@ export default function useCanvasDrawing({
       const payload = buildPreviewProgressPayload({
         draftId: activePreviewIdRef.current,
         shape: previewBufferRef.current,
+        members: previewMembersRef.current ?? undefined,
       });
       if (payload) {
         didPreviewRef.current = true;
@@ -304,9 +310,13 @@ export default function useCanvasDrawing({
   // ---- universal live-preview streaming refs (all non-pen draw tools) ----
   // Buffer carries a full draft-shape snapshot broadcast as
   // `shape:preview-progress` { draftId, shape } on the shared fixed tick.
-  // Pen keeps its dedicated points channel.
+  // Frame drags additionally stage translated member descriptors in
+  // `previewMembersRef` (same tick, same packet: { draftId, shape,
+  // members }) so peers glide the whole block. Pen keeps its dedicated
+  // points channel.
   const activePreviewIdRef = useRef(null);
   const previewBufferRef = useRef(null);
+  const previewMembersRef = useRef(null);
   const didPreviewRef = useRef(false);
 
   const schedulePreviewFlush = useCallback(() => {
@@ -317,6 +327,7 @@ export default function useCanvasDrawing({
   const resetPreviewStream = useCallback(() => {
     activePreviewIdRef.current = null;
     previewBufferRef.current = null;
+    previewMembersRef.current = null;
     didPreviewRef.current = false;
   }, []);
 
@@ -393,10 +404,17 @@ export default function useCanvasDrawing({
   // ---- inbound remote strokes: previews merge into renderShapes ----
   // Drag previews for COMMITTED ids bypass state via tryImperativeDragMove
   // (direct Konva mutation, see below); everything else uses the map.
+  // FRAMES are excluded from the imperative path on purpose: the
+  // registered node for a frame id is the BORDER rect (group-local
+  // coords), so writing translated world coords into it would teleport
+  // the border inside its own group. Frame groups (and their members)
+  // converge through the state path (mergeRenderShapes replaces each
+  // entry in place), which stays visually glued at tick rate.
   const tryImperativeDragMove = useCallback((data) => {
     try {
       const shape = data?.shape;
       if (!shape || typeof shape.id !== 'string') return false;
+      if (shape.type === 'frame') return false;
       const known = (committedShapesRef.current ?? []).some((s) => s?.id === shape.id);
       if (!known) return false;
       const node =
@@ -525,6 +543,42 @@ export default function useCanvasDrawing({
   const marqueeStartRef = useRef(null);
   const marqueeActiveRef = useRef(false);
 
+  // Shift+click membership toggle: Konva's onSelect fires without the DOM
+  // event, so the Shift state rides a ref (window key listeners below).
+  // Cleared on blur so a released-off-window Shift never sticks.
+  const shiftDownRef = useRef(false);
+  useEffect(() => {
+    const onKey = (down) => (e) => {
+      if (e.key === 'Shift') shiftDownRef.current = down;
+    };
+    const onKeyDown = onKey(true);
+    const onKeyUp = onKey(false);
+    const onBlur = () => {
+      shiftDownRef.current = false;
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, []);
+
+  // Group-drag session: snapshot of member node positions at dragstart so
+  // every selected member translates by the dragged node's delta.
+  // { activeId, starts: [{ id, x, y }] } or null. Declared up here (before
+  // all drag handlers) for the same TDZ reason as the eraser refs: the
+  // drag callbacks list it in dep arrays evaluated eagerly during render.
+  const groupDragRef = useRef(null);
+
+  // Frame-drag session: the FrameGroupNode moves natively (no state
+  // mid-gesture), so this only tracks cross-boundary arrows for imperative
+  // live-follow during the move. { frameId, startX, startY, arrows:
+  // [{ id, end, shapeId, anchor }] } or null. Same TDZ placement rule.
+  const frameDragRef = useRef(null);
+
   // Multi-selection: ordered list of selected ids. `selectedId` (store)
   // stays the primary single selection for sidebars/exports; selectedIds
   // mirrors it plus marquee additions for the shared Transformer.
@@ -540,7 +594,7 @@ export default function useCanvasDrawing({
     }
   }, [selectedId]);
 
-  /** Select several shapes at once (marquee / shift-click future). */
+  /** Select several shapes at once (marquee / Shift+click). */
   const selectShapes = useCallback(
     (ids) => {
       const clean = Array.isArray(ids) ? [...new Set(ids.filter(Boolean))] : [];
@@ -1401,9 +1455,24 @@ export default function useCanvasDrawing({
         return;
       }
       if (event) event.cancelBubble = true;
+      // Shift+click toggles multi-selection membership — but ONLY on the
+      // pointerdown phase: Konva fires onShapeClick again on click/tap for
+      // the same press, and toggling twice would no-op. (e.type is
+      // 'pointerdown' | 'click' | 'tap' from the respective renderer hook.)
+      if (event?.evt?.shiftKey || shiftDownRef.current) {
+        if (event?.type && event.type !== 'pointerdown') return;
+        const current =
+          selectedIdsRef.current.length > 0
+            ? selectedIdsRef.current
+            : selectedId
+              ? [selectedId]
+              : [];
+        selectShapes(toggleSelectionId(current, shapeId));
+        return;
+      }
       selectShape(shapeId);
     },
-    [deleteShape, selectShape, tool],
+    [deleteShape, selectShape, selectShapes, selectedId, tool],
   );
 
   // Immediate selection for pointer-down (nested-shape drag ownership):
@@ -1414,6 +1483,13 @@ export default function useCanvasDrawing({
   const handleShapeSelect = useCallback(
     (shapeId) => {
       if (tool === 'text' || tool === 'eraser') return;
+      // Shift is held: the click path toggles membership — never collapse
+      // the group on pointerdown.
+      if (shiftDownRef.current) return;
+      // Dragging / pressing a member of the active multi-selection keeps
+      // the group (group-drag ownership); pressing anything else selects
+      // it alone. selectShape is idempotent for the already-selected id.
+      if (shapeId && (selectedIdsRef.current ?? []).includes(shapeId)) return;
       selectShape(shapeId);
     },
     [selectShape, tool],
@@ -1423,7 +1499,92 @@ export default function useCanvasDrawing({
     (shapeId, event) => {
       if (event) event.cancelBubble = true;
       if (tool === 'text' || tool === 'eraser') return;
-      if (shapeId) selectShape(shapeId);
+      // Frame drag takes precedence: the FrameGroupNode translates natively
+      // (members ride the GPU transform — no state, no lag). Snapshot only
+      // the cross-boundary arrows that need imperative live-follow; the
+      // drop batch recomputes everything from descriptors. Clears any group
+      // session: a frame block moves as one rigid unit.
+      const draggedShape = shapeId ? (shapes ?? []).find((s) => s?.id === shapeId) : null;
+      if (draggedShape && draggedShape.type === 'frame' && !draggedShape.remotePreview) {
+        groupDragRef.current = null;
+        const memberIds = new Set(frameMembers(shapes, draggedShape).map((m) => m.id));
+        memberIds.add(shapeId);
+        const arrows = [];
+        for (const a of shapes ?? []) {
+          if (!a || a.type !== 'arrow' || a.remotePreview || memberIds.has(a.id)) continue;
+          if (!Array.isArray(a.points) || a.points.length < 4) continue;
+          for (const end of ['start', 'end']) {
+            const b = end === 'start' ? a.startBinding : a.endBinding;
+            if (b && memberIds.has(b.shapeId)) arrows.push({ id: a.id, end, shapeId: b.shapeId, anchor: b.anchor });
+          }
+        }
+        const gNode =
+          stageRef.current?.findOne?.(`#${shapeId}__group`) ??
+          shapeNodesRef.current.get(shapeId) ??
+          null;
+        frameDragRef.current = {
+          frameId: shapeId,
+          // Group node carries world coords; the border fallback sits at
+          // the group origin, so only trust a node whose id matches the
+          // group (or fall back to the committed descriptor).
+          startX: gNode && typeof gNode.x === 'function' && gNode.id?.() === `${shapeId}__group`
+            ? gNode.x()
+            : (draggedShape.x ?? 0),
+          startY: gNode && typeof gNode.y === 'function' && gNode.id?.() === `${shapeId}__group`
+            ? gNode.y()
+            : (draggedShape.y ?? 0),
+          arrows,
+        };
+      } else {
+        frameDragRef.current = null;
+      }
+      const members = selectedIdsRef.current ?? [];
+      // Frames never join member-group sessions (their block already moves
+      // natively — translating members again would double-move them).
+      if (shapeId && members.length > 1 && members.includes(shapeId) && draggedShape?.type !== 'frame') {
+        // Group drag: snapshot every member's live node position so the
+        // whole block translates by the dragged node's delta. Frames are
+        // excluded: a frame's registered node is its border (group-local
+        // coords), so translating it here would corrupt the border offset
+        // and teleport the frame on drop — frames move only via their own
+        // native group drag. Selection stays untouched (no collapse), and
+        // the Transformer keeps all member nodes attached.
+        const starts = [];
+        for (const id of members) {
+          const desc = (shapes ?? []).find((s) => s?.id === id);
+          if (desc?.type === 'frame') continue;
+          const n =
+            shapeNodesRef.current.get(id) ??
+            stageRef.current?.findOne?.(`#${id}`) ??
+            null;
+          if (!n || typeof n.x !== 'function') continue;
+          starts.push({ id, x: n.x(), y: n.y() });
+        }
+        // The dragged node itself must be in the session, with at least
+        // one fellow member, to qualify as a group drag.
+        const activeIncluded = starts.some((s) => s.id === shapeId);
+        groupDragRef.current = starts.length > 1 && activeIncluded ? { activeId: shapeId, starts } : null;
+        const transformer = transformerRef.current;
+        if (transformer) {
+          const nodes = starts
+            .map((s) => shapeNodesRef.current.get(s.id) ?? null)
+            .filter(Boolean);
+          if (nodes.length > 0) {
+            transformer.nodes(nodes);
+            transformer.getLayer()?.batchDraw();
+          }
+        }
+        return;
+      }
+      // Single drag (or drag of an unselected shape): collapse to it and
+      // mirror the store sync immediately so the ref never disagrees with
+      // the primary selection mid-gesture.
+      groupDragRef.current = null;
+      if (shapeId) {
+        selectShape(shapeId);
+        selectedIdsRef.current = [shapeId];
+        setSelectedIds([shapeId]);
+      }
       // Snap the Transformer to the exact node being dragged RIGHT NOW.
       // React state (selectedId) propagates async, so without this the
       // previous sibling's bounding box would linger under the cursor and
@@ -1436,7 +1597,7 @@ export default function useCanvasDrawing({
         transformer.getLayer()?.batchDraw();
       }
     },
-    [selectShape, tool],
+    [selectShape, shapes, tool],
   );
 
   /**
@@ -1455,28 +1616,226 @@ export default function useCanvasDrawing({
         return;
       }
       const siblings = (shapes ?? []).filter((s) => s.id !== shapeId);
-      const { dx, dy, lines } = snapMovingShape(shape, { x: nodeX, y: nodeY }, siblings, 5);
-      const node = event?.target ?? shapeNodesRef.current.get(shapeId);
+      // Group drag: fellow members are not snap targets (they move as one
+      // rigid block — snapping against them is pure noise).
+      const groupIds = groupDragRef.current?.activeId === shapeId
+        ? new Set(groupDragRef.current.starts.map((m) => m.id))
+        : null;
+      // Frame drag: geometric members ride the group natively — exclude
+      // them from snap targets for the same reason.
+      const isFrameDrag = shape.type === 'frame' && frameDragRef.current?.frameId === shapeId;
+      const frameMemberIds = isFrameDrag
+        ? new Set(frameMembers(shapes, shape).map((m) => m.id))
+        : null;
+      const snapTargets = (groupIds || frameMemberIds)
+        ? siblings.filter((s) => !(groupIds?.has(s?.id) || frameMemberIds?.has(s?.id)))
+        : siblings;
+      const { dx, dy, lines } = snapMovingShape(shape, { x: nodeX, y: nodeY }, snapTargets, 5);
+      // Frame drags snap the GROUP node (event.target is the border child —
+      // adjusting it would corrupt the border offset inside the group).
+      const node = isFrameDrag
+        ? (stageRef.current?.findOne?.(`#${shapeId}__group`) ?? null)
+        : (event?.target ?? shapeNodesRef.current.get(shapeId));
       if (node && typeof node.x === 'function' && (dx !== 0 || dy !== 0)) {
         node.x(nodeX + dx);
         node.y(nodeY + dy);
       }
       setGuidelines(lines);
-      // Live drag transform: broadcast the snapped translated snapshot so
-      // peers replace the committed entry in place (same id, same index —
-      // no duplication, no ghosting). Peers converge exactly on drop via
-      // the authoritative update + preview-cancel. Groups/frames preview
-      // their own node placement; children follow on drag end as usual.
       const snappedX = nodeX + dx;
       const snappedY = nodeY + dy;
       const moved = bakeDragEnd(shape, snappedX, snappedY);
-      if (moved) {
+      // Live drag transform: broadcast the snapped translated snapshot so
+      // peers replace the committed entry in place (same id, same index —
+      // no duplication, no ghosting). Peers converge exactly on drop via
+      // the authoritative update + preview-cancel.
+      if (moved && shape.type !== 'frame') {
         activePreviewIdRef.current = shapeId;
         previewBufferRef.current = { ...shape, ...moved };
+        previewMembersRef.current = null;
         schedulePreviewFlush();
+      }
+      // Frame drags stream the WHOLE block live: translated frame + translated
+      // members ride the shared ~30ms preview tick (ONE packet per tick —
+      // never per-shape emits), so peers glide the block in real time. The
+      // drop path cancels the preview and commits atomically; history is
+      // untouched until release. Member image bytes are stripped (peers pop
+      // them in on commit) to keep every tick far under the 64KB cap.
+      if (shape.type === 'frame' && frameDragRef.current?.frameId === shapeId) {
+        const ddx = snappedX - shape.x;
+        const ddy = snappedY - shape.y;
+        if (isFiniteNum(ddx) && isFiniteNum(ddy) && (ddx !== 0 || ddy !== 0)) {
+          const members = [];
+          for (const m of frameMembers(shapes, shape)) {
+            if (m.type === 'freehand' || m.type === 'pen' || m.type === 'line' || m.type === 'arrow') {
+              const src = sanitizePoints(m.points);
+              if (src.length < 4) continue;
+              members.push({ ...m, points: src.map((v, i) => (i % 2 === 0 ? v + ddx : v + ddy)) });
+            } else if (isFiniteNum(m.x) && isFiniteNum(m.y)) {
+              const translated = { ...m, x: m.x + ddx, y: m.y + ddy };
+              // Image payloads are megabytes: peers render the translated
+              // box and pop the pixels in on the drop commit.
+              if (translated.type === 'image') delete translated.src;
+              members.push(translated);
+            }
+          }
+          activePreviewIdRef.current = shapeId;
+          previewBufferRef.current = { ...shape, x: snappedX, y: snappedY };
+          previewMembersRef.current = members;
+          schedulePreviewFlush();
+        }
+      }
+      // Group drag: translate every fellow member by the dragged node's
+      // post-snap delta (read back from the live node so snap offsets
+      // apply to the whole block). Imperative only — the single atomic
+      // commit lands on drag end.
+      const session = groupDragRef.current;
+      if (session && session.activeId === shapeId) {
+        const anchor = session.starts.find((m) => m.id === shapeId);
+        const live = shapeNodesRef.current.get(shapeId);
+        if (anchor && live && typeof live.x === 'function') {
+          const ddx = live.x() - anchor.x;
+          const ddy = live.y() - anchor.y;
+          if (ddx !== 0 || ddy !== 0) {
+            for (const m of session.starts) {
+              if (m.id === shapeId) continue;
+              const mn = shapeNodesRef.current.get(m.id);
+              if (mn && typeof mn.x === 'function') {
+                mn.x(m.x + ddx);
+                mn.y(m.y + ddy);
+              }
+            }
+            live.getLayer()?.batchDraw();
+          }
+        }
+      }
+      // Frame drag: members ride the group natively (nothing to move).
+      // Cross-boundary arrows (outside arrows bound to the frame/members)
+      // stretch imperatively to the translated anchors — node points only,
+      // zero React state, one layer batchDraw. The drop batch converges
+      // authoritatively with identical values.
+      const frameSession = frameDragRef.current;
+      if (frameSession && frameSession.frameId === shapeId && frameSession.arrows.length > 0) {
+        const liveGroup = stageRef.current?.findOne?.(`#${shapeId}__group`) ?? null;
+        const gx = liveGroup && typeof liveGroup.x === 'function' ? liveGroup.x() : nodeX;
+        const gy = liveGroup && typeof liveGroup.y === 'function' ? liveGroup.y() : nodeY;
+        const ddx = gx - frameSession.startX;
+        const ddy = gy - frameSession.startY;
+        if (ddx !== 0 || ddy !== 0) {
+          let touchedLayer = null;
+          for (const t of frameSession.arrows) {
+            const target = (shapes ?? []).find((s) => s?.id === t.shapeId);
+            if (!target) continue;
+            const base = target.type === 'freehand' || target.type === 'pen' || target.type === 'line' || target.type === 'arrow'
+              ? { ...target, points: sanitizePoints(target.points).map((v, i) => (i % 2 === 0 ? v + ddx : v + ddy)) }
+              : (isFiniteNum(target.x) && isFiniteNum(target.y)
+                ? { ...target, x: target.x + ddx, y: target.y + ddy }
+                : null);
+            if (!base) continue;
+            const anchor = getShapeAnchors(base).find((k) => k.anchor === t.anchor);
+            if (!anchor) continue;
+            const arrow = (shapes ?? []).find((s) => s?.id === t.id);
+            if (!arrow || !Array.isArray(arrow.points)) continue;
+            const aNode = shapeNodesRef.current.get(t.id);
+            if (!aNode || typeof aNode.points !== 'function') continue;
+            // Committed arrow nodes rest at the origin: world == local.
+            const next = moveArrowEndpoint(arrow.points, t.end, anchor.x, anchor.y);
+            if (!next) continue;
+            aNode.points(next);
+            touchedLayer = aNode.getLayer?.() ?? touchedLayer;
+          }
+          try {
+            touchedLayer?.batchDraw?.();
+          } catch {
+            // best-effort; the drop batch still converges
+          }
+        }
       }
     },
     [shapes, schedulePreviewFlush],
+  );
+
+  /**
+   * Atomic group-drop commit for a multi-select drag session. Every moved
+   * member (positioned x/y or folded point arrays) plus every unselected
+   * bound-arrow follow lands in ONE `commitUpdates` batch: a single
+   * history entry and a single `shapes:update-batch` broadcast, so peers
+   * converge on the whole block at once and one undo restores it.
+   * Unmoved members and unresolvable bindings are skipped silently.
+   */
+  const commitGroupDrag = useCallback(
+    (groupSession) => {
+      if (!groupSession || !Array.isArray(groupSession.starts) || groupSession.starts.length < 2) return;
+      const batch = [];
+      const movedDesc = new Map(); // id -> settled descriptor (for follows)
+      const memberIds = new Set(groupSession.starts.map((m) => m.id));
+      for (const m of groupSession.starts) {
+        const desc = (shapes ?? []).find((s) => s?.id === m.id);
+        if (!desc || desc.remotePreview) continue;
+        // Frames never ride member-group sessions (see dragstart): their
+        // registered node is the group-local border, not a world position.
+        if (desc.type === 'frame') continue;
+        const node = shapeNodesRef.current.get(m.id);
+        if (!node || typeof node.x !== 'function') continue;
+        const nx = node.x();
+        const ny = node.y();
+        const pointBased =
+          desc.type === 'freehand' ||
+          desc.type === 'pen' ||
+          desc.type === 'line' ||
+          desc.type === 'arrow';
+        if (pointBased) {
+          const changes = bakeDragEnd(desc, nx, ny);
+          // Pin back at origin either way: committed points already carry
+          // the offset, and absolute-points nodes rest at (0, 0).
+          node.position({ x: 0, y: 0 });
+          if (!changes) continue;
+          batch.push({ id: m.id, changes });
+          movedDesc.set(m.id, { ...desc, ...changes });
+        } else {
+          if (!isFiniteNum(nx) || !isFiniteNum(ny)) continue;
+          if (nx === desc.x && ny === desc.y) continue;
+          batch.push({ id: m.id, changes: { x: nx, y: ny } });
+          movedDesc.set(m.id, { ...desc, x: nx, y: ny });
+        }
+      }
+      // Connected-arrow translation: selected arrows already rode the block
+      // rigidly (delta applied live, bends preserved, bindings still valid).
+      // Unselected arrows bound to a moved member stretch/reorient to the
+      // settled anchor — folded into the SAME atomic batch.
+      for (const a of shapes ?? []) {
+        if (!a || a.type !== 'arrow' || a.remotePreview || memberIds.has(a.id)) continue;
+        if (!Array.isArray(a.points) || a.points.length < 4) continue;
+        let next = null;
+        for (const end of ['start', 'end']) {
+          const key = end === 'start' ? 'startBinding' : 'endBinding';
+          const binding = a[key];
+          if (!binding) continue;
+          const moved = movedDesc.get(binding.shapeId);
+          if (!moved) continue;
+          const anchor = getShapeAnchors(moved).find((k) => k.anchor === binding.anchor);
+          if (!anchor) continue;
+          const aNode = shapeNodesRef.current.get(a.id);
+          const ox = aNode ? aNode.x() : 0;
+          const oy = aNode ? aNode.y() : 0;
+          next = moveArrowEndpoint(next ?? a.points, end, anchor.x - ox, anchor.y - oy);
+          if (!next) break;
+        }
+        if (next) {
+          try {
+            const aNode = shapeNodesRef.current.get(a.id);
+            if (aNode) {
+              aNode.points(next);
+              aNode.getLayer()?.batchDraw();
+            }
+          } catch {
+            // best-effort; the commit still converges
+          }
+          batch.push({ id: a.id, changes: { points: next } });
+        }
+      }
+      if (batch.length > 0) storeCommitUpdates(batch);
+    },
+    [shapes, storeCommitUpdates],
   );
 
   const handleShapeDragEnd = useCallback(
@@ -1490,9 +1849,35 @@ export default function useCanvasDrawing({
         emitStrokeEvent('shape:preview-cancel', { draftId: activePreviewIdRef.current });
       }
       resetPreviewStream();
+      // A group session ends with the active node's dragend regardless of
+      // what follows (even a degenerate drop): always consume the ref.
+      const session = groupDragRef.current;
+      groupDragRef.current = null;
       if (!isFiniteNum(nodeX) || !isFiniteNum(nodeY)) return;
       const shape = shapes.find((s) => s.id === shapeId);
       if (!shape) return;
+      // Multi-select group drop: every member commits in ONE atomic batch
+      // (single history entry + single broadcast). Selected arrows moved
+      // rigidly with the block (bends preserved); unselected arrows bound
+      // to a moved member stretch via follow. Takes precedence over the
+      // group/frame single-shape branches below — a selected block moves
+      // as one rigid unit, frame children included.
+      if (session && session.activeId === shapeId && session.starts.length > 1) {
+        commitGroupDrag(session);
+        const transformer = transformerRef.current;
+        if (transformer) {
+          const nodes = session.starts
+            .map((m) => shapeNodesRef.current.get(m.id) ?? null)
+            .filter(Boolean);
+          if (nodes.length > 0) {
+            transformer.nodes(nodes);
+            transformer.getLayer()?.batchDraw();
+          } else {
+            transformer.getLayer()?.batchDraw();
+          }
+        }
+        return;
+      }
       // Composite group move: the Group node owns placement — commit x/y
       // only; children stay relative to the group origin.
       if (shape.type === 'group') {
@@ -1509,38 +1894,21 @@ export default function useCanvasDrawing({
         }
         return;
       }
-      // Frame move: shift every child whose center falls inside the
-      // frame's PRE-move bounds by the same (dx, dy) translation, then
-      // commit the frame's own new position. Children that are frames
-      // themselves move without recursing (their children stay put unless
-      // also inside the moved frame).
+      // Frame move: the Konva FrameGroupNode already translated the whole
+      // block natively (children share the group transform — zero React
+      // state mid-gesture, zero lag). On drop, settle everything in ONE
+      // atomic batch: frame position + translated members + connected-
+      // arrow maintenance (see computeFrameDropBatch). Node coordinates
+      // here are the GROUP position (world frame); `node` below resolves
+      // to the border rect (Transformer anchor), never the group.
       if (shape.type === 'frame') {
         const dx = nodeX - shape.x;
         const dy = nodeY - shape.y;
-        if (isFiniteNum(dx) && isFiniteNum(dy) && (dx !== 0 || dy !== 0)) {
-          for (const child of shapes) {
-            if (!child || child.id === shapeId || child.type === 'frame') continue;
-            if (!isShapeInsideFrame(child, shape)) continue;
-            if (
-              child.type === 'freehand' ||
-              child.type === 'pen' ||
-              child.type === 'line' ||
-              child.type === 'arrow'
-            ) {
-              const src = sanitizePoints(child.points);
-              if (src.length < 4) continue;
-              const moved = src.map((v, i) => (i % 2 === 0 ? v + dx : v + dy));
-              if (moved.some((v) => !Number.isFinite(v))) continue;
-              commitUpdate(child.id, { x: 0, y: 0, points: moved });
-            } else if (isFiniteNum(child.x) && isFiniteNum(child.y)) {
-              commitUpdate(child.id, { x: child.x + dx, y: child.y + dy });
-            }
-          }
+        if (isFiniteNum(dx) && isFiniteNum(dy)) {
+          const batch = computeFrameDropBatch({ frame: shape, dx, dy, shapes });
+          if (batch.length > 0) storeCommitUpdates(batch);
         }
         const node = shapeNodesRef.current.get(shapeId);
-        if (node && (nodeX !== shape.x || nodeY !== shape.y)) {
-          commitUpdate(shapeId, { x: nodeX, y: nodeY });
-        }
         const transformer = transformerRef.current;
         if (transformer && node && typeof node.getStage === 'function') {
           if (!transformer.nodes().includes(node)) transformer.nodes([node]);
@@ -1548,6 +1916,7 @@ export default function useCanvasDrawing({
         } else {
           transformer?.getLayer()?.batchDraw();
         }
+        frameDragRef.current = null;
         return;
       }
       // nodeX/nodeY are the exact absolute node position Konva already
@@ -1601,7 +1970,7 @@ export default function useCanvasDrawing({
         transformer?.getLayer()?.batchDraw();
       }
     },
-    [commitUpdate, commitUpdates, shapes, clearPreviewTimer, emitStrokeEvent, resetPreviewStream, followBoundArrows],
+    [commitUpdate, commitUpdates, shapes, clearPreviewTimer, emitStrokeEvent, resetPreviewStream, followBoundArrows, commitGroupDrag]
   );
 
   const handleTransformEnd = useCallback(
@@ -1905,6 +2274,7 @@ export default function useCanvasDrawing({
     selectShape,
     commitCreate,
     commitUpdate,
+    commitUpdates: storeCommitUpdates,
     commitDelete,
     deleteShape,
     applyRemoteShapes,

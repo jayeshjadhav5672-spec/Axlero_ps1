@@ -6,6 +6,7 @@ import {
   getShapeAnchors,
   isValidBinding,
   moveArrowEndpoint,
+  toggleSelectionId,
 } from '../src/components/canvas/utils/shapes.js';
 // shapeModel.js is the canonical shim — anchor helpers must be reachable
 // through it as well (CanvasStage/BendHandles import surface).
@@ -127,5 +128,19 @@ describe('arrow endpoint anchors', () => {
     assert.equal(isValidBinding({ shapeId: 'shape-r1', anchor: 'corner' }), false);
     assert.equal(isValidBinding({ shapeId: '', anchor: 'left' }), false);
     assert.equal(isValidBinding('left'), false);
+  });
+
+  it('toggleSelectionId adds absent ids and removes present ones', () => {
+    assert.deepEqual(toggleSelectionId([], 'shape-a'), ['shape-a']);
+    assert.deepEqual(toggleSelectionId(['shape-a'], 'shape-b'), ['shape-a', 'shape-b']);
+    assert.deepEqual(toggleSelectionId(['shape-a', 'shape-b'], 'shape-a'), ['shape-b']);
+    assert.deepEqual(toggleSelectionId(['shape-a'], 'shape-a'), []);
+    // dedupes, ignores falsy, never mutates the input
+    const input = ['shape-a', null, 'shape-a'];
+    const out = toggleSelectionId(input, 'shape-b');
+    assert.deepEqual(out, ['shape-a', 'shape-b']);
+    assert.deepEqual(input, ['shape-a', null, 'shape-a']);
+    assert.deepEqual(toggleSelectionId(null, 'shape-a'), ['shape-a']);
+    assert.deepEqual(toggleSelectionId(['shape-a'], null), ['shape-a']);
   });
 });

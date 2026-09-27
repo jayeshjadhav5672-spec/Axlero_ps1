@@ -81,9 +81,10 @@ class PopoverErrorBoundary extends Component {
  *   onRoundnessChange, onStartArrowheadChange, onEndArrowheadChange,
  *   onFontFamilyChange, onFontSizeChange, onTextAlignChange:
  *   fire in both modes.
- * - onShapeCreate(shape), onShapeUpdate(shapeId, changes),
- *   onShapeDelete(shapeId), onCanvasClear(), onSelectionChange(shapeId),
- *   onShapesReorder(nextShapes)
+  * - onShapeCreate(shape), onShapeUpdate(shapeId, changes),
+  *   onShapesBatchUpdate([{ id, changes }]) (atomic multi-shape commit),
+  *   onShapeDelete(shapeId), onCanvasClear(), onSelectionChange(shapeId),
+  *   onShapesReorder(nextShapes)
  * - roomId, socket: realtime transport identity for pen-stroke streaming
  *   and presence. When omitted, roomId falls back to `?room=` at mount and
  *   socket to the shared singleton — pass the shell's live `roomId` so a
@@ -129,6 +130,7 @@ export function Whiteboard({
   onAlignChange,
   onShapeCreate,
   onShapeUpdate,
+  onShapesBatchUpdate,
   onShapeDelete,
   onCanvasClear,
   onShapesReorder,
@@ -402,6 +404,7 @@ export function Whiteboard({
     selectedShapeId: controlledSelection,
     onShapeCreate,
     onShapeUpdate,
+    onShapesBatchUpdate,
     onShapeDelete,
     onCanvasClear,
     onShapesReorder,
@@ -909,7 +912,7 @@ export function Whiteboard({
             break;
           case 'png':
             // Auto-cropped full-board export: union bounds via
-            // exportBounds(shapes, 32px) passed into
+            // exportBounds(shapes, 32px), mapped world -> viewport for
             // stage.toDataURL({ x, y, width, height, pixelRatio: 2 }).
             if (!stage) throw new Error('Canvas not ready');
             await exportPNG(stage, 'syncspace-board.png', visibleShapes);
