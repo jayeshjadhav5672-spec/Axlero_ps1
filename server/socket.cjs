@@ -2,6 +2,7 @@ const { Server } = require("socket.io");
 
 const ROOM_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_PAYLOAD_BYTES = 256 * 1024;
+const MAX_ROOM_CAPACITY = 2;
 const COLLABORATION_EVENTS = ["canvas:update", "code:update", "cursor:update"];
 
 function isPlainObject(value) {
@@ -87,6 +88,13 @@ function createSocketServer(httpServer, options = {}) {
             roomId: payload.roomId,
             presence: presenceFor(payload.roomId),
           });
+          return;
+        }
+
+        const currentUsers = (roomPresence.get(payload.roomId) || []).length;
+
+        if (currentUsers >= MAX_ROOM_CAPACITY) {
+          sendError(socket, "room:join", "Room is full", "ROOM_FULL");
           return;
         }
 
