@@ -15,7 +15,9 @@ function waitForEvent(socket, event) {
 
 before(async () => {
   httpServer = http.createServer();
-  createSocketServer(httpServer);
+  // This file's capacity tests exercise the 2-user room limit, so opt
+  // this harness into it explicitly (the server default is unlimited).
+  createSocketServer(httpServer, { maxRoomCapacity: 2 });
   httpServer.listen(0);
   await once(httpServer, "listening");
   port = httpServer.address().port;
@@ -75,14 +77,12 @@ test("rejects malformed payloads and room spoofing without crashing", async () =
   assert.match((await spoofed)[0].message, /does not belong/);
 });
 
-test("leave and disconnect remove users from presence", async () => {
+test("leave removes users from presence", async () => {
   const first = client();
-  const second = client();
   const observer = client();
 
   await Promise.all([
     waitForEvent(first, "connect"),
-    waitForEvent(second, "connect"),
     waitForEvent(observer, "connect"),
   ]);
 
@@ -96,20 +96,9 @@ test("leave and disconnect remove users from presence", async () => {
 
   await firstJoined;
 
-  // Second joins
-  const secondJoined = waitForEvent(second, "room:joined");
-  const secondPresence = waitForEvent(second, "presence:update");
-
-  second.emit("room:join", {
-    roomId: "cleanup",
-    userId: "second",
-  });
-
-  await secondJoined;
-  await secondPresence;
-
   // Observer joins
   const observerJoined = waitForEvent(observer, "room:joined");
+  const observerPresence = waitForEvent(observer, "presence:update");
 
   observer.emit("room:join", {
     roomId: "cleanup",
@@ -117,6 +106,7 @@ test("leave and disconnect remove users from presence", async () => {
   });
 
   await observerJoined;
+  await observerPresence;
 
   // First leaves
   const afterLeave = waitForEvent(observer, "presence:update");
@@ -127,7 +117,39 @@ test("leave and disconnect remove users from presence", async () => {
 
   const [leavePayload] = await afterLeave;
 
-  assert.equal(leavePayload.users.length, 2);
+  assert.equal(leavePayload.users.length, 1);
+});
+
+test("disconnect removes users from presence", async () => {
+  const second = client();
+  const observer = client();
+
+  await Promise.all([
+    waitForEvent(second, "connect"),
+    waitForEvent(observer, "connect"),
+  ]);
+
+  // Second joins
+  const secondJoined = waitForEvent(second, "room:joined");
+
+  second.emit("room:join", {
+    roomId: "cleanup-disconnect",
+    userId: "second",
+  });
+
+  await secondJoined;
+
+  // Observer joins
+  const observerJoined = waitForEvent(observer, "room:joined");
+  const observerPresence = waitForEvent(observer, "presence:update");
+
+  observer.emit("room:join", {
+    roomId: "cleanup-disconnect",
+    userId: "observer",
+  });
+
+  await observerJoined;
+  await observerPresence;
 
   // Second disconnects
   const afterDisconnect = waitForEvent(observer, "presence:update");
@@ -137,6 +159,126 @@ test("leave and disconnect remove users from presence", async () => {
   const [disconnectPayload] = await afterDisconnect;
 
   assert.equal(disconnectPayload.users.length, 1);
+});
+
+test("room capacity allows two users and rejects the third with ROOM_FULL", async () => {
+  const first = client();
+  const second = client();
+  const third = client();
+  await Promise.all([
+    waitForEvent(first, "connect"),
+    waitForEvent(second, "connect"),
+    waitForEvent(third, "connect"),
+  ]);
+
+  // First user joins and drains the presence broadcast it receives for itself.
+  const firstSelfPresence = waitForEvent(first, "presence:update");
+  const firstJoined = waitForEvent(first, "room:joined");
+  first.emit("room:join", { roomId: "cap-two", userId: "first" });
+  await firstJoined;
+  await firstSelfPresence;
+
+  // Second user joins: presence becomes exactly 2.
+  const presenceWithTwo = waitForEvent(first, "presence:update");
+  const secondJoined = waitForEvent(second, "room:joined");
+  second.emit("room:join", { roomId: "cap-two", userId: "second" });
+  await secondJoined;
+  const [twoUsers] = await presenceWithTwo;
+  assert.equal(twoUsers.users.length, 2);
+
+  // Third user is rejected with ROOM_FULL and is not added to presence.
+  const thirdError = waitForEvent(third, "connection:error");
+  third.emit("room:join", { roomId: "cap-two", userId: "third" });
+  const [errPayload] = await thirdError;
+  assert.equal(errPayload.event, "room:join");
+  assert.equal(errPayload.code, "ROOM_FULL");
+  assert.equal(errPayload.message, "Room is full");
+  assert.equal(
+    twoUsers.users.some((user) => user.userId === "third"),
+    false,
+  );
+
+  // The rejected client never joined the Socket.io room: it receives no traffic.
+  const leakedToThird = waitForEvent(third, "canvas:update");
+  const deliveredToFirst = waitForEvent(first, "canvas:update");
+  second.emit("canvas:update", { roomId: "cap-two", data: { shape: "circle" } });
+  assert.deepEqual((await deliveredToFirst)[0].data, { shape: "circle" });
+  await assert.rejects(
+    Promise.race([
+      leakedToThird,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("not-leaked")), 150)),
+    ]),
+    /not-leaked/,
+  );
+});
+
+test("room capacity is per room and leaves other rooms unaffected", async () => {
+  const otherFirst = client();
+  const otherSecond = client();
+  await Promise.all([
+    waitForEvent(otherFirst, "connect"),
+    waitForEvent(otherSecond, "connect"),
+  ]);
+
+  const otherFirstSelfPresence = waitForEvent(otherFirst, "presence:update");
+  const otherFirstJoined = waitForEvent(otherFirst, "room:joined");
+  otherFirst.emit("room:join", { roomId: "cap-other", userId: "otherFirst" });
+  await otherFirstJoined;
+  await otherFirstSelfPresence;
+
+  // A different room accepts its own two users independently.
+  const otherPresence = waitForEvent(otherFirst, "presence:update");
+  const otherSecondJoined = waitForEvent(otherSecond, "room:joined");
+  otherSecond.emit("room:join", { roomId: "cap-other", userId: "otherSecond" });
+  await otherSecondJoined;
+  const [otherRoomUsers] = await otherPresence;
+  assert.equal(otherRoomUsers.roomId, "cap-other");
+  assert.equal(otherRoomUsers.users.length, 2);
+});
+
+test("leaving frees a capacity slot for a new user", async () => {
+  const first = client();
+  const second = client();
+  const third = client();
+  await Promise.all([
+    waitForEvent(first, "connect"),
+    waitForEvent(second, "connect"),
+    waitForEvent(third, "connect"),
+  ]);
+
+  const firstSelfPresence = waitForEvent(first, "presence:update");
+  const firstJoined = waitForEvent(first, "room:joined");
+  first.emit("room:join", { roomId: "cap-free", userId: "first" });
+  await firstJoined;
+  await firstSelfPresence;
+
+  const presenceWithTwo = waitForEvent(first, "presence:update");
+  const secondJoined = waitForEvent(second, "room:joined");
+  second.emit("room:join", { roomId: "cap-free", userId: "second" });
+  await secondJoined;
+  assert.equal((await presenceWithTwo)[0].users.length, 2);
+
+  // Room is full: the third user is rejected.
+  const thirdError = waitForEvent(third, "connection:error");
+  third.emit("room:join", { roomId: "cap-free", userId: "third" });
+  assert.equal((await thirdError)[0].code, "ROOM_FULL");
+
+  // First user leaves, freeing exactly one slot.
+  const presenceAfterLeave = waitForEvent(second, "presence:update");
+  const firstLeft = waitForEvent(first, "room:left");
+  first.emit("room:leave", { roomId: "cap-free" });
+  await firstLeft;
+  assert.equal((await presenceAfterLeave)[0].users.length, 1);
+
+  // The previously rejected user can now join the freed slot.
+  const presenceAfterRejoin = waitForEvent(second, "presence:update");
+  const thirdJoined = waitForEvent(third, "room:joined");
+  third.emit("room:join", { roomId: "cap-free", userId: "third" });
+  const [joinedPayload] = await thirdJoined;
+  assert.equal(joinedPayload.roomId, "cap-free");
+  assert.equal(joinedPayload.presence.length, 2);
+  const [finalPresence] = await presenceAfterRejoin;
+  assert.equal(finalPresence.users.length, 2);
 });
 
 test("rejoining the same room is idempotent", async () => {

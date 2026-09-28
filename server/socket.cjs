@@ -2,6 +2,10 @@ const { Server } = require("socket.io");
 
 const ROOM_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_PAYLOAD_BYTES = 256 * 1024;
+// Room capacity is opt-in via createSocketServer(httpServer,
+// { maxRoomCapacity: N }) and defaults to unlimited, so existing
+// multi-user flows keep working. Non-finite or <1 values fall back
+// to unlimited.
 const COLLABORATION_EVENTS = ["canvas:update", "code:update", "cursor:update"];
 // High-frequency pen-stroke streaming: relayed without the generic JSON
 // size check (a size-capped points array is validated cheaply below, so the
@@ -391,6 +395,10 @@ function createSocketServer(httpServer, options = {}) {
     cors: options.cors || { origin: true, credentials: true },
     ...options.socket,
   });
+  const maxRoomCapacity =
+    Number.isFinite(options.maxRoomCapacity) && options.maxRoomCapacity >= 1
+      ? Math.floor(options.maxRoomCapacity)
+      : Infinity;
   const roomPresence = new Map();
   const roomState = new Map(); // roomId -> { shapes: [], updatedAt }
 
@@ -519,6 +527,13 @@ function createSocketServer(httpServer, options = {}) {
             roomId: payload.roomId,
             shapes: getRoomShapes(payload.roomId),
           });
+          return;
+        }
+
+        const currentUsers = (roomPresence.get(payload.roomId) || []).length;
+
+        if (currentUsers >= maxRoomCapacity) {
+          sendError(socket, "room:join", "Room is full", "ROOM_FULL");
           return;
         }
 
