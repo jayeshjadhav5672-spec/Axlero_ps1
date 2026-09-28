@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { applyBatchUpdates, isValidShape, normalizeShape, serializeShape, serializeShapes } from '../utils/shapes.js';
+import { toBatchUpdates } from '../../../lib/collabOps.js';
 import useCanvasHistory, { HISTORY_LIMIT } from './useCanvasHistory.js';
 
 /**
@@ -59,6 +60,11 @@ export default function useWhiteboardState({
   selectedShapeId: controlledSelection,
   onShapeCreate,
   onShapeUpdate,
+  // Atomic batch channel for multi-shape commits (frame drags). When the
+  // shell provides it, `commitUpdates` propagates the whole batch in ONE
+  // call instead of N per-shape `onShapeUpdate` calls, so peers apply the
+  // block in a single pass and never observe a half-moved frame.
+  onShapesBatchUpdate,
   onShapeDelete,
   onCanvasClear,
   onSelectionChange,
@@ -160,14 +166,15 @@ export default function useWhiteboardState({
 
   /**
    * Batched multi-shape commit: one coherent snapshot for N dependent
-   * updates (e.g. a dragged shape plus every arrow bound to it). Every
-   * entry derives from the SAME base array, so updates can never clobber
-   * one another the way sequential per-shape commits against a stale
-   * closure can. Exactly one history entry and (uncontrolled) one
-   * `shapes:update-batch` broadcast cover the whole batch; in controlled
-   * mode each entry still fires its own `onShapeUpdate` (parent contract),
-   * while history records the single merged snapshot so undo restores the
-   * pre-gesture state atomically. Same socket protocol as commitUpdate —
+   * updates (e.g. frame drops, group drags, bound-arrow follows). Every
+   * entry derives from the SAME base array via applyBatchUpdates, so
+   * updates can never clobber one another the way sequential per-shape
+   * commits against a stale closure can. Exactly one history entry covers
+   * the whole batch; in controlled mode the shell receives ONE
+   * `onShapesBatchUpdate` call (peers apply it in a single pass — a frame
+   * and its children are never observed half-moved), with per-shape
+   * `onShapeUpdate` fallback; uncontrolled mode emits one
+   * `shapes:update-batch` broadcast. Same socket protocol as commitUpdate —
    * receivers merge the entry list identically.
    */
   const commitUpdates = useCallback(
@@ -182,17 +189,23 @@ export default function useWhiteboardState({
         clean.push({ id: u.id, changes: ser });
       }
       if (clean.length === 0) return;
+
       const next = applyBatchUpdates(shapes ?? [], clean);
       if (!isControlled) setInternalShapes(next);
       recordHistory(next);
-      for (const { id, changes } of clean) onShapeUpdate?.(id, changes);
+
+      if (typeof onShapesBatchUpdate === 'function') {
+        onShapesBatchUpdate(clean);
+      } else {
+        for (const { id, changes } of clean) onShapeUpdate?.(id, changes);
+      }
+
       if (!fromRemote) {
-        emitUnified('shapes:update-batch', {
-          shapes: clean.map(({ id, changes }) => ({ id, ...changes })),
-        });
+        const batch = clean.map(({ id, changes }) => ({ id, ...changes }));
+        emitUnified('shapes:update-batch', { shapes: batch });
       }
     },
-    [isControlled, onShapeUpdate, recordHistory, shapes, emitUnified],
+    [isControlled, onShapeUpdate, onShapesBatchUpdate, recordHistory, shapes, emitUnified],
   );
 
   const commitDelete = useCallback(

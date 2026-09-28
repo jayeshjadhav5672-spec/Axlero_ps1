@@ -105,6 +105,18 @@ function applyRoomMutation(prevShapes, event, data) {
         if (!prev.some((s) => s.id === data.shapeId)) return prev;
         return prev.map((s) => (s.id === data.shapeId ? { ...s, ...data.changes } : s));
       }
+      if (data.op === "update-many" && Array.isArray(data.updates) && data.updates.length > 0) {
+        // Atomic frame-block update: every entry applies in one pass so the
+        // server snapshot (late-join sync) can never hold a half-moved
+        // frame. Malformed entries are skipped, never fatal.
+        const valid = data.updates.filter(
+          (u) => isPlainObject(u) && typeof u.shapeId === "string" && u.shapeId && isPlainObject(u.changes),
+        );
+        if (valid.length === 0) return prev;
+        const byId = new Map(valid.map((u) => [u.shapeId, u.changes]));
+        if (!prev.some((s) => s && byId.has(s.id))) return prev;
+        return prev.map((s) => (s && byId.has(s.id) ? { ...s, ...byId.get(s.id) } : s));
+      }
       if (data.op === "delete" && typeof data.shapeId === "string") {
         const next = prev.filter((s) => s.id !== data.shapeId);
         return next.length === prev.length ? prev : next;

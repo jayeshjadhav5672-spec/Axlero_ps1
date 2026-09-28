@@ -1318,6 +1318,110 @@ export function isShapeInsideFrame(shape, frame) {
 }
 
 /**
+ * Geometric members of a frame: non-frame, non-preview shapes whose
+ * center falls inside the frame bounds. Frames never nest (a frame inside
+ * another frame stays a top-level sibling, matching drag semantics).
+ * Deterministic: first frame in shapes-array order wins ties. NOTE: keep
+ * this rule identical in the renderer (FrameGroupNode) and the drop-batch
+ * builder below, or children will visually jump on commit.
+ */
+export function frameMembers(shapes, frame) {
+  if (!frame || frame.type !== 'frame') return [];
+  return (shapes ?? []).filter(
+    (s) =>
+      s &&
+      s.id !== frame.id &&
+      !s.remotePreview &&
+      s.type !== 'frame' &&
+      isShapeInsideFrame(s, frame),
+  );
+}
+
+/**
+ * Atomic drop batch for a frame drag: frame + translated members +
+ * connected-arrow maintenance, computed PURELY from descriptors (no Konva
+ * nodes) so it is unit-testable and shared by local drop + remote apply.
+ *
+ * `frame` is the PRE-move committed descriptor; (dx, dy) is the settled
+ * group translation in world px (no-op when both are 0). Returns
+ * [{ id, changes }] ready for `commitUpdates` — ONE history entry, ONE
+ * broadcast. Semantics:
+ * - positioned members translate x/y; point-path members offset points;
+ * - member arrows bound OUTSIDE the block clear the dangling end (the
+ *   block moved rigidly; the far anchor did not) — bindings to fellow
+ *   members or the frame itself stay valid and are preserved;
+ * - non-member arrows bound to a moved member/frame stretch to the
+ *   settled anchor (same follow rule as single-shape drops).
+ */
+export function computeFrameDropBatch({ frame, dx, dy, shapes }) {
+  const out = [];
+  if (!frame || frame.type !== 'frame') return out;
+  if (!isFiniteNum(dx) || !isFiniteNum(dy) || (dx === 0 && dy === 0)) return out;
+  const settledFrame = { ...frame, x: frame.x + dx, y: frame.y + dy };
+  out.push({ id: frame.id, changes: { x: settledFrame.x, y: settledFrame.y } });
+  // One entry per shape: later contributions (binding clears on top of a
+  // rigid point translation) merge into the existing entry so history and
+  // broadcast carry a single op per shape.
+  const upsert = (id, changes) => {
+    const found = out.find((u) => u.id === id);
+    if (found) Object.assign(found.changes, changes);
+    else out.push({ id, changes: { ...changes } });
+  };
+  const members = frameMembers(shapes, frame);
+  const memberIds = new Set(members.map((m) => m.id));
+  const movedDesc = new Map([[frame.id, settledFrame]]);
+  for (const m of members) {
+    if (m.type === 'freehand' || m.type === 'pen' || m.type === 'line' || m.type === 'arrow') {
+      const src = sanitizePoints(m.points);
+      if (src.length < 4) continue;
+      const points = src.map((v, i) => (i % 2 === 0 ? v + dx : v + dy));
+      if (points.some((v) => !Number.isFinite(v))) continue;
+      upsert(m.id, { points });
+      movedDesc.set(m.id, { ...m, points });
+    } else if (isFiniteNum(m.x) && isFiniteNum(m.y)) {
+      upsert(m.id, { x: m.x + dx, y: m.y + dy });
+      movedDesc.set(m.id, { ...m, x: m.x + dx, y: m.y + dy });
+    }
+  }
+  for (const a of shapes ?? []) {
+    if (!a || a.type !== 'arrow' || a.remotePreview) continue;
+    if (!Array.isArray(a.points) || a.points.length < 4) continue;
+    if (memberIds.has(a.id)) {
+      // Rigid member: clear ends bound outside the block (fellow-member
+      // and frame bindings rode along and stay valid).
+      let startBinding = a.startBinding ?? null;
+      let endBinding = a.endBinding ?? null;
+      let dirty = false;
+      for (const key of ['startBinding', 'endBinding']) {
+        const b = key === 'startBinding' ? startBinding : endBinding;
+        if (b && !memberIds.has(b.shapeId) && !movedDesc.has(b.shapeId)) {
+          if (key === 'startBinding') startBinding = null;
+          else endBinding = null;
+          dirty = true;
+        }
+      }
+      if (dirty) upsert(a.id, { startBinding, endBinding });
+      continue;
+    }
+    let next = null;
+    for (const end of ['start', 'end']) {
+      const key = end === 'start' ? 'startBinding' : 'endBinding';
+      const binding = a[key];
+      if (!binding) continue;
+      const moved = movedDesc.get(binding.shapeId);
+      if (!moved) continue;
+      const anchor = getShapeAnchors(moved).find((k) => k.anchor === binding.anchor);
+      if (!anchor) continue;
+      // Committed arrow nodes rest at the origin, so world == local here.
+      next = moveArrowEndpoint(next ?? a.points, end, anchor.x, anchor.y);
+      if (!next) break;
+    }
+    if (next) upsert(a.id, { points: next });
+  }
+  return out;
+}
+
+/**
  * Clone a shape for duplicate: fresh `shape-<uuid>` id + slight
  * (+16,+16 world px) offset so the copy is visible next to the original.
  * The offset is applied EXACTLY once per representation:
@@ -1373,6 +1477,17 @@ export function boxesIntersect(a, b) {
 /** Normalize a marquee drag into a positive w/h rect (world coords). */
 export function normalizeSelectBox(x0, y0, x1, y1) {
   return normalizeRect(x0, y0, x1, y1);
+}
+
+/**
+ * Shift+click membership toggle for multi-selection. Returns a new
+ * deduped id array with `id` added (absent) or removed (present).
+ * Always a fresh array — never mutates the input.
+ */
+export function toggleSelectionId(ids, id) {
+  const list = Array.isArray(ids) ? [...new Set(ids.filter(Boolean))] : [];
+  if (!id) return [...list];
+  return list.includes(id) ? list.filter((v) => v !== id) : [...list, id];
 }
 
 /** Squared distance from point P to segment AB (flat numbers). */

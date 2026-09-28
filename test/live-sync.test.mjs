@@ -37,6 +37,23 @@ describe('buildPreviewProgressPayload', () => {
     circular.self = circular;
     assert.equal(buildPreviewProgressPayload({ draftId: 'd', shape: circular }), null);
   });
+
+  it('carries frame-drag member snapshots, rejects bad members', () => {
+    const frame = { id: 'frame-1', type: 'frame', x: 100, y: 50, width: 200, height: 200 };
+    const member = { id: 'shape-r1', type: 'rectangle', x: 110, y: 60, width: 40, height: 40 };
+    const payload = buildPreviewProgressPayload({ draftId: 'frame-1', shape: frame, members: [member] });
+    assert.equal(payload.draftId, 'frame-1');
+    assert.deepEqual(payload.members, [member]);
+    assert.deepEqual(JSON.parse(JSON.stringify(payload)), payload);
+    // single bad member poisons the packet (peers drop it wholesale)
+    assert.equal(
+      buildPreviewProgressPayload({ draftId: 'f', shape: frame, members: [{ nope: 1 }] }),
+      null,
+    );
+    assert.equal(buildPreviewProgressPayload({ draftId: 'f', shape: frame, members: 'x' }), null);
+    // no members key for plain creation drafts (protocol unchanged)
+    assert.ok(!('members' in buildPreviewProgressPayload({ draftId: 'd', shape: RECT })));
+  });
 });
 
 describe('inbound validators', () => {
@@ -91,6 +108,39 @@ describe('applyRemotePreviewEvent (preview map reducer)', () => {
       applyRemotePreviewEvent(withPreview, 'canvas:history-sync', { shapes: [{ id: 'other' }] }),
       {},
     );
+  });
+
+  it('stores frame group members under prefixed keys and cancels them together', () => {
+    const frame = { id: 'frame-1', type: 'frame', x: 100, y: 50, width: 200, height: 200 };
+    const member = { id: 'shape-r1', type: 'rectangle', x: 110, y: 60, width: 40, height: 40 };
+    const data = { draftId: 'frame-1', shape: frame, members: [member] };
+    const next = applyRemotePreviewEvent({}, 'shape:preview-progress', data, 's-1');
+    assert.equal(next['frame-1'].x, 100);
+    assert.equal(next['frame-1'].remotePreview, true);
+    assert.equal(next['frame-1:shape-r1'].x, 110);
+    assert.equal(next['frame-1:shape-r1'].remotePreview, true);
+    // same-tick refresh upserts in place (stable keys, no map growth)
+    const again = applyRemotePreviewEvent(next, 'shape:preview-progress', data, 's-1');
+    assert.deepEqual(Object.keys(again).sort(), ['frame-1', 'frame-1:shape-r1']);
+    // one cancel clears the frame AND its members
+    assert.deepEqual(applyRemotePreviewEvent(again, 'shape:preview-cancel', { draftId: 'frame-1' }), {});
+    // authoritative batch commit reconciles members by real id
+    assert.deepEqual(
+      applyRemotePreviewEvent(again, 'shapes:update-batch', { shapes: [{ id: 'shape-r1', x: 110 }] }),
+      { 'frame-1': again['frame-1'] },
+    );
+    assert.deepEqual(
+      applyRemotePreviewEvent(again, 'shapes:update-batch', {
+        shapes: [
+          { id: 'frame-1', x: 100 },
+          { id: 'shape-r1', x: 110 },
+        ],
+      }),
+      {},
+    );
+    // member-less payloads keep the legacy single-entry shape
+    const solo = applyRemotePreviewEvent({}, 'shape:preview-progress', { draftId: 'd1', shape: RECT }, 's-9');
+    assert.deepEqual(Object.keys(solo), ['d1']);
   });
 
   it('ignores invalid payloads and unknown events without mutating', () => {
