@@ -15,7 +15,9 @@ function waitForEvent(socket, event) {
 
 before(async () => {
   httpServer = http.createServer();
-  createSocketServer(httpServer);
+  // This file's capacity tests exercise the 2-user room limit, so opt
+  // this harness into it explicitly (the server default is unlimited).
+  createSocketServer(httpServer, { maxRoomCapacity: 2 });
   httpServer.listen(0);
   await once(httpServer, "listening");
   port = httpServer.address().port;
