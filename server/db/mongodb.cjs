@@ -47,6 +47,15 @@ async function connectMongo() {
       })
       .catch((err) => {
         clientPromise = null;
+        // Release driver resources (monitors/sockets) held by the failed
+        // attempt so neither test runners nor long-lived servers pin the
+        // event loop on dead connections. Never masks the original error.
+        try {
+          const closed = client.close();
+          if (closed && typeof closed.catch === "function") closed.catch(() => {});
+        } catch {
+          // ignore close errors; the sanitized connection error below wins
+        }
         throw sanitizedError(err);
       });
   }
