@@ -2,10 +2,6 @@ const { Server } = require("socket.io");
 
 const ROOM_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_PAYLOAD_BYTES = 256 * 1024;
-// Room capacity is opt-in via createSocketServer(httpServer,
-// { maxRoomCapacity: N }) and defaults to unlimited, so existing
-// multi-user flows keep working. Non-finite or <1 values fall back
-// to unlimited.
 const COLLABORATION_EVENTS = ["canvas:update", "code:update", "cursor:update"];
 // High-frequency pen-stroke streaming: relayed without the generic JSON
 // size check (a size-capped points array is validated cheaply below, so the
@@ -104,18 +100,6 @@ function applyRoomMutation(prevShapes, event, data) {
       if (data.op === "update" && typeof data.shapeId === "string" && isPlainObject(data.changes)) {
         if (!prev.some((s) => s.id === data.shapeId)) return prev;
         return prev.map((s) => (s.id === data.shapeId ? { ...s, ...data.changes } : s));
-      }
-      if (data.op === "update-many" && Array.isArray(data.updates) && data.updates.length > 0) {
-        // Atomic frame-block update: every entry applies in one pass so the
-        // server snapshot (late-join sync) can never hold a half-moved
-        // frame. Malformed entries are skipped, never fatal.
-        const valid = data.updates.filter(
-          (u) => isPlainObject(u) && typeof u.shapeId === "string" && u.shapeId && isPlainObject(u.changes),
-        );
-        if (valid.length === 0) return prev;
-        const byId = new Map(valid.map((u) => [u.shapeId, u.changes]));
-        if (!prev.some((s) => s && byId.has(s.id))) return prev;
-        return prev.map((s) => (s && byId.has(s.id) ? { ...s, ...byId.get(s.id) } : s));
       }
       if (data.op === "delete" && typeof data.shapeId === "string") {
         const next = prev.filter((s) => s.id !== data.shapeId);
@@ -407,10 +391,6 @@ function createSocketServer(httpServer, options = {}) {
     cors: options.cors || { origin: true, credentials: true },
     ...options.socket,
   });
-  const maxRoomCapacity =
-    Number.isFinite(options.maxRoomCapacity) && options.maxRoomCapacity >= 1
-      ? Math.floor(options.maxRoomCapacity)
-      : Infinity;
   const roomPresence = new Map();
   const roomState = new Map(); // roomId -> { shapes: [], updatedAt }
 
@@ -539,13 +519,6 @@ function createSocketServer(httpServer, options = {}) {
             roomId: payload.roomId,
             shapes: getRoomShapes(payload.roomId),
           });
-          return;
-        }
-
-        const currentUsers = (roomPresence.get(payload.roomId) || []).length;
-
-        if (currentUsers >= maxRoomCapacity) {
-          sendError(socket, "room:join", "Room is full", "ROOM_FULL");
           return;
         }
 
