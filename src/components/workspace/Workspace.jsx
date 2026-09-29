@@ -13,19 +13,25 @@ import CodeEditorPanel from './CodeEditorPanel';
  *
  * Integration contract:
  * - Sayon: pass <Whiteboard /> as `whiteboard`
- * - Kishan: pass <CodeEditor /> as `editor`
+ * - Kishan: pass <CodeEditor /> as `editor` (panel injects value/onChange)
  * - Shree: pass awareness users as `users`
  * - Arun: pass socket state as `connectionStatus`
+ * - Project: pass useCollaborativeProject state as `project` (shared tree
+ *   + per-file contents; active file / tabs stay panel-local)
  */
 export default function Workspace({
   roomId,
   roomName,
   connectionStatus = 'disconnected',
+  // Server-confirmed room join (room:joined ack). Shared-project writes are
+  // only servable once this is true — see useRoomConnection + panel gating.
+  roomJoined = true,
   users = [],
   // Local identity's user id for the header people panel ("You" row).
   currentUserId = null,
   whiteboard,
   editor,
+  project = null,
   editorLanguage,
   isWhiteboardLoading = false,
   isEditorLoading = false,
@@ -73,6 +79,9 @@ export default function Workspace({
             <CodeEditorPanel
               title="Code Editor"
               language={editorLanguage}
+              connectionStatus={connectionStatus}
+              roomJoined={roomJoined}
+              project={project}
               isLoading={isEditorLoading}
               error={editorError}
               onRetry={onRetryEditor}

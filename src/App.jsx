@@ -31,7 +31,7 @@ import { Whiteboard } from './components/canvas';
 import CodeEditor from './components/editor/CodeEditor';
 import useRoomConnection from './hooks/useRoomConnection';
 import useCollaborativeWhiteboard from './hooks/useCollaborativeWhiteboard';
-import useCollaborativeCode from './hooks/useCollaborativeCode';
+import useCollaborativeProject from './hooks/useCollaborativeProject';
 import {
   buildRoomUrl,
   getOrCreateIdentity,
@@ -119,7 +119,7 @@ export default function App() {
     };
   }, []);
 
-  const { socket, status, presence, error, left, reconnect, leaveRoom } = useRoomConnection({
+  const { socket, status, presence, error, left, reconnect, leaveRoom, joinedRoom } = useRoomConnection({
     roomId,
     userId: identity.userId,
     displayName: identity.displayName,
@@ -127,8 +127,15 @@ export default function App() {
   });
 
   const live = !left && status !== 'error';
+  // Room-join confirmation (server ack), NOT transport state: shared-project
+  // writes are only servable after the server ran socket.join(roomId).
+  const roomJoined = joinedRoom === roomId;
   const whiteboardSync = useCollaborativeWhiteboard({ socket, roomId, enabled: live });
-  const codeSync = useCollaborativeCode({ socket, roomId, enabled: live });
+  // Shared room project: server-authoritative file tree + one LWW document
+  // per file (generalizes the legacy single-document transport; legacy
+  // clients without fileId still land on the shared document).
+  // useCollaborativeCode.js is intentionally left untouched (see report).
+  const projectSync = useCollaborativeProject({ socket, roomId, enabled: live, joined: roomJoined });
 
   const users = useMemo(() => presenceToUsers(presence), [presence]);
 
@@ -314,6 +321,7 @@ export default function App() {
             <Workspace
               roomId={roomId}
               connectionStatus={status}
+              roomJoined={roomJoined}
               users={users}
               currentUserId={identity.userId}
               whiteboard={
@@ -327,7 +335,8 @@ export default function App() {
                   onShapesReorder={whiteboardSync.onShapesReorder}
                 />
               }
-              editor={<CodeEditor value={codeSync.text} onChange={codeSync.onLocalChange} />}
+              editor={<CodeEditor />}
+              project={projectSync}
               onLeaveRoom={leaveRoom}
               onShareRoom={handleShareRoom}
             />

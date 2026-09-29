@@ -4,6 +4,11 @@
  * Owns the Socket.io lifecycle for one room and exposes it in the exact
  * shape Avantee's UI consumes:
  * - status: 'connected' | 'connecting' | 'reconnecting' | 'disconnected' | 'error'
+ *   (TRANSPORT state — 'connected' does NOT imply the room join completed)
+ * - joinedRoom: roomId confirmed by the server's `room:joined` ack, or null.
+ *   Shared-project operations must wait for joinedRoom === roomId: the
+ *   server runs socket.join(roomId) only inside `room:join`, so anything
+ *   sent earlier is correctly rejected with "socket does not belong".
  * - presence: raw Arun presence entries (map with presenceToUsers for UI)
  * - error / left / reconnect() / leaveRoom()
  *
@@ -22,6 +27,8 @@ export default function useRoomConnection({ roomId, userId, displayName, authTok
   const [presence, setPresence] = useState([]);
   const [error, setError] = useState(null);
   const [left, setLeft] = useState(false);
+  // Room join confirmation (see header): the server ack, not the transport.
+  const [joinedRoom, setJoinedRoom] = useState(null);
 
   const roomRef = useRef(roomId);
   roomRef.current = roomId;
@@ -31,6 +38,8 @@ export default function useRoomConnection({ roomId, userId, displayName, authTok
   useEffect(() => {
     const socket = getSocket();
     setLeft(false);
+    // A (re)join cycle starts here: not joined until the server ack arrives.
+    setJoinedRoom(null);
 
     if (!isValidRoomId(roomRef.current)) {
       setError(`Invalid room id "${roomRef.current}". Use 1-64 letters, numbers, - or _.`);
@@ -64,6 +73,7 @@ export default function useRoomConnection({ roomId, userId, displayName, authTok
       if (!payload || payload.roomId !== roomRef.current) return;
       setPresence(Array.isArray(payload.presence) ? payload.presence : []);
       setStatus('connected');
+      setJoinedRoom(payload.roomId);
     };
     const handlePresence = (payload) => {
       if (!payload || payload.roomId !== roomRef.current) return;
@@ -72,11 +82,20 @@ export default function useRoomConnection({ roomId, userId, displayName, authTok
     const handleLeft = (payload) => {
       if (!payload || payload.roomId !== roomRef.current) return;
       setPresence([]);
+      setJoinedRoom(null);
     };
     const handleConnError = (payload) => {
-      setError(payload?.message || 'Synchronization error');
+      const message = payload?.message || 'Synchronization error';
+      if (message === 'socket does not belong to this room') {
+        if (import.meta.env?.DEV) console.warn('[room] operation arrived before room membership was ready', payload);
+        setError('Room connection unavailable. Retry.');
+        setJoinedRoom(null);
+        return;
+      }
+      setError(message);
     };
     const handleDisconnect = () => {
+      setJoinedRoom(null);
       try {
         setStatus(socket.active ? 'reconnecting' : 'disconnected');
       } catch {
@@ -123,6 +142,7 @@ export default function useRoomConnection({ roomId, userId, displayName, authTok
     setError(null);
     setLeft(false);
     setStatus('connecting');
+    setJoinedRoom(null);
     try {
       getSocket().connect();
     } catch (err) {
@@ -141,8 +161,9 @@ export default function useRoomConnection({ roomId, userId, displayName, authTok
     }
     setPresence([]);
     setStatus('disconnected');
+    setJoinedRoom(null);
     setLeft(true);
   }, []);
 
-  return { socket: getSocket(), status, presence, error, left, reconnect, leaveRoom };
+  return { socket: getSocket(), status, presence, error, left, reconnect, leaveRoom, joinedRoom };
 }
