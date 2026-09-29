@@ -7,10 +7,9 @@ import { toFlatPoints } from './strokeStream.js';
  *
  * Two channel classes (relayed by `server/socket.cjs` LIVE_COLLAB_EVENTS):
  * - Ephemeral peer-to-peer streams (high-frequency, never persisted):
- *   `shape:preview-progress` { draftId, shape, members? } — live previews
- *   for EVERY tool (creation drags) plus frame-drag groups (translated
- *   frame + translated members, rendered by id in place of the committed
- *   entries) — pen keeps its dedicated `draw:stroke-*` points channel,
+ *   `shape:preview-progress` { draftId, shape } — live creation-drag
+ *   previews for EVERY tool (rect, circle, diamond, arrow, line, frame;
+ *   pen keeps its dedicated `draw:stroke-*` points channel),
  *   `shape:preview-cancel` { draftId } — cancelled/degenerate drag,
  *   `cursor:move` { x, y, user?, tool? }, `eraser:trail` { eraserId, points }.
  * - Committed mutations (persisted; sender already applied locally):
@@ -63,23 +62,12 @@ function cleanShapeDescriptor(shape) {
 }
 
 /** Build a throttled creation-preview payload from the in-flight draft. */
-export function buildPreviewProgressPayload({ draftId, shape, members }) {
+export function buildPreviewProgressPayload({ draftId, shape }) {
   if (!isIdString(draftId)) return null;
   const clean = cleanShapeDescriptor(shape);
   if (!clean) return null;
-  let cleanMembers;
-  if (members !== undefined) {
-    if (!Array.isArray(members) || members.length > MAX_BATCH_SHAPES) return null;
-    cleanMembers = [];
-    for (const m of members) {
-      const cm = cleanShapeDescriptor(m);
-      if (!cm) return null;
-      cleanMembers.push(cm);
-    }
-  }
-  const payload = cleanMembers ? { draftId, shape: clean, members: cleanMembers } : { draftId, shape: clean };
-  if (!jsonSizeOk(payload, MAX_PREVIEW_JSON)) return null;
-  return payload;
+  if (!jsonSizeOk({ draftId, shape: clean }, MAX_PREVIEW_JSON)) return null;
+  return { draftId, shape: clean };
 }
 
 /** Validate inbound `shape:preview-progress` data. */
@@ -88,13 +76,7 @@ export function isValidPreviewProgress(data) {
   if (!isIdString(data.draftId)) return false;
   const clean = cleanShapeDescriptor(data.shape);
   if (!clean) return false;
-  if (data.members !== undefined) {
-    if (!Array.isArray(data.members) || data.members.length > MAX_BATCH_SHAPES) return false;
-    for (const m of data.members) {
-      if (!cleanShapeDescriptor(m)) return false;
-    }
-  }
-  return jsonSizeOk(data, MAX_PREVIEW_JSON);
+  return jsonSizeOk({ draftId: data.draftId, shape: clean }, MAX_PREVIEW_JSON);
 }
 
 /** Validate inbound `cursor:move` data { x, y, user?, tool?}. Mirrors the server length caps. */
@@ -138,11 +120,6 @@ export function previewToShape(data, actorId = null) {
 
 /**
  * Pure reducer for the remote-preview map `{ [draftId]: shape }`.
- * Frame-drag group previews store members under `${draftId}:${memberId}`
- * keys (same tick, same cancel); every other handler already matches by
- * `prev[k].id`, so commit/delete/history reconciliation covers members
- * with no further changes. Cancel removes the draft entry PLUS all
- * member keys sharing its prefix.
  * Handles preview progress/cancel plus commit-side cleanup:
  * - `shapes:commit` drops the preview whose id matches (authoritative op
  *   carries the persisted copy — dedupe covers the rest).
@@ -154,40 +131,18 @@ export function applyRemotePreviewEvent(prevMap, event, data, actorId = null) {
   const prev = prevMap ?? {};
   if (event === 'shape:preview-progress') {
     if (!isValidPreviewProgress(data)) return prev;
-    const next = { ...prev, [data.draftId]: previewToShape(data, actorId) };
-    for (const m of data.members ?? []) {
-      const clean = cleanShapeDescriptor(m);
-      if (!clean) continue;
-      next[`${data.draftId}:${clean.id}`] = previewToShape({ shape: clean }, actorId);
-    }
-    return next;
+    return { ...prev, [data.draftId]: previewToShape(data, actorId) };
   }
   if (event === 'shape:preview-cancel') {
     if (!data || !isIdString(data.draftId)) return prev;
-    const prefix = `${data.draftId}:`;
-    const keys = Object.keys(prev).filter((k) => k === data.draftId || k.startsWith(prefix));
-    if (keys.length === 0) return prev;
+    if (!(data.draftId in prev)) return prev;
     const next = { ...prev };
-    for (const k of keys) delete next[k];
+    delete next[data.draftId];
     return next;
   }
   if (event === 'shapes:commit') {
     // Accept both envelopes: { shape } (legacy) and { shapes: [] }.
     const list = Array.isArray(data?.shapes) ? data.shapes : data?.shape !== undefined ? [data.shape] : [];
-    const ids = new Set(list.filter((s) => s && typeof s.id === 'string').map((s) => s.id));
-    if (ids.size === 0) return prev;
-    const keys = Object.keys(prev).filter((k) => ids.has(k) || (prev[k]?.id && ids.has(prev[k].id)));
-    if (keys.length === 0) return prev;
-    const next = { ...prev };
-    for (const k of keys) delete next[k];
-    return next;
-  }
-  if (event === 'shapes:update-batch') {
-    // Authoritative move commits (single-shape AND frame/group batches):
-    // drop every preview whose real id the batch settles, so a translated
-    // group preview can never outlive its own drop commit and pin peers
-    // to stale drag coordinates.
-    const list = Array.isArray(data?.shapes) ? data.shapes : [];
     const ids = new Set(list.filter((s) => s && typeof s.id === 'string').map((s) => s.id));
     if (ids.size === 0) return prev;
     const keys = Object.keys(prev).filter((k) => ids.has(k) || (prev[k]?.id && ids.has(prev[k].id)));

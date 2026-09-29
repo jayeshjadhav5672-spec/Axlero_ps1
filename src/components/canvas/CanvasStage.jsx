@@ -156,8 +156,8 @@ const RemoteSelectionOverlay = React.memo(function RemoteSelectionOverlay({
 
 /**
  * CanvasStage — Sayon (Whiteboard / Konva.js Engineer)
- * Plain solid-white canvas with violet transformer accents (#6965db)
- * and rounded anchor dots. No dot-grid, no background pattern.
+ * Excalidraw aesthetic: off-white canvas, fine dot-grid, violet
+ * transformer accents (#6965db) with rounded anchor dots.
  * - Responsive sizing via ResizeObserver (preserved foundation).
  * - Viewport = Stage scale/position; shape data stays in world coords.
  * - Wheel = zoom to pointer; stage draggable = pan (pan tool).
@@ -199,11 +199,6 @@ export default function CanvasStage({
   onTransformEnd,
   onTextDoubleClick,
   onBendCommit,
-  // Arrow tip/tail endpoint commit (drag with snap-to-anchor):
-  // (shapeId, localPoints, { startBinding, endBinding }).
-  onEndpointCommit,
-  // Committed shapes used as snap-anchor targets for arrow endpoints.
-  anchorShapes = null,
 }) {
   const containerRef = useRef(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -437,12 +432,8 @@ export default function CanvasStage({
   return (
     <div
       ref={containerRef}
-      className="h-full min-h-0 w-full flex-1 touch-none overflow-hidden bg-white"
-      style={{
-        cursor: cursorForTool(),
-        backgroundColor: '#ffffff',
-        backgroundImage: 'none',
-      }}
+      className="h-full min-h-0 w-full flex-1 touch-none overflow-hidden bg-[#ffffff] bg-[radial-gradient(#d3d8de_1px,transparent_1.25px)] [background-size:20px_20px]"
+      style={{ cursor: cursorForTool() }}
       data-testid="excalidraw-canvas"
     >
       {size.width > 0 && size.height > 0 && (
@@ -484,8 +475,6 @@ export default function CanvasStage({
                 scale={scale}
                 shapeNodesRef={shapeNodesRef}
                 onCommitBend={onBendCommit}
-                shapes={anchorShapes ?? committedShapes}
-                onCommitEndpoints={onEndpointCommit}
               />
             )}
             <Transformer
@@ -534,7 +523,6 @@ export default function CanvasStage({
                 onDragMove={onShapeDragMove}
                 onTransformEnd={onTransformEnd}
                 onTextDoubleClick={onTextDoubleClick}
-                enableFrameGroups={false}
               />
             </Layer>
           )}
@@ -546,10 +534,10 @@ export default function CanvasStage({
                 y={Math.min(selectBox.y, selectBox.y + selectBox.height)}
                 width={Math.abs(selectBox.width)}
                 height={Math.abs(selectBox.height)}
-                fill="rgba(59, 130, 246, 0.1)"
+                fill="rgba(59, 130, 246, 0.15)"
                 stroke="#3b82f6"
                 strokeWidth={1}
-                dash={[4, 4]}
+                dash={[6, 4]}
                 listening={false}
               />
             </Layer>
