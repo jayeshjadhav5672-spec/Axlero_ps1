@@ -235,7 +235,11 @@ export default function App() {
     setSession(null);
     setAuthView(null);
     try {
-      await auth.signOut();
+      // Firebase may be intentionally unconfigured (null auth) — the local
+      // session above is already cleared, so just skip remote sign-out.
+      if (auth) {
+        await auth.signOut();
+      }
     } catch {
       // Firebase sign-out failed, but we've cleared our session
     }
