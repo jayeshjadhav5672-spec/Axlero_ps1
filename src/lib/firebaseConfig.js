@@ -37,7 +37,7 @@ export function isFirebaseConfigComplete(config) {
 /** Controlled error for Firebase actions while unconfigured. */
 export function firebaseNotConfiguredError() {
   return new Error(
-    'Firebase sign-in is not configured (missing VITE_FIREBASE_* env). Use email signup instead.',
+    'Firebase authentication is not configured (missing or incomplete VITE_FIREBASE_* environment variables). Configure Firebase authentication and try again, or continue as a guest.',
   );
 }
 

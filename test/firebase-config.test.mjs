@@ -115,5 +115,9 @@ describe('requireFirebaseAuth', () => {
     const err = firebaseNotConfiguredError();
     assert.ok(err instanceof Error);
     assert.match(err.message, /VITE_FIREBASE_\*/);
+    assert.match(err.message, /Firebase authentication is not configured/);
+    assert.match(err.message, /missing or incomplete/);
+    assert.match(err.message, /continue as a guest/);
+    assert.ok(!/Use email signup instead/.test(err.message));
   });
 });
