@@ -80,11 +80,9 @@ flowchart TD
     EPH --> RT
     COM --> RT
     RT --> SNAP
-    RT --> MW
-    MW --> AUTH_R
+    AUTH_R --> MONGO
     AUTH_R --> FB
     AUTH_R --> JWT
-    SNAP --> MONGO
     KONVA --> EXP
 ```
 
@@ -140,7 +138,9 @@ flowchart TD
 ### Prerequisites
 
 - **Node.js ≥ 22** and **npm**
-- **MongoDB** connection string (Atlas) **or** Firebase credentials — see `.env.example`
+- **MongoDB Atlas** connection string for the Axlero server-side user/auth store
+- **Firebase** credentials/configuration when using Firebase Authentication flows
+- See `.env.example` (local only — never commit `.env`)
 - Two terminal windows (frontend + realtime server run separately in dev)
 
 ### Step-by-step
@@ -172,8 +172,13 @@ npm run dev:server
 
 # 7. Production build (bake VITE_* vars BEFORE building)
 npm run build
-npm start   # serves the backend (point it at the dist/ frontend host)
+npm start   # runs the realtime backend/API on :3000
 ```
+
+`npm start` runs `node server/index.cjs` only — it does NOT serve `dist/`.
+Preview a local production build with `npm run preview`, and serve `dist/`
+from a frontend/static host or deployment platform separately from the
+realtime backend when they are deployed separately.
 
 | Script | What it does |
 | :--- | :--- |
