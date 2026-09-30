@@ -28,11 +28,11 @@
 
 Axlero SyncSpace is a multi-user room-based workspace. Each room pairs:
 
-- an **infinite whiteboard** — rectangles, diamonds, ellipses, arrows (straight/curved/elbow), lines, freehand pen, text, images, and slide-container **frames**, rendered on a Konva.js stage with a violet Excalidraw-style treatment;
+- an **infinite whiteboard** — rectangles, diamonds, ellipses, arrows (with bend handles), lines, freehand pen, text, images, and slide-container **frames**, rendered on a Konva.js stage;
 - a **code editor pane** — a controlled editor surface synchronized across clients with revision reconciliation and room isolation;
 - **presence awareness** — live cursors, peer selection highlights, and a people panel, all transport-isolated per room.
 
-Synchronization runs over **two Socket.IO pipelines**: an *ephemeral* stream (cursor moves, in-progress stroke/drag previews, viewport mirrors — never persisted, never in history) and a *committed* mutation channel (creates, updates, deletes, atomic batches, clears, history syncs — persisted to the room snapshot and recorded in undo/redo).
+Synchronization runs over **two Socket.IO pipelines**: an *ephemeral* stream (cursor moves, in-progress stroke/drag previews, viewport mirrors — never persisted, never in history) and a *committed* mutation channel (creates, updates, deletes, multi-shape batch commits, clears, history syncs — applied to the in-memory room snapshot and recorded in local undo/redo).
 
 ---
 
@@ -42,26 +42,26 @@ Synchronization runs over **two Socket.IO pipelines**: an *ephemeral* stream (cu
 flowchart TD
     subgraph Client["Client Layer — React + Vite"]
         UI["Workspace UI\n(split layout, panels,\ntoolbar, sidebars)"]
-        KONVA["Konva.js Stage\n(shapes, frames + nested children,\nfreehand strokes, bend handles,\narrow endpoint anchors,\nTransformer, marquee)"]
+        KONVA["Konva.js Stage\n(shapes, frames,\nfreehand strokes, bend handles,\nTransformer, marquee selection)"]
         EDITOR["Code Editor Pane\n(controlled sync,\nrevision reconciliation)"]
         PRES["Presence\n(live cursors,\npeer selections)"]
-        HIST["Local History Stack\n(50-state ring buffer,\natomic batch entries)"]
+        HIST["Local History Stack\n(50-state ring buffer)"]
     end
 
     subgraph Transport["Transport Layer — Socket.IO (room-scoped)"]
         EPH["Ephemeral live-sync\n(never persisted)\nshape:preview-progress/cancel\ndraw:stroke-progress/complete/cancel\ncursor:move • eraser:trail\ncanvas:viewport-sync\ncollab:selection • collab:tool-sync"]
-        COM["Committed mutations\n(persisted)\nshapes:commit • shapes:delete\nshapes:update-batch\ncanvas:clear\ncanvas:history-sync\ncanvas:update (legacy ops:\ncreate/update/update-many/\ndelete/clear/reorder)"]
+        COM["Committed mutations\n(applied to in-memory snapshot)\nshapes:commit • shapes:delete\nshapes:update-batch\ncanvas:clear\ncanvas:history-sync\ncanvas:update (legacy ops:\ncreate/update/delete/\nclear/reorder)"]
     end
 
     subgraph Server["Server & Backend Services — Node.js + Express"]
-        RT["Socket.IO Room Manager\n(membership, capacity caps,\nper-event validation +\nbyte-size caps)"]
-        SNAP["Snapshot Reducers\n(room state, late-join sync,\neviction, access control)"]
+        RT["Socket.IO Room Manager\n(room membership, isolated\nroom state, per-event validation +\nbyte-size caps)"]
+        SNAP["Snapshot Reducers\n(in-memory room state,\nlate-join sync, bounded eviction)"]
         MW["Middleware\n(CORS validation,\nAxlero JWT auth)"]
         AUTH_R["Auth Routes\n(email/password + bcrypt,\nGoogle via Firebase Admin)"]
     end
 
     subgraph Persist["Persistence & Auth Layer"]
-        MONGO["MongoDB\n(user store,\nroom snapshots)"]
+        MONGO["MongoDB\n(user/auth data;\nroom snapshots stay in-memory)"]
         FB["Firebase Auth\n(Google + email/password)"]
         JWT["Axlero JWT\n(issued at login,\nverified per request)"]
     end
@@ -90,8 +90,8 @@ flowchart TD
 
 **Data-flow summary:**
 
-1. **Local gestures** mutate Konva nodes imperatively (60 fps, zero React state mid-drag); drop commits flow through one store entry point (`commitUpdate` / `commitUpdates`).
-2. **Live peers** see throttled previews (creation drafts, drag transforms, frame blocks with translated members) on the ephemeral channel; these never enter history, exports, or persistence.
+1. **Local gestures** mutate Konva nodes imperatively (60 fps, zero React state mid-drag); drop commits flow through one store entry point (`commitUpdate`).
+2. **Live peers** see throttled previews (creation drafts, drag transforms) on the ephemeral channel; these never enter history, exports, or persistence.
 3. **Committed ops** apply locally (single history entry, including multi-shape batches), broadcast once, and converge on peers — the server validates, snapshots, and relays them room-wide.
 4. **Late joiners** hydrate from the server room snapshot (`canvas:sync-init`); undo/redo restores broadcast full snapshots (`canvas:history-sync`).
 
@@ -100,23 +100,24 @@ flowchart TD
 ## Core Features & Modules
 
 ### Collaborative Whiteboard (`src/components/canvas/`)
-- **Shapes & frames** — rectangle, diamond, ellipse/circle, arrow (straight/curved/elbow with bend handles + draggable tip/tail endpoint anchors), line, freehand pen, text, images, and frames with native hierarchical Konva grouping (children ride the GPU transform with zero mid-drag React state).
-- **Marquee / multi-selection** — drag-to-select rectangle, Shift+click toggling, shared Transformer, and rigid group drag that moves whole blocks in one atomic commit.
-- **Snap-to-shape arrow connectors** — edge-midpoint/vertex/cardinal anchors with magnetic snap threshold, snap indicator ring, and stored `{ shapeId, anchor }` bindings so arrows follow moved shapes (live endpoint drags, single drops, group drops, and frame drops).
-- **Rotation-aware anchors** — connection points stay valid under rotated nodes.
-- **Smart guides & viewport sync** — alignment snap lines, zoom-to-pointer, pan streaming with receiver-side LERP smoothing.
-- **Atomic frame drops with nested child tracking** — one history entry + one broadcast for frame + translated children + arrow maintenance; peers apply the block in a single pass and can never observe a half-moved frame (`update-many` op end to end).
-- **Real-time live preview streaming** — throttled (~30 ms tick) creation/drag/frame-block previews with trailing-edge flush and cancel-on-drop convergence.
+- **Shapes & frames** — rectangle, diamond, ellipse/circle, arrow (with bend handles), line, freehand pen, text, images, and slide-container frames.
+- **Marquee / multi-selection** — drag-to-select rectangle, shared Transformer, and multi-delete across the selection.
+- **Alignment snap guides** — edge snapping with threshold while dragging (`snapping.js`).
+- **Rotation support** — Transformer rotation baked into the shape model.
+- **Frames as containers** — slide-container shapes with point-in-frame containment helpers.
+- **Viewport sync** — pan streaming with receiver-side LERP smoothing.
+- **Real-time live preview streaming** — throttled (~35 ms tick) creation/drag previews with cancel-on-drop convergence.
 
 ### Real-Time Code Collaboration (`src/components/editor/`, `src/hooks/`, `src/lib/yjsProvider.js`)
 - Controlled editor synchronization with remote revision reconciliation.
-- Room isolation via room-scoped state and per-room socket guards; Yjs room `Y.Doc` lifecycle ready for CRDT merge.
+- Room isolation via room-scoped state and per-room socket guards.
+- Yjs provides room-scoped `Y.Doc` lifecycle with shared `canvas`/`code`/`metadata` structures; Socket.IO remains the active sync transport — Yjs transport/awareness synchronization is not yet wired end-to-end.
 
 ### Enterprise Security & Auth (`server/auth/`, `src/lib/auth.js`, `src/lib/firebaseAuth.js`)
-- Axlero JWT issuance + per-request verification, Firebase Admin for Google and email/password flows, bcrypt password hashing, credential sanitization, and room capacity enforcement.
+- Axlero JWT issuance + per-request verification, Firebase Admin for Google and email/password flows, bcrypt password hashing, credential sanitization, and room membership with isolated per-room state.
 
 ### Full-Bounds Export (`src/components/canvas/utils/exportHub.js`, `src/utils/exportUtils.js`)
-- Content-bounds union across all elements (stroke widths, arrows, text included), padding margin, and **world→viewport mapping through live pan/zoom** so exports never clip — PNG, JPEG, AVIF, SVG (world-space viewBox), and dynamically-sized PDF, plus selection-only variants.
+- Content-bounds union across all elements (stroke widths, arrows, text included), padding margin, and viewport-aware cropping to content bounds so exports never clip — PNG, JPEG, AVIF, SVG, and dynamically-sized PDF, plus selection-only variants.
 
 ---
 
@@ -126,10 +127,10 @@ flowchart TD
 | :--- | :--- |
 | Frontend | React 19, Vite 5, Tailwind CSS 3, Konva.js + react-konva |
 | Backend | Node.js 22+, Express 5 |
-| Real-Time Transport | Socket.IO 4 (unified + legacy op protocols) |
-| Database | MongoDB 7 (users, room snapshots) |
+| Real-Time Transport | Socket.IO 4 (room-scoped live + commit protocols) |
+| Database | MongoDB 7 (users/auth data; room snapshots in-memory) |
 | Auth | Firebase Auth + Firebase Admin, Axlero JWT (jsonwebtoken), bcryptjs |
-| Collaboration Primitives | Yjs (room docs), pure reducer ops (`src/lib/collabOps.js`) |
+| Collaboration Primitives | Yjs (room-scoped docs; transport pending), pure reducer ops (`src/lib/collabOps.js`) |
 | Testing & Tooling | `node:test` (no framework), Vite build (Rollup), PostCSS/Autoprefixer |
 
 ---
@@ -178,11 +179,27 @@ npm start   # serves the backend (point it at the dist/ frontend host)
 | :--- | :--- |
 | `npm test` | `node --test test/*.test.cjs test/*.test.mjs` — full unit + integration suites |
 | `npm run dev` | Vite dev server for the React frontend |
-| `npm run dev:server` | Nodemon-style realtime backend (`server/index.cjs`) |
+| `npm run dev:server` | Realtime backend (`node server/index.cjs`) |
 | `npm run build` | Production Vite bundle into `dist/` |
 | `npm start` | Production backend server |
 
-> **Multi-window collab check:** open the app in two browser windows side by side, join the same room, and drag a frame — Window 2 glides the whole block live and converges atomically on release.
+> **Multi-window collab check:** open the app in two browser windows side by side, join the same room, and verify that drawing and code changes are reflected across both clients.
+
+### LAN Development
+
+The backend already listens on all interfaces. For the frontend, start Vite
+with external access, then open the LAN URL on every device:
+
+```bash
+npm run dev -- --host   # then open http://<YOUR-LAN-IP>:5173/?room=<room-id>
+```
+
+If connecting directly to the backend from remote browsers,
+`VITE_SYNCSPACE_SERVER_URL` must point to the reachable backend address
+(e.g. `http://<YOUR-LAN-IP>:3000`). A private LAN address is NOT reachable
+from arbitrary internet users; for public sharing, deploy with
+`VITE_SYNCSPACE_SERVER_URL=https://<public-realtime-backend>` set BEFORE
+`npm run build`.
 
 ---
 
@@ -196,13 +213,12 @@ Suites cover (all pure, no network/DOM required):
 
 | Area | Suites |
 | :--- | :--- |
-| Live-sync protocols | `live-sync.test.mjs` (preview payloads incl. frame-group members, validators, preview-map reducer, viewport LERP), `live-collab.test.cjs`, `stroke-stream.test.mjs`, `stroke-streaming.test.cjs` |
-| Anchor math | `arrow-anchors.test.mjs` (edge/vertex/cardinal anchors, snap search, endpoint moves, bindings), `rotated-anchors.test.mjs`, `bound-arrow-follow.test.mjs`, `eraser-collision.test.mjs` |
-| Frame drops & batches | `frame-drop.test.mjs` (membership, rigid translation, binding clears, arrow follows) |
-| Export bounds | `export-bounds.test.mjs` (union + padding, pan/zoom crop mapping, selection bounds) |
-| Room snapshots & ops | `room-snapshot.test.mjs`, `room-eviction.test.cjs`, `collab-ops.test.mjs` (incl. atomic `update-many`), `collab-reorder.test.cjs` |
-| Auth & transport | `auth.test.cjs`, `google-auth.test.cjs`, `mongo-connection.test.cjs`, `socket.test.cjs`, `cors.test.cjs` |
-| UI state & layout | `entry-state.test.mjs`, `split-layout.test.mjs`, `dashboard-rooms.test.mjs`, `canvas-hotkeys.test.mjs`, `yjs-provider.test.mjs` |
+| Live-sync protocols | `live-sync.test.mjs` (preview payloads, validators, preview-map reducer, viewport LERP), `live-collab.test.cjs`, `stroke-stream.test.mjs`, `stroke-streaming.test.cjs` |
+| Eraser contact | `eraser-collision.test.mjs` (drag-erase hit testing) |
+| Room snapshots & ops | `room-snapshot.test.cjs`, `room-eviction.test.cjs`, `collab-ops.test.mjs` (op validation, echo suppression, revision guards, presence mapping), `collab-reorder.test.cjs` |
+| Auth & transport | `auth.test.cjs`, `google-auth.test.cjs`, `mongo-connection.test.cjs`, `socket.test.cjs`, `cors.test.cjs`, `firebase-config.test.mjs` |
+| Editor sync | `code-editor-sync.test.mjs` (controlled sync, no-echo guarantees) |
+| UI state & layout | `entry-state.test.mjs`, `split-layout.test.mjs`, `dashboard-rooms.test.mjs`, `yjs-provider.test.mjs` |
 
 ---
 
@@ -214,7 +230,7 @@ Axlero_ps1/
 │   ├── App.jsx                      # Room composition: Workspace + collab hooks
 │   ├── components/
 │   │   ├── canvas/                  # Whiteboard: stage, renderer, toolbar,
-│   │   │   │                        #   bend/endpoint handles, drawing + history hooks
+│   │   │   │                        #   bend handles, drawing + history hooks
 │   │   │   ├── hooks/               #   useWhiteboardState (store), useCanvasHistory
 │   │   │   └── utils/               #   shapes, snapping, liveSync, exportHub, …
 │   │   ├── workspace/               # WhiteboardPanel / CodeEditorPanel shells
@@ -225,7 +241,7 @@ Axlero_ps1/
 │   └── utils/                       # exportUtils (canonical raster export)
 ├── server/
 │   ├── socket.cjs                   # Room manager: validation, snapshot reducers,
-│   │                                #   eviction, access control, relay
+│   │                                #   eviction, relay
 │   ├── index.cjs • cors.cjs • auth/ • db/
 ├── test/                            # node:test suites (*.test.cjs / *.test.mjs)
 └── .github/workflows/ci.yml         # CI automation
@@ -237,10 +253,9 @@ Axlero_ps1/
 
 | Contributor / Handle | Role | Core Modules & Contributions |
 | :--- | :--- | :--- |
-| `@sayon999-d` | Full-Stack / Canvas Core | Real-time live frame sync, marquee group selection, snap-to-shape arrow anchors, bounding-box multi-format export hub, and canvas gesture pipeline |
+| `@sayon999-d` | Full-Stack / Canvas Core | Base Konva whiteboard toolkit (shapes, frames, marquee selection, export hub) and canvas gesture pipeline |
 | `@jayeshjadhav5672-spec` | Team Lead / Architecture | Core repo architecture, CI/CD automation pipelines, code editor integration (`CodeEditor.jsx`, controlled sync), and upstream release management |
-| `@arun` | Backend & Transport | Socket.IO room capacity management, presence engine, auth routes, and MongoDB persistence layers |
+| `@arun` | Backend & Transport | Socket.IO room management and presence engine, auth routes, and MongoDB user-store layers |
 | `@kishan` *(editor owner, per in-code credits)* | Editor | Code editor integration surface (`CollabTextEditor.jsx`) |
-| `@shree` *(Yjs owner, per in-code credits)* | CRDT / Presence Data | Yjs room `Y.Doc` lifecycle (`yjsProvider.js`), awareness plumbing |
+| `@shree` *(Yjs owner, per in-code credits)* | CRDT / Presence Data | Yjs room `Y.Doc` lifecycle and shared structures (`yjsProvider.js`); transport/awareness integration pending |
 | `@avantee` *(workspace UI owner, per in-code credits)* | Frontend UI | Workspace panels, split layout, dashboard and room shells |
-| *[Your handle]* | *[Role]* | *[Describe your feature, files touched, and tests added]* |
