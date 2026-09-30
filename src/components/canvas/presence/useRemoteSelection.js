@@ -2,16 +2,16 @@ import { useCallback, useRef } from 'react';
 import { buildSelectionPayload, SELECTION_EVENT } from '../utils/liveSync.js';
 
 /**
- * useRemoteSelection - peer selection presence, emit side only.
+ * useRemoteSelection — peer selection presence, emit side only.
  *
  * Tools and local selection stay strictly per-client; this hook broadcasts
  * `{ userId, userName, color, shapeIds }` on the room-scoped
- * `collab:selection` channel (discrete emits on selection change - the
+ * `collab:selection` channel (discrete emits on selection change — the
  * caller dedupes so one tap never emits twice).
  *
  * Reception renders through CanvasStage's imperative
  * RemoteSelectionOverlay (raw Konva nodes, zero React re-renders), NOT
- * through React state here - keeping a state mirror would re-render the
+ * through React state here — keeping a state mirror would re-render the
  * whole board per selection packet, defeating the overlay.
  */
 export default function useRemoteSelection({

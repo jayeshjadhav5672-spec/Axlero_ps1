@@ -36,12 +36,12 @@ import {
   ungroupShape,
 } from './utils/shapes.js';
 
-const MIN_FREEHAND_STEP = 2; // px in world coords - draft optimization
+const MIN_FREEHAND_STEP = 2; // px in world coords — draft optimization
 const MIN_ZOOM = 0.25; // 25% minimum (zoom out allowed)
-const MAX_ZOOM = 1.0; // 100% maximum - users can never zoom in past 100%
+const MAX_ZOOM = 1.0; // 100% maximum — users can never zoom in past 100%
 
 /**
- * useCanvasDrawing - Sayon (Whiteboard / Konva.js Engineer)
+ * useCanvasDrawing — Sayon (Whiteboard / Konva.js Engineer)
  *
  * Interaction layer (tools, viewport, text overlay, keyboard) on top of
  * `hooks/useWhiteboardState` (shape store + collab callbacks).
@@ -81,13 +81,13 @@ export default function useCanvasDrawing({
   // Called after a shape is committed (draw or text). The shell uses it
   // to return to select/move mode so no explicit Select button is needed.
   onDrawingCommitted,
-  // Week 2: "Draw to Shape" toggle - when true, finished freehand strokes
+  // Week 2: "Draw to Shape" toggle — when true, finished freehand strokes
   // are analyzed (circle/rect/line) and replaced by clean shapes.
   autoDetect = false,
   // Live pen-stroke streaming (optional): room-scoped socket used to
   // broadcast in-progress freehand points (`draw:stroke-progress`,
   // throttled ~30ms) and the finalized shape (`draw:stroke-complete`).
-  // Omit both for standalone/offline boards - drawing stays local.
+  // Omit both for standalone/offline boards — drawing stays local.
   socket = null,
   roomId = null,
 } = {}) {
@@ -124,7 +124,7 @@ export default function useCanvasDrawing({
     roomId,
   });
 
-  // Draft shape being drawn (NOT yet committed) - updating only this
+  // Draft shape being drawn (NOT yet committed) — updating only this
   // small object on pointermove avoids re-mapping the full shapes array.
   const [draftShape, setDraftShape] = useState(null);
   const drawStartRef = useRef(null); // world point where drag began
@@ -139,20 +139,20 @@ export default function useCanvasDrawing({
   const streamStyleRef = useRef({ tool: 'select', stroke: color, strokeWidth, opacity });
   streamStyleRef.current = { tool, stroke: color, strokeWidth, opacity };
   // Live mirror of committed shapes for the imperative drag path below
-  // (plain ref write during render - no subscription, no re-render).
+  // (plain ref write during render — no subscription, no re-render).
   const committedShapesRef = useRef(shapes);
   committedShapesRef.current = shapes;
   // Room id mirror for the receive subscription (socket identity is stable).
   const streamRoomIdRef = useRef(roomId);
   streamRoomIdRef.current = roomId;
   // Remote in-progress strokes from peers: { [strokeId]: previewShape }.
-  // Render-only - never enters history, exports, or collab ops.
+  // Render-only — never enters history, exports, or collab ops.
   const [remoteStrokes, setRemoteStrokes] = useState({});
 
   const emitStrokeEvent = useCallback(
     (event, data) => {
       try {
-        // TRACE probe - pipeline stage 1 (client broadcast). Enable with
+        // TRACE probe — pipeline stage 1 (client broadcast). Enable with
         // `window.__SYNCSPACE_STROKE_DEBUG = true`; silent otherwise so the
         // ~30Hz flush never spams production consoles.
         if (!socket || typeof socket.emit !== 'function') {
@@ -335,7 +335,7 @@ export default function useCanvasDrawing({
 
   // Room switch mid-stroke: drop in-flight buffers/timers so a stale
   // stroke or preview can never leak into the new room, and clear stale
-  // remote previews - the receive guard (streamRoomIdRef) already tracks
+  // remote previews — the receive guard (streamRoomIdRef) already tracks
   // the current roomId every render, so post-switch events filter correctly.
   const prevStreamRoomRef = useRef(roomId);
   useEffect(() => {
@@ -417,7 +417,7 @@ export default function useCanvasDrawing({
   useEffect(() => {
     if (!socket || typeof socket.on !== 'function') return undefined;
     const makeHandler = (event) => (payload) => {
-      // TRACE probe - pipeline stage 3 (client reception): room match +
+      // TRACE probe — pipeline stage 3 (client reception): room match +
       // sender identity. Mismatched rooms return silently by design.
       if (!payload || payload.roomId !== streamRoomIdRef.current) {
         strokeDebug('TRACE:CLIENT ignored', event, {
@@ -451,7 +451,7 @@ export default function useCanvasDrawing({
       });
       // Imperative drag fast path: when a progress preview targets an
       // already-committed shape id (live drag transform), mutate the Konva
-      // node DIRECTLY - position/points + one layer batchDraw - instead of
+      // node DIRECTLY — position/points + one layer batchDraw — instead of
       // routing through setRemoteStrokes (which would re-render + reconcile
       // per packet). O(1) DOM writes, zero React work. Creation previews
       // (unknown ids) and all non-progress events keep the state path.
@@ -480,8 +480,8 @@ export default function useCanvasDrawing({
     };
   }, [socket]);
 
-  // TRACE probe - pipeline stage 4 (Konva rendering): live preview count
-  // changes only - silent when zero so the flag costs nothing at rest.
+  // TRACE probe — pipeline stage 4 (Konva rendering): live preview count
+  // changes only — silent when zero so the flag costs nothing at rest.
   // A rising count here with nothing painting on stage isolates the break
   // to CanvasStage.jsx / ShapeRenderer.jsx.
   useEffect(() => {
@@ -490,8 +490,8 @@ export default function useCanvasDrawing({
   }, [remoteStrokes]);
 
   // Stale-preview expiry: an active stroke/drag re-upserts every ~35ms
-  // (refreshing receivedAt), so only orphaned ghosts - e.g. a drop whose
-  // cancel was lost on disconnect - age out (20s). Backstop behind the
+  // (refreshing receivedAt), so only orphaned ghosts — e.g. a drop whose
+  // cancel was lost on disconnect — age out (20s). Backstop behind the
   // authoritative cancel/commit cleanup, never ahead of it.
   useEffect(() => {
     const timer = setInterval(() => {
@@ -598,11 +598,11 @@ export default function useCanvasDrawing({
   // shape under the cursor on contact. Hits batch into ONE deleteShape
   // call per sweep step, so peers receive a single `shapes:delete`
   // (uncontrolled+socket) or one delete op per shape (controlled shell)
-  // immediately - nothing waits for pointerup, nothing is left orphaned.
+  // immediately — nothing waits for pointerup, nothing is left orphaned.
   // Click-to-delete (handleShapeClick) keeps working for single taps.
   // Declared HERE (above all pointer handlers) on purpose: the stage
   // handlers list this callback in their useCallback dep arrays, which
-  // evaluate eagerly during render - a declaration below them would throw
+  // evaluate eagerly during render — a declaration below them would throw
   // `ReferenceError: can't access lexical declaration before
   // initialization` (TDZ) and white-screen the board.
   const eraserDownRef = useRef(false);
@@ -652,7 +652,7 @@ export default function useCanvasDrawing({
   //
   // `stage.getRelativePointerPosition()` applies the inverse of the stage's
   // absolute transform (scale + pan offset) to the container-relative pointer,
-  // so it already returns WORLD coordinates - including correct results when
+  // so it already returns WORLD coordinates — including correct results when
   // zoomed/panned and identical results whether the pointer is over empty
   // canvas or on top of an existing shape. Do NOT run it through `toWorld`
   // again (that would double-apply scale/offset).
@@ -663,7 +663,7 @@ export default function useCanvasDrawing({
     if (!pointer) return null;
     const { x, y } = pointer;
     // Pointer releases without a drag (or pointer-leave) can yield
-    // NaN/undefined coords - never let those reach shape math or Konva.
+    // NaN/undefined coords — never let those reach shape math or Konva.
     if (!isFiniteNum(x) || !isFiniteNum(y)) return null;
     return { x, y };
   }, []);
@@ -704,7 +704,7 @@ export default function useCanvasDrawing({
       }
 
       if (tool === 'text') {
-        // Text places ANYWHERE - empty canvas or inside/on top of an
+        // Text places ANYWHERE — empty canvas or inside/on top of an
         // existing shape (shapes are non-listening in text mode, and
         // this handler ignores the event target on purpose).
         if (!textEditor) {
@@ -771,7 +771,7 @@ export default function useCanvasDrawing({
       setDraftShape(seed);
       if (drawTool !== 'freehand') {
         selectShape(null);
-        // Seed the universal live-preview buffer for every non-pen tool -
+        // Seed the universal live-preview buffer for every non-pen tool —
         // peers see rects/circles/arrows grow via `shape:preview-progress`.
         activePreviewIdRef.current = seed.id;
         previewBufferRef.current = { ...seed };
@@ -885,7 +885,7 @@ export default function useCanvasDrawing({
   );
 
   const handleStageMouseUp = useCallback(() => {
-    // End any drag-erase sweep (pointerup AND pointerleave both land here -
+    // End any drag-erase sweep (pointerup AND pointerleave both land here —
     // CanvasStage wires onPointerLeave to this handler).
     if (eraserDownRef.current) eraserDownRef.current = false;
     // Marquee release: select all shapes whose bounding boxes intersect
@@ -922,16 +922,16 @@ export default function useCanvasDrawing({
     drawStartRef.current = null;
 
     // Live streaming: settle the remote preview for the in-flight stroke.
-    // `endStream(shape)` finalizes peers - `draw:stroke-complete` with the
+    // `endStream(shape)` finalizes peers — `draw:stroke-complete` with the
     // committed shape, or `draw:stroke-cancel` when the stroke was
-    // discarded - then resets the streaming refs. No-ops when nothing was
+    // discarded — then resets the streaming refs. No-ops when nothing was
     // ever broadcast (standalone boards, non-pen tools, unmoved clicks).
     // The pending tick drains first so trailing coordinates land before
     // the complete/cancel settles the preview (didStream flags update).
     flushPendingTick();
     clearPreviewTimer();
     // Universal live preview settle: cancel the peer preview when one was
-    // broadcast. Fires on BOTH degenerate aborts and successful commits -
+    // broadcast. Fires on BOTH degenerate aborts and successful commits —
     // on commit the authoritative `canvas:update` create op delivers the
     // persisted shape (id-dedupe covers either arrival order). No-ops when
     // no preview was ever broadcast (pen path uses endStream instead).
@@ -988,7 +988,7 @@ export default function useCanvasDrawing({
       const dy = clean[clean.length - 1] - clean[1];
       if (!Number.isFinite(dx) || !Number.isFinite(dy)) return (endStream(null), endPreview());
       if (Math.hypot(dx, dy) < 2) return (endStream(null), endPreview());
-      // Week 2 "Draw to Shape": locked to the Pen tool - recognized only
+      // Week 2 "Draw to Shape": locked to the Pen tool — recognized only
       // when the stroke was drawn with tool === 'pen'/'freehand' AND the
       // toggle is on. Strokes finished under any other tool stay raw, and
       // switching away from Pen bypasses recognition entirely.
@@ -1135,14 +1135,14 @@ export default function useCanvasDrawing({
     // Dual-envelope unpack (flat or nested) with numeric coercion.
     // Zoom stays strictly local: the remote `scale` is intentionally
     // ignored so a peer sitting at 400% can never drag this client off
-    // its 100% (1.0) default - incoming packets retarget pan position
+    // its 100% (1.0) default — incoming packets retarget pan position
     // only, and zoom-only packets are no-ops. Outbound broadcasts still
     // carry our scale (protocol unchanged).
     const { stagePos } = unpackViewportPayload(input);
     const nextPos = stagePos;
     if (nextPos === null) return;
     // Retarget (never snap): the rAF loop eases toward the newest packet;
-    // a newer packet simply moves the target - no backlog, no jitter.
+    // a newer packet simply moves the target — no backlog, no jitter.
     const stage = stageRef.current;
     viewportLerpTargetRef.current = {
       x: nextPos?.x ?? stage?.x?.() ?? viewportMirrorRef.current.x,
@@ -1247,10 +1247,10 @@ export default function useCanvasDrawing({
     flushPendingTick();
   }, [flushPendingTick]);
 
-  // Continuous pan streaming (Stage onDragMove, pan tool only - CanvasStage
+  // Continuous pan streaming (Stage onDragMove, pan tool only — CanvasStage
   // gates attachment): routes through the shared fixed 30ms tick, so peers
   // mirror the pan in real time with zero redundant packets (change
-  // detection inside the tick). Deliberately emits NO local setState -
+  // detection inside the tick). Deliberately emits NO local setState —
   // Konva owns the node mid-drag (it is ALREADY moving the canvas
   // natively) and controlled re-renders would fight it; React state
   // commits once on drag end above. Receiving peers bypass their own
@@ -1385,7 +1385,7 @@ export default function useCanvasDrawing({
       }
       setGuidelines(lines);
       // Live drag transform: broadcast the snapped translated snapshot so
-      // peers replace the committed entry in place (same id, same index -
+      // peers replace the committed entry in place (same id, same index —
       // no duplication, no ghosting). Peers converge exactly on drop via
       // the authoritative update + preview-cancel. Groups/frames preview
       // their own node placement; children follow on drag end as usual.
@@ -1415,7 +1415,7 @@ export default function useCanvasDrawing({
       if (!isFiniteNum(nodeX) || !isFiniteNum(nodeY)) return;
       const shape = shapes.find((s) => s.id === shapeId);
       if (!shape) return;
-      // Composite group move: the Group node owns placement - commit x/y
+      // Composite group move: the Group node owns placement — commit x/y
       // only; children stay relative to the group origin.
       if (shape.type === 'group') {
         const node = shapeNodesRef.current.get(shapeId);
@@ -1495,7 +1495,7 @@ export default function useCanvasDrawing({
         commitUpdate(shapeId, changes);
       } else {
         // Reset transient node offset for point-based shapes even if ~0.
-        // Absolute-points nodes rest at (0, 0) - never at a stale
+        // Absolute-points nodes rest at (0, 0) — never at a stale
         // shape.x/shape.y.
         if (node && isPointBased) {
           node.position({ x: 0, y: 0 });
@@ -1525,7 +1525,7 @@ export default function useCanvasDrawing({
       const sy = node.scaleY();
       const rot = node.rotation();
       // A NaN scale/rotation (e.g. collapsed to zero size) must not bake
-      // into the model - reset the node and keep stored geometry instead.
+      // into the model — reset the node and keep stored geometry instead.
       if (!isFiniteNum(sx) || !isFiniteNum(sy) || !isFiniteNum(rot)) {
         node.scale({ x: 1, y: 1 });
         return;

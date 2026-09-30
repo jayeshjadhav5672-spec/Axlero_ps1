@@ -39,28 +39,28 @@ const TOOLS = [
     value: 'rectangle',
     label: 'Rectangle',
     shortcut: '2',
-    title: 'Rectangle (2 or R - drag any direction)',
+    title: 'Rectangle (2 or R — drag any direction)',
     icon: <rect x="3" y="3" width="18" height="18" rx="2" />,
   },
   {
     value: 'circle',
     label: 'Ellipse',
     shortcut: '3',
-    title: 'Ellipse (3 or C - center + radius)',
+    title: 'Ellipse (3 or C — center + radius)',
     icon: <ellipse cx="12" cy="12" rx="9" ry="7" />,
   },
   {
     value: 'diamond',
     label: 'Diamond',
     shortcut: 'D',
-    title: 'Diamond (D - drag any direction)',
+    title: 'Diamond (D — drag any direction)',
     icon: <path d="M12 3 L21 12 L12 21 L3 12 Z" />,
   },
   {
     value: 'arrow',
     label: 'Arrow',
     shortcut: 'A',
-    title: 'Arrow (A - drag, then drag the midpoint handle to bend)',
+    title: 'Arrow (A — drag, then drag the midpoint handle to bend)',
     icon: (
       <>
         <line x1="5" y1="19" x2="19" y2="5" />
@@ -72,21 +72,21 @@ const TOOLS = [
     value: 'line',
     label: 'Line',
     shortcut: 'L',
-    title: 'Line (L - two points)',
+    title: 'Line (L — two points)',
     icon: <line x1="5" y1="19" x2="19" y2="5" />,
   },
   {
     value: 'freehand',
     label: 'Pen',
     shortcut: 'P',
-    title: 'Pen - freehand (P)',
+    title: 'Pen — freehand (P)',
     icon: <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />,
   },
   {
     value: 'text',
     label: 'Text',
     shortcut: 'T',
-    title: 'Text (T - click to place, Enter to commit)',
+    title: 'Text (T — click to place, Enter to commit)',
     icon: (
       <>
         <polyline points="4 7 4 4 20 4 20 7" />
@@ -99,7 +99,7 @@ const TOOLS = [
     value: 'frame',
     label: 'Frame',
     shortcut: 'F',
-    title: 'Frame (F - drag to create a slide container; moving it carries children)',
+    title: 'Frame (F — drag to create a slide container; moving it carries children)',
     icon: (
       <>
         <rect x="3" y="5" width="18" height="15" rx="2" strokeDasharray="4 3" />
@@ -111,7 +111,7 @@ const TOOLS = [
     value: 'eraser',
     label: 'Eraser',
     shortcut: 'E',
-    title: 'Eraser (E - click a shape to delete)',
+    title: 'Eraser (E — click a shape to delete)',
     icon: (
       <>
         <path d="M20 20H8L3 15a1.5 1.5 0 0 1 0-2.1l9.2-9.2a1.5 1.5 0 0 1 2.1 0l5.2 5.2a1.5 1.5 0 0 1 0 2.1L13 18" />
@@ -125,7 +125,7 @@ const PAN_TOOL = {
   value: 'pan',
   label: 'Pan',
   shortcut: 'H',
-  title: 'Pan (H - drag canvas, wheel to zoom)',
+  title: 'Pan (H — drag canvas, wheel to zoom)',
   icon: (
     <>
       <path d="M8 12V5.5a1.5 1.5 0 0 1 3 0V11m0-5.5v-1a1.5 1.5 0 0 1 3 0V11m0-4.5a1.5 1.5 0 0 1 3 0V12m0-3a1.5 1.5 0 0 1 3 0v4a7 7 0 0 1-7 7h-1a7 7 0 0 1-6-3.3l-2-3.4a1.5 1.5 0 0 1 2.6-1.5L8 12" />
@@ -214,9 +214,9 @@ const EXPORT_OPTIONS = [
   { value: 'pdf', label: 'PDF (.pdf)' },
 ];
 const EXPORT_SELECTION_OPTIONS = [
-  { value: 'png-selection', label: 'PNG - selection only' },
-  { value: 'jpeg-selection', label: 'JPEG - selection only' },
-  { value: 'pdf-selection', label: 'PDF - selection only' },
+  { value: 'png-selection', label: 'PNG — selection only' },
+  { value: 'jpeg-selection', label: 'JPEG — selection only' },
+  { value: 'pdf-selection', label: 'PDF — selection only' },
 ];
 const BTN_BASE =
   'relative flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg border text-[15px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-1';
@@ -224,18 +224,18 @@ const BTN_ACTIVE = 'bg-violet-100 text-violet-700 border-violet-200 shadow-[inse
 const BTN_IDLE = 'border-transparent text-gray-700 hover:bg-gray-100 hover:text-gray-900';
 
 /**
- * Toolbar - responsive 2-section header bar docked at the top of the
+ * Toolbar — responsive 2-section header bar docked at the top of the
  * whiteboard: drawing tools (left), canvas status (shape count + zoom
  * steppers) with history/actions + 3-dot customization toggle (right).
  * The bar is unconditionally `flex` (no breakpoint locks) and scrolls
  * horizontally within `max-w-[calc(100vw-32px)]`, so it stays visible on
  * 13"/15" laptop screens as well as 27" monitors.
  * Stroke/fill color controls live exclusively in the PropertySidebar
- * customization panel - this bar carries no color swatches by design.
+ * customization panel — this bar carries no color swatches by design.
  * Back-compat: still accepts the legacy props (locked, onLockedChange,
  * onDelete, color, strokeWidth, currentStyle, onColorChange,
  * onStrokeWidthChange, onStyleChange) and ignores them. Status/action
- * props are all optional - each section degrades gracefully when its
+ * props are all optional — each section degrades gracefully when its
  * handlers are absent.
  */
 export default function Toolbar({
@@ -243,7 +243,7 @@ export default function Toolbar({
   onToolChange,
   locked,
   onLockedChange,
-  // legacy (ignored, kept for integration compat - color controls live
+  // legacy (ignored, kept for integration compat — color controls live
   // exclusively in the PropertySidebar customization panel)
   onDelete,
   color,
@@ -303,7 +303,7 @@ export default function Toolbar({
   const exportMenuRef = useRef(null);
   // Fixed-position menu anchor (viewport coords measured from the toggle
   // button when the menu opens). The menu renders with `position: fixed`
-  // so it escapes the tool strip's `overflow-x-auto` clipping - an
+  // so it escapes the tool strip's `overflow-x-auto` clipping — an
   // `absolute` child here would be cut off at the 52px bar (overflow-y
   // computes to auto) and its items would never receive clicks.
   const [exportMenuPos, setExportMenuPos] = useState({ top: 0, left: 0 });
@@ -426,7 +426,7 @@ export default function Toolbar({
               title={
                 tool === 'pen' || tool === 'freehand'
                   ? 'Auto-detect shapes: convert rough pen strokes to circles, rectangles, lines'
-                  : 'Auto-detect shapes (pen only - clicking switches to the Pen tool)'
+                  : 'Auto-detect shapes (pen only — clicking switches to the Pen tool)'
               }
               aria-label="Auto-detect shapes"
               aria-pressed={autoDetect}
@@ -537,7 +537,7 @@ export default function Toolbar({
 
       {/* SECTION 2: STATUS + ACTIONS & MORE MENU (RIGHT) */}
       <div className="flex shrink-0 items-center gap-1">
-        {/* Shape count badge - text hidden on compact viewports */}
+        {/* Shape count badge — text hidden on compact viewports */}
         <span className="hidden whitespace-nowrap rounded-full bg-gray-100 px-2.5 py-1 text-sm font-medium text-gray-500 sm:inline-block">
           {shapeCount} {shapeCount === 1 ? 'shape' : 'shapes'}
         </span>
@@ -617,7 +617,7 @@ export default function Toolbar({
                 isPropertiesOpen ? 'bg-indigo-50 text-indigo-600' : 'text-gray-700 hover:bg-gray-100'
               }`}
               title="All Properties"
-              aria-label="Customize - more options"
+              aria-label="Customize — more options"
               aria-expanded={isPropertiesOpen}
               aria-pressed={isPropertiesOpen}
             >

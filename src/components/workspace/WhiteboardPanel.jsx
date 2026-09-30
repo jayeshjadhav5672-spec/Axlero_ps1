@@ -1,14 +1,14 @@
 import React from 'react';
 
 /**
- * WhiteboardPanel - Avantee (React UI / Frontend Engineer)
+ * WhiteboardPanel — Avantee (React UI / Frontend Engineer)
  *
  * Shell around Sayon's <Whiteboard /> (src/components/canvas).
  * Provides the responsive container and loading / error / empty states.
  * The WHITEBOARD label + toolbar header row belongs to Sayon's component
  * (it owns the tool state), so this panel hides its own duplicate title
  * row once the canvas is mounted. Drawing tools and toolbar belong to
- * Sayon's component - this panel intentionally adds none.
+ * Sayon's component — this panel intentionally adds none.
  */
 export default function WhiteboardPanel({
   children,

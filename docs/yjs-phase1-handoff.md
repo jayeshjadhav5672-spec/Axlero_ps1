@@ -1,8 +1,8 @@
-# Yjs Phase 1 - Handoff Report
+# Yjs Phase 1 — Handoff Report
 
 ## PR Information
 
-- PR number: #9 - `feat(yjs): initialize collaboration document`
+- PR number: #9 — `feat(yjs): initialize collaboration document`
 - Repository: `jayeshjadhav5672-spec/Axlero_ps1`
   (`https://github.com/jayeshjadhav5672-spec/Axlero_ps1.git`)
 - Branch: `feature/shree-yjs`
@@ -15,7 +15,7 @@
   `43cd053803cd8dc9915718f356d16fbbde73e6bb`
   (`docs(yjs): add phase 1 implementation and handoff reports`)
 - Current PR status: updated feature branch, ready for Shravan review
-  (NOT merged - merge is Shravan's decision).
+  (NOT merged — merge is Shravan's decision).
 
 ## What Was Implemented
 
@@ -45,12 +45,12 @@ whiteboard CRDT model (that is Phase 2).
 
 From `src/lib/yjsProvider.js`:
 
-- `getYDoc(roomId)` - validate + lazily create/return the room's `Y.Doc`.
+- `getYDoc(roomId)` — validate + lazily create/return the room's `Y.Doc`.
   Throws `[yjsProvider] Invalid roomId ...` for invalid IDs.
-- `destroyYDoc(roomId)` - `doc.destroy()` + registry removal. Idempotent;
+- `destroyYDoc(roomId)` — `doc.destroy()` + registry removal. Idempotent;
   no-op when no live doc. Call on room leave.
-- `hasYDoc(roomId)` - `true` iff a live doc is registered. Guard for hooks.
-- `resetForTests()` - destroy-all + clear registry. Tests/dev only; the app
+- `hasYDoc(roomId)` — `true` iff a live doc is registered. Guard for hooks.
+- `resetForTests()` — destroy-all + clear registry. Tests/dev only; the app
   never calls it.
 
 ## Files Changed
@@ -62,8 +62,8 @@ From `src/lib/yjsProvider.js`:
   `isomorphic.js@0.2.5` + cosmetic npm peer-flag churn)
 - `src/lib/yjsProvider.js` (new)
 - `test/yjs-provider.test.mjs` (new)
-- `docs/yjs-phase1-report.md` (new - this task)
-- `docs/yjs-phase1-handoff.md` (new - this file)
+- `docs/yjs-phase1-report.md` (new — this task)
+- `docs/yjs-phase1-handoff.md` (new — this file)
 
 ## Validation
 
@@ -72,7 +72,7 @@ Actually executed on this branch after syncing latest main:
 - `npm test`: **46 pass / 0 fail** (23 Yjs provider + 23 pre-existing).
 - `npm run build`: **succeeds** (only the pre-existing Konva chunk-size
   warning).
-- `git diff origin/main...HEAD --stat`: only the Phase 1 files above -
+- `git diff origin/main...HEAD --stat`: only the Phase 1 files above —
   no whiteboard/Konva/UI/dashboard/socket/server/Monaco/auth/MongoDB/replay
   modifications.
 - Dependency check: `yjs@13.6.32` + required transitives only; no
@@ -87,10 +87,10 @@ For consumers of the provider (rest of SyncSpace):
 2. On room join/switch: `const doc = getYDoc(roomId)` (same ID → same doc),
    then `doc.getArray('canvas')` / `doc.getText('code')` /
    `doc.getMap('metadata')`.
-3. On room leave: `destroyYDoc(roomId)` - mandatory, otherwise the doc is
+3. On room leave: `destroyYDoc(roomId)` — mandatory, otherwise the doc is
    retained (strong registry reference) and re-join sees stale state.
 4. Use the same room-ID rule (`isValidRoomId`); invalid IDs throw loudly.
-5. Do NOT wire sockets/awareness into this module - transport integration
+5. Do NOT wire sockets/awareness into this module — transport integration
    is a separate future task with its own boundary.
 
 ## Phase 2 Handoff
@@ -130,13 +130,13 @@ in a later phase.
 
 Only actual findings (no speculation):
 
-1. Caller-owned lifecycle - a missed `destroyYDoc()` on room leave leaks
+1. Caller-owned lifecycle — a missed `destroyYDoc()` on room leave leaks
    the doc until `resetForTests()` or process end. Mitigation: enforce the
    destroy call in the room-leave flow when wiring Phase 2.
 2. `canvas → Y.Array` cannot merge concurrent shape edits property-wise;
    that is the accepted Phase 1 limitation Phase 2 exists to fix.
 3. `package-lock.json` contains cosmetic `"peer": true` flag churn from
-   npm's serializer - harmless, no version changes.
+   npm's serializer — harmless, no version changes.
 
 ## Final Checklist
 
@@ -149,4 +149,4 @@ Only actual findings (no speculation):
 - [x] Documentation created (`docs/yjs-phase1-report.md` + this handoff)
 - [x] Branch pushed (`feature/shree-yjs` only, no force)
 - [x] PR updated (follows automatically on push)
-- [x] Ready for Shravan review - DO NOT merge; Shravan merges
+- [x] Ready for Shravan review — DO NOT merge; Shravan merges

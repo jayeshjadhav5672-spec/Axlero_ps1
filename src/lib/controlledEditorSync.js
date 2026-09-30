@@ -1,5 +1,5 @@
 /**
- * controlledEditorSync.js - remote-sync guard for controlled code editors.
+ * controlledEditorSync.js — remote-sync guard for controlled code editors.
  *
  * Monaco's `editor.setValue()` fires model-content change events, so naively
  * adopting a remote value would re-enter the local `onChange` path and echo
@@ -41,7 +41,7 @@ export function createRemoteSync() {
     /**
      * Adopt a remote value. Returns true when `apply` ran, false when the
      * editor already held the value (no `setValue` call). `next` may be
-     * nullish - it normalizes to '' so empty-string resets work.
+     * nullish — it normalizes to '' so empty-string resets work.
      */
     applyRemote(getCurrent, apply, next) {
       const target = next ?? '';

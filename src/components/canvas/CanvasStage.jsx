@@ -9,11 +9,11 @@ import { isValidSelection } from './utils/liveSync.js';
 export const EXCALIDRAW_ACCENT = '#6965db';
 
 /**
- * RemoteSelectionOverlay - imperative peer-selection overlay with ZERO
+ * RemoteSelectionOverlay — imperative peer-selection overlay with ZERO
  * React re-renders. A memoized shell renders one empty Konva Layer exactly
  * once; `collab:selection` packets drive raw Konva nodes (Rect outlines +
  * name badges) directly: old peer group destroyed, new group built from
- * descriptor bounds (no node.getClientRect() matrix math in render -
+ * descriptor bounds (no node.getClientRect() matrix math in render —
  * getShapeBounds is pure arithmetic), layer.batchDraw() once per packet.
  * Shapes resolve through a ref mirror (no state subscription), quiet peers
  * expire on an interval, and everything is listening={false} so local
@@ -155,7 +155,7 @@ const RemoteSelectionOverlay = React.memo(function RemoteSelectionOverlay({
 });
 
 /**
- * CanvasStage - Sayon (Whiteboard / Konva.js Engineer)
+ * CanvasStage — Sayon (Whiteboard / Konva.js Engineer)
  * Excalidraw aesthetic: off-white canvas, fine dot-grid, violet
  * transformer accents (#6965db) with rounded anchor dots.
  * - Responsive sizing via ResizeObserver (preserved foundation).
@@ -210,7 +210,7 @@ export default function CanvasStage({
   // for Group shapes where e.target may be a child sub-node), with a
   // findOne fallback; parent state is notified in the background and the
   // lifecycle effect below no-ops on the identical set. Never detaches
-  // here on lookup miss - the effect reconciles those cases.
+  // here on lookup miss — the effect reconciles those cases.
   const handleShapeSelectDirect = useCallback(
     (shapeId) => {
       try {
@@ -233,7 +233,7 @@ export default function CanvasStage({
     [onShapeSelect, shapeNodesRef, stageRef, transformerRef],
   );
 
-  // Instant deselect on blank-stage click (select tool only - draw/text
+  // Instant deselect on blank-stage click (select tool only — draw/text
   // tools own their pointer gestures). Idempotent with the existing
   // marquee-up deselect; the outbound selection broadcast dedupes.
   const handleStageClick = useCallback(
@@ -256,7 +256,7 @@ export default function CanvasStage({
   );
 
   // Live mirror of the shapes array for the imperative overlay (plain ref
-  // write during render - no subscription, no re-render trigger).
+  // write during render — no subscription, no re-render trigger).
   const shapesRef = useRef(shapes);
   shapesRef.current = shapes;
 
@@ -306,14 +306,14 @@ export default function CanvasStage({
 
   // Transformer lifecycle: attach to the selected node(s), detach otherwise.
   // Every branch explicitly releases with nodes([]) + batchDraw() so the
-  // transformer never holds a detached node after a delete - the stale
+  // transformer never holds a detached node after a delete — the stale
   // hook that broke all subsequent selections/deletions.
   // Selection is available in every tool except text (the text tool owns
   // all pointer events), so the transformer hides while placing text.
   // Multi-selection (marquee): when `selectedIds` carries several ids, all
   // matching nodes attach to the single Transformer.
   // No-op guard: when the resolved node set is identical to the attached
-  // set, skip nodes()+batchDraw() - preview traffic re-runs this effect
+  // set, skip nodes()+batchDraw() — preview traffic re-runs this effect
   // (shapes identity changes) and redundant Konva redraws per tick would
   // reintroduce the invalidation storm the overlay split just removed.
   useEffect(() => {
@@ -387,7 +387,7 @@ export default function CanvasStage({
     }
   };
 
-  // Bend handles appear whenever an arrow or line is selected - in
+  // Bend handles appear whenever an arrow or line is selected — in
   // Selection mode AND while the Arrow/Line tool (or any other styling
   // tool) is active. Only the text tool is excluded (it owns all pointer
   // events for text placement).
@@ -403,7 +403,7 @@ export default function CanvasStage({
   // layer below; the local draft + remote peer previews render in a
   // dedicated lightweight layer above. Preview traffic therefore
   // reconciles ONLY the tiny overlay list (memoized per-shape nodes bail
-  // out below) instead of re-rendering the committed tree per tick -
+  // out below) instead of re-rendering the committed tree per tick —
   // eliminating the React↔Konva double-invalidation storm. Paint order
   // matches the old merged array: draft beneath remote previews.
   const committedShapes = useMemo(
@@ -569,7 +569,7 @@ export default function CanvasStage({
             )}
           </Layer>
           {/* Peer selection presence: imperative overlay (zero React
-          re-renders on receipt - nodes mutate directly). Dashed
+          re-renders on receipt — nodes mutate directly). Dashed
           peer-colored outlines + one name badge per peer; pure overlay so
           local gestures pass through to the Stage/shapes beneath. */}
           <RemoteSelectionOverlay

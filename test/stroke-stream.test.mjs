@@ -46,7 +46,7 @@ describe('buildStrokeProgressPayload', () => {
 
   it('flows a seed-only single point so the first flush paints (dot)', () => {
     // The renderer draws single-pair previews as a round dot instead of
-    // returning null - the pipeline must deliver them, not drop them.
+    // returning null — the pipeline must deliver them, not drop them.
     const payload = buildStrokeProgressPayload({ strokeId: 'shape-x', points: [7, 9] });
     assert.deepEqual(payload.points, [7, 9]);
     assert.equal(isValidStrokeProgress({ strokeId: 'shape-x', points: [7, 9] }), true);

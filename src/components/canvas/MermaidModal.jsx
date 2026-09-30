@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { compileMermaidToShapes, MERMAID_PLACEHOLDER } from './utils/mermaid.js';
 
 /**
- * MermaidModal - Sayon (Week 2: "Mermaid to Draw")
+ * MermaidModal — Sayon (Week 2: "Mermaid to Draw")
  * Textarea for flowchart syntax; compiles to native shapes and appends
  * them via onCompile(shapes). No Socket.io / Yjs deps.
  */
@@ -61,7 +61,7 @@ export default function MermaidModal({ open, onClose, onCompile, styleDefaults }
           </button>
         </div>
         <p className="mb-2 text-xs text-slate-500">
-          Paste Mermaid flowchart syntax - nodes compile to rectangles/circles with labels, links
+          Paste Mermaid flowchart syntax — nodes compile to rectangles/circles with labels, links
           compile to arrows.
         </p>
         <textarea

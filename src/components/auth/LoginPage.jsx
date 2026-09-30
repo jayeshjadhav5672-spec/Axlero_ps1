@@ -4,7 +4,7 @@ import { signInWithEmail } from '../../lib/firebaseAuth';
 import { firebaseLoginRequest } from '../../lib/auth';
 
 /**
- * LoginPage - sign-in form backed by the real auth API.
+ * LoginPage — sign-in form backed by the real auth API.
  *
  * Fields: Email, Password. Client-side validation first, then
  * POST /api/auth/login; on success the session ({ user, token }) is

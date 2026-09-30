@@ -1,5 +1,5 @@
 /**
- * splitLayout.js - pure helpers for WorkspaceSplitLayout (no React, no DOM).
+ * splitLayout.js — pure helpers for WorkspaceSplitLayout (no React, no DOM).
  * Imported by the component and by node --test so the layout math is
  * verified in one place.
  */

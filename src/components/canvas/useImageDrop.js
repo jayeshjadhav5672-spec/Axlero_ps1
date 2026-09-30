@@ -2,7 +2,7 @@ import { useCallback, useEffect } from 'react';
 import { createImageShape, createShapeId, isFiniteNum } from './utils/shapes.js';
 
 /**
- * useImageDrop.js - Sayon (Week 2: Media & Assets)
+ * useImageDrop.js — Sayon (Week 2: Media & Assets)
  *
  * Cross-platform image ingestion with zero Socket.io/Yjs deps:
  * - `paste` on window (Cmd+V macOS, Ctrl+V Windows/Linux): extracts image
@@ -52,7 +52,7 @@ function measureDataURL(dataUrl) {
  * serialization, and future Yjs/Mongo payloads (the realtime transport
  * caps messages at 256KB) with pixels nobody ever sees. Returns the
  * downscaled data URL, or null when no downscale applies (already small,
- * SVG vector which scales freely, or any failure - caller keeps the
+ * SVG vector which scales freely, or any failure — caller keeps the
  * original). PNG output preserves transparency.
  */
 function downscaleDataURL(dataUrl, mime, maxSide = 800) {

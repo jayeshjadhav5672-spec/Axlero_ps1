@@ -1,5 +1,5 @@
 /**
- * cors.cjs - Express CORS origin policy (no HTTP, no DB).
+ * cors.cjs — Express CORS origin policy (no HTTP, no DB).
  *
  * Production stays explicit: only origins listed in FRONTEND_ORIGIN are
  * allowed. Development is robust to Vite picking any free port (5173,
@@ -33,7 +33,7 @@ function isLocalhostOrigin(origin) {
     return false;
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return false;
-  // URL keeps IPv6 literals bracketed ("[::1]") - strip them for comparison.
+  // URL keeps IPv6 literals bracketed ("[::1]") — strip them for comparison.
   const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
   return host === "localhost" || host === "127.0.0.1" || host === "::1";
 }
@@ -78,7 +78,7 @@ function isProductionEnv(env = process.env) {
  * @returns {(origin: string|undefined) => boolean}
  *
  * Requests without an Origin header (curl, server-to-server, native apps)
- * are always allowed - CORS is a browser mechanism and there is nothing
+ * are always allowed — CORS is a browser mechanism and there is nothing
  * to restrict.
  */
 function createOriginChecker(allowedOrigins, options = {}) {

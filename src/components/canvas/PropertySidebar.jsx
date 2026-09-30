@@ -336,7 +336,7 @@ function EdgesSection({ roundness, onRoundnessChange }) {
 }
 
 /**
- * ArrowTypeSection - path shape picker (reference design §5).
+ * ArrowTypeSection — path shape picker (reference design §5).
  * Straight (↗ vector), Curved (⤳ smooth Bezier), Elbow (⤴ orthogonal).
  * Writes `shape.arrowType` ('straight' | 'curved' | 'elbow').
  */
@@ -388,7 +388,7 @@ function ArrowTypeSection({ arrowType = 'straight', onArrowTypeChange }) {
 }
 
 /**
- * ArrowheadsSection - 2 toggle buttons (reference design §6).
+ * ArrowheadsSection — 2 toggle buttons (reference design §6).
  * Start (←) toggles the start pointer, End (→) toggles the end pointer.
  * Back-compat: values are the canonical 'none' | 'arrow' | 'dot' strings;
  * toggling maps active (<> 'none') <-> 'none'/'arrow' via onStart/EndChange.
@@ -475,7 +475,7 @@ export function LineArrowheadsSection({ startArrowhead, endArrowhead, onStartCha
 }
 
 function FontFamilySection({ fontFamilyKey, onFontFamilyChange }) {
-  // NOTE: rendered as plain buttons (NOT IconBtn) - IconBtn wraps children
+  // NOTE: rendered as plain buttons (NOT IconBtn) — IconBtn wraps children
   // in an <svg>, where HTML <span> glyphs never paint (blank buttons).
   const options = [
     {
@@ -701,7 +701,7 @@ function LayerSection({ hasSelection, onBringToFront = () => {}, onSendToBack = 
 }
 
 /**
- * SelectionActionsSection - compact object actions for Selection mode.
+ * SelectionActionsSection — compact object actions for Selection mode.
  * No styling controls (swatches, edges, fonts, arrowheads stay hidden);
  * just Duplicate, Delete, and live width/height size badges for the
  * selected shape. Clear Canvas lives in the top navbar.
@@ -720,7 +720,7 @@ const SELECTION_TYPE_LABELS = {
 };
 
 /**
- * ConvertShapeSection - in-place morph toggle between Rectangle,
+ * ConvertShapeSection — in-place morph toggle between Rectangle,
  * Circle/Ellipse, and Diamond. Renders only for those types; commits flow
  * through the single `onConvertShape(targetType)` boundary (shell rewrites
  * geometry via `morphShape` + `onShapeUpdate`, preserving the visual
@@ -849,7 +849,7 @@ export function shouldShowPropertiesPanel({ activeTool, selectedShape, hasSelect
 }
 
 /**
- * PropertySidebar - Excalidraw-style contextual property panel.
+ * PropertySidebar — Excalidraw-style contextual property panel.
  * Context is driven by BOTH the selection and the active tool:
  * - Arrow tool active OR arrow selected: stroke color, stroke width
  *   (1/2/4), stroke style, sloppiness, arrow type, arrowheads
@@ -859,11 +859,11 @@ export function shouldShowPropertiesPanel({ activeTool, selectedShape, hasSelect
  * - rectangle / circle / diamond (+ freehand): stroke, background,
  *   width, style, sloppiness, edges, opacity, layers.
  * - line (Excalidraw parity): stroke, background, width, style,
- *   sloppiness, opacity, layers - NO arrowheads, NO arrow type, NO edges.
+ *   sloppiness, opacity, layers — NO arrowheads, NO arrow type, NO edges.
  *   Arrow controls render ONLY for arrows (see `isArrow` below).
  * Visibility: the sidebar renders ONLY for creative drawing tools
  * (rectangle, circle/ellipse, diamond, arrow, line, pen/freehand, text)
- * - plus a compact Actions card (Duplicate, Delete, size) when the
+ * — plus a compact Actions card (Duplicate, Delete, size) when the
  * Selection tool has a shape selected. Hand/pan and eraser NEVER show
  * it, so the panel never blocks canvas gestures.
  * With no selection, shows the canvas defaults for the next shape.
@@ -955,7 +955,7 @@ export default function PropertySidebar({
   const showDefaults = !hasSelection && !type && _alias !== 'arrow' && _alias !== 'text' && !isLine && !isPen && !isClosed;
 
   // Edges (Sharp/Round corner rounding) applies ONLY to angular 2D
-  // polygons - rectangles and diamonds. Freehand pen paths have no
+  // polygons — rectangles and diamonds. Freehand pen paths have no
   // corners/vertex bevels, and circles, lines, arrows, and text have no
   // angular corners either, so the control stays hidden for all of them.
   // Allowed shapes/tools for the "Edges" corner-rounding control:
@@ -973,7 +973,7 @@ export default function PropertySidebar({
     currentType,
   );
 
-  // Sidebar visibility: driven by the ACTIVE TOOL only - never by
+  // Sidebar visibility: driven by the ACTIVE TOOL only — never by
   // selection alone. Creative drawing tools show full styling panels;
   // the Selection tool shows a compact Actions card (Duplicate, Delete,
   // size) ONLY when a shape is selected. Inactive tools ('pan'/'hand',

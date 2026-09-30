@@ -25,7 +25,7 @@ import {
 } from './utils/exportHub.js';
 
 /**
- * PopoverErrorBoundary - last-resort guard around the 3-dot customization
+ * PopoverErrorBoundary — last-resort guard around the 3-dot customization
  * popover. A render fault inside the panel must degrade to a small inline
  * fallback, never to a full-viewport whiteout (an uncaught error would
  * unmount the entire React tree since there is no root boundary).
@@ -59,7 +59,7 @@ class PopoverErrorBoundary extends Component {
 }
 
 /**
- * Whiteboard - Sayon, Interactive Whiteboard / Konva.js Engineer
+ * Whiteboard — Sayon, Interactive Whiteboard / Konva.js Engineer
  * Excalidraw-styled shell: top-center floating tool island, top-left
  * contextual property sidebar, bottom zoom/status pill, cream canvas.
  *
@@ -86,7 +86,7 @@ class PopoverErrorBoundary extends Component {
  *   onShapesReorder(nextShapes)
  * - roomId, socket: realtime transport identity for pen-stroke streaming
  *   and presence. When omitted, roomId falls back to `?room=` at mount and
- *   socket to the shared singleton - pass the shell's live `roomId` so a
+ *   socket to the shared singleton — pass the shell's live `roomId` so a
  *   room switch without remount can never leave streaming on a stale room.
  */
 export function Whiteboard({
@@ -179,10 +179,10 @@ export function Whiteboard({
 
   // Room-scoped realtime transports (streaming + presence + tool/viewport
   // sync) share one socket/room pair, declared up here so every handler
-  // below can close over them (dep arrays evaluate eagerly - declaring
+  // below can close over them (dep arrays evaluate eagerly — declaring
   // these below first use would TDZ-crash the board). Explicit props win
   // (the shell's live roomId tracks room switches without a remount);
-  // otherwise fall back to `?room=` at mount and the shared singleton -
+  // otherwise fall back to `?room=` at mount and the shared singleton —
   // standalone boards simply stay local-only.
   const urlRoomId = React.useMemo(() => {
     try {
@@ -318,7 +318,7 @@ export function Whiteboard({
     [controlledAlign, controlledTextAlign, onAlignChange, onTextAlignChange],
   );
 
-  // The active tool persists after every commit - including the text
+  // The active tool persists after every commit — including the text
   // tool, which stays on 'text' after each placed block so users can
   // keep clicking to add more text without re-picking T. Tool changes
   // happen only via explicit user action (toolbar, shortcuts).
@@ -638,7 +638,7 @@ export function Whiteboard({
       }
       const converted = morphShape(selectedShape, targetType);
       // morphShape returns the input ref when nothing changes (same type,
-      // degenerate geometry, unsupported target) - no update to dispatch.
+      // degenerate geometry, unsupported target) — no update to dispatch.
       if (!converted || converted === selectedShape) return;
       const { id, ...changes } = converted;
       void id;
@@ -689,7 +689,7 @@ export function Whiteboard({
 
   // ---- live multiplayer cursors: room-scoped cursor:update transport ----
   // Identity is stable per browser (localStorage); the shared socket
-  // connects only when the collab shell owns it - standalone boards simply
+  // connects only when the collab shell owns it — standalone boards simply
   // render zero peers. Stage pointer tracking lives in the hook
   // (throttled 40ms, canvas-space coords so zoom/pan align for peers).
   const presenceIdentity = React.useMemo(() => {
@@ -725,7 +725,7 @@ export function Whiteboard({
     color: colorForId(presenceIdentity.userId),
   });
   // Deduplicated outbound selection: pointerdown + click fire for a single
-  // tap and reselects rebuild arrays - broadcast only when the sorted id
+  // tap and reselects rebuild arrays — broadcast only when the sorted id
   // set actually changes, so one tap never emits twice (and never renders
   // twice downstream on peers).
   const lastBroadcastSelectionRef = useRef(null);
@@ -927,7 +927,7 @@ export function Whiteboard({
               if (!stage) throw new Error('Canvas not ready');
               if (format.startsWith('png')) await exportPNG(stage, 'syncspace-board.png', visibleShapes);
               else await exportJPEG(stage, 'syncspace-board.jpg', visibleShapes);
-              flashExportNote('No selection - exported full board');
+              flashExportNote('No selection — exported full board');
               break;
             }
             if (!stage) throw new Error('Canvas not ready');
@@ -940,7 +940,7 @@ export function Whiteboard({
             if (!stage) throw new Error('Canvas not ready');
             if (selectedShapes.length === 0) {
               await exportPDF(stage, visibleShapes, 'syncspace-board.pdf');
-              flashExportNote('No selection - exported full board PDF');
+              flashExportNote('No selection — exported full board PDF');
             } else {
               await exportPDF(stage, visibleShapes, 'syncspace-board-selection.pdf', selectedShapes);
               flashExportNote(`Exported selection PDF (${selectedShapes.length})`);
@@ -950,7 +950,7 @@ export function Whiteboard({
           case 'avif': {
             if (!stage) throw new Error('Canvas not ready');
             const { fallback } = await exportAVIF(stage, 'syncspace-board.avif', visibleShapes);
-            flashExportNote(fallback ? 'AVIF unsupported - exported PNG instead' : 'Exported AVIF (cropped to content)');
+            flashExportNote(fallback ? 'AVIF unsupported — exported PNG instead' : 'Exported AVIF (cropped to content)');
             break;
           }
           case 'svg':
@@ -1047,7 +1047,7 @@ export function Whiteboard({
                   onClick={() => setIsCustomizeOpen(false)}
                 />
                 {/* Floating customize panel: compact card pinned under the
-                3-dot end of the toolbar (NOT fullscreen - a positioning
+                3-dot end of the toolbar (NOT fullscreen — a positioning
                 fault here must never obscure the viewport). Render faults
                 degrade to the boundary fallback, never a whiteout. */}
                 <div

@@ -603,7 +603,7 @@ export default function CodeEditorPanel({
   }, []);
 
   // Shared content edits (EVERY file, including the shared doc): local
-  // Lamport-bump + broadcast via the project hook. Never touches tree.
+  // rev-bump + broadcast via the project hook. Never touches tree.
   const handleFileChange = useCallback((fileId, next) => {
     try {
       project?.onFileChange?.(fileId, next);

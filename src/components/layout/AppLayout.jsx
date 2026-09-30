@@ -1,7 +1,7 @@
 import React from 'react';
 
 /**
- * AppLayout - Avantee (React UI / Frontend Engineer)
+ * AppLayout — Avantee (React UI / Frontend Engineer)
  *
  * Full-viewport application shell. Pure layout; no data fetching.
  */

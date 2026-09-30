@@ -22,7 +22,7 @@ const safeCoord = (v) => (isFiniteNum(v) ? v : 0);
 const safeSize = (v) => (isFiniteNum(v) ? Math.max(1, v) : 1);
 
 /**
- * ImageShape - renders `type: 'image'` via an HTML Image() instance.
+ * ImageShape — renders `type: 'image'` via an HTML Image() instance.
  * Hooks live here (not in the map loop) so src swaps reload cleanly.
  */
 function ImageShape({ shape, common }) {
@@ -36,7 +36,7 @@ function ImageShape({ shape, common }) {
     const htmlImg = new window.Image();
     // CORS: request remote image bytes with CORS so the canvas never
     // becomes tainted (tainted canvas makes stage.toDataURL() throw a
-    // security DOMException on export). No-op for data:/blob: URLs -
+    // security DOMException on export). No-op for data:/blob: URLs —
     // local paste/drop ingestion already stores base64 data URLs.
     htmlImg.crossOrigin = 'anonymous';
     htmlImg.onload = () => {
@@ -96,7 +96,7 @@ function ImageShape({ shape, common }) {
 }
 
 /**
- * FrameShape - slide-container Group: dashed bounds + title label pinned
+ * FrameShape — slide-container Group: dashed bounds + title label pinned
  * above the top-left edge. The Group owns drag/transform (registered under
  * shape.id); children are sibling shapes moved by translation delta.
  */
@@ -130,7 +130,7 @@ function FrameShape({ shape, common }) {
 }
 
 /**
- * GroupShape - composite group: Konva Group owns drag/transform under the
+ * GroupShape — composite group: Konva Group owns drag/transform under the
  * group id; children render statically (listening=false) relative to the
  * group origin. Children carry positions relative to (group.x, group.y).
  */
@@ -242,7 +242,7 @@ function GroupShape({ shape, common }) {
 }
 
 /**
- * ShapeRenderer - Sayon (Whiteboard / Konva.js Engineer)
+ * ShapeRenderer — Sayon (Whiteboard / Konva.js Engineer)
  * Excalidraw-styled renderer: violet selection accents live on the
  * Transformer (see CanvasStage); here we honor the extended schema:
  * `strokeStyle` (solid/dashed/dotted -> dash or explicit `dash`),
@@ -268,7 +268,7 @@ function GroupShape({ shape, common }) {
  * rendering. Handler props are stable useCallbacks from the hook, so
  * high-frequency preview traffic (which only swaps the preview/draft
  * objects) reconciles the tiny overlay list while every committed node
- * below skips re-render entirely - no full-tree reconciliation per tick,
+ * below skips re-render entirely — no full-tree reconciliation per tick,
  * no Konva invalidation storm.
  */
 const ShapeNode = React.memo(
@@ -357,7 +357,7 @@ const ShapeNode = React.memo(
         onShapeClick?.(e, shape.id);
       },
       onDragStart: (e) => {
-        // Only the node the pointer actually grabbed owns the drag -
+        // Only the node the pointer actually grabbed owns the drag —
         // stop bubbling so an enclosing rectangle underneath never moves.
         e.cancelBubble = true;
         if (e.target !== e.currentTarget) e.cancelBubble = true;
@@ -376,7 +376,7 @@ const ShapeNode = React.memo(
       onDragEnd: (e) => {
         // Read the exact absolute position directly from the dragged node
         // and commit ONLY the new position. NEVER add deltas or offsets
-        // to shape.x/shape.y here - Konva already moved the node, and
+        // to shape.x/shape.y here — Konva already moved the node, and
         // re-adding would double the displacement (teleport bug).
         e.cancelBubble = true;
         const node = e.target;
@@ -390,7 +390,7 @@ const ShapeNode = React.memo(
     // Legacy freehand blobs stored as type 'line' with long points arrays.
     // 'pen' is an alias of 'freehand' (legacy callers).
     // Coordinate convention: points are ABSOLUTE world coordinates, so the
-    // node is ALWAYS pinned at (0, 0) - even if a stale shape.x/shape.y
+    // node is ALWAYS pinned at (0, 0) — even if a stale shape.x/shape.y
     // lingers in the store. Reading shape.x here would double-apply the
     // origin and teleport the stroke; drag offsets are baked into a fresh
     // points array on drag end instead (see bakeDragEnd).
@@ -474,7 +474,7 @@ const ShapeNode = React.memo(
       const safeHeight = safeSize(shape.height);
       const dx = safeX(shape.x);
       const dy = safeX(shape.y);
-      // Points are relative to origin (0, 0) - the node position (dx, dy)
+      // Points are relative to origin (0, 0) — the node position (dx, dy)
       // owns the world placement. Drag commits ONLY x/y and never mutates
       // this array, so there is no double transform on drag end.
       const points = round

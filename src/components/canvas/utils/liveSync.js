@@ -2,15 +2,15 @@ import { isFiniteNum } from './shapes.js';
 import { toFlatPoints } from './strokeStream.js';
 
 /**
- * liveSync.js - pure helpers for universal real-time collaborative sync.
+ * liveSync.js — pure helpers for universal real-time collaborative sync.
  * No Konva / socket deps; safe to import from tests.
  *
  * Two channel classes (relayed by `server/socket.cjs` LIVE_COLLAB_EVENTS):
  * - Ephemeral peer-to-peer streams (high-frequency, never persisted):
- *   `shape:preview-progress` { draftId, shape } - live creation-drag
+ *   `shape:preview-progress` { draftId, shape } — live creation-drag
  *   previews for EVERY tool (rect, circle, diamond, arrow, line, frame;
  *   pen keeps its dedicated `draw:stroke-*` points channel),
- *   `shape:preview-cancel` { draftId } - cancelled/degenerate drag,
+ *   `shape:preview-cancel` { draftId } — cancelled/degenerate drag,
  *   `cursor:move` { x, y, user?, tool? }, `eraser:trail` { eraserId, points }.
  * - Committed mutations (persisted; sender already applied locally):
  *   `shapes:commit` { shape }, `shapes:delete` { shapeIds|shapeId },
@@ -20,7 +20,7 @@ import { toFlatPoints } from './strokeStream.js';
  * Preview lifecycle on peers: progress upserts a `remotePreview`-flagged
  * shape into renderShapes; cancel (or the authoritative committed op,
  * deduped by id) removes it. Committed ops keep flowing through the
- * existing `canvas:update` channel - these validators cover peers that
+ * existing `canvas:update` channel — these validators cover peers that
  * speak the unified protocol directly.
  */
 
@@ -122,7 +122,7 @@ export function previewToShape(data, actorId = null) {
  * Pure reducer for the remote-preview map `{ [draftId]: shape }`.
  * Handles preview progress/cancel plus commit-side cleanup:
  * - `shapes:commit` drops the preview whose id matches (authoritative op
- *   carries the persisted copy - dedupe covers the rest).
+ *   carries the persisted copy — dedupe covers the rest).
  * - `shapes:delete` drops previews for deleted ids.
  * - `canvas:clear` / `canvas:history-sync` reset or reconcile the map.
  * Returns the same ref when nothing changes.
@@ -179,7 +179,7 @@ export function applyRemotePreviewEvent(prevMap, event, data, actorId = null) {
 /**
  * Render merge: fold remote previews into the visible shape array for
  * display. Creation previews (unknown ids) append; previews whose id
- * matches a committed shape - live drag previews - REPLACE the committed
+ * matches a committed shape — live drag previews — REPLACE the committed
  * entry in place (same index, no duplication, no ghosting). Peers see the
  * shape glide live; on drop the authoritative update arrives and the
  * preview-cancel removes the overlay entry. Returns the input ref when
@@ -239,9 +239,9 @@ export function isValidSelection(data) {
 /**
  * Pure reducer for peer selections `{ [peerKey]: { userId, userName,
  * color, shapeIds, lastSeen } }`. Keyed by userId with socketId fallback.
- * Unknown events and invalid payloads return the previous map untouched -
+ * Unknown events and invalid payloads return the previous map untouched —
  * as do byte-identical duplicate payloads (same id set + meta), which
- * return the identical ref - so a double-emitted tap reconciles nothing
+ * return the identical ref — so a double-emitted tap reconciles nothing
  * downstream. lastSeen refreshes only on genuine changes; quiet-peer
  * expiry is handled by expireRemoteSelections.
  */
@@ -287,7 +287,7 @@ export function expireRemoteSelections(prevMap, now = Date.now(), staleMs = SELE
 /**
  * Pure LERP step for remote viewport smoothing (receiver side). Advances
  * `current` { x, y, scale } toward `target` by `factor` per frame and
- * snaps (done: true) once within epsilon - snapping avoids infinite
+ * snaps (done: true) once within epsilon — snapping avoids infinite
  * asymptotic approach and guarantees convergence. Unit-testable without
  * Konva or rAF.
  */
@@ -338,8 +338,8 @@ export function dragPreviewNodeUpdate(shape) {
 
 /**
  * Defensive viewport unpacking (schema compatibility): accept coordinates
- * in EITHER envelope - flat `{ stagePos, scale }` or nested
- * `{ data: { stagePos, scale } }` (full relay envelope) - and coerce
+ * in EITHER envelope — flat `{ stagePos, scale }` or nested
+ * `{ data: { stagePos, scale } }` (full relay envelope) — and coerce
  * values to finite numbers. Missing scale is NOT an error (callers fall
  * back to the live stage scale); only genuinely non-numeric coordinates
  * yield nulls, which callers treat as "nothing to apply".

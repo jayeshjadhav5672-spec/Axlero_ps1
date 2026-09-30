@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 
 /**
- * LeftRoomState - Avantee (React UI / Frontend Engineer)
+ * LeftRoomState — Avantee (React UI / Frontend Engineer)
  *
  * Polished frontend state shown after the user leaves the room.
  * Pure UI: all room/session data arrives via props, all actions are
@@ -9,7 +9,7 @@ import React, { useEffect, useRef, useState } from 'react';
  *
  * Countdown: single 1s interval starting at `redirectAfterSeconds`,
  * cleaned up on unmount/action. No realtime logic, no timers left
- * running - safe to mount alongside the dimmed workspace.
+ * running — safe to mount alongside the dimmed workspace.
  */
 export const LEFT_ROOM_REDIRECT_SECONDS = 10;
 
@@ -33,7 +33,7 @@ export default function LeftRoomState({
 
   // Reset + run a single countdown per mount/room. Cleanup clears the
   // interval AND any deferred navigation timeout, so Rejoin/Dashboard
-  // actions (or unmount) can never leave a stray navigation behind -
+  // actions (or unmount) can never leave a stray navigation behind —
   // including the tick→timeout window at zero seconds.
   useEffect(() => {
     setSecondsLeft(redirectAfterSeconds);

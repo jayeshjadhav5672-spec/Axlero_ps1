@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { initialsForDisplayName } from '../../lib/room';
 
 /**
- * PeoplePanel - SyncSpace-native participants readout.
+ * PeoplePanel — SyncSpace-native participants readout.
  *
  * Pure presentational view over the existing `users` presence array
  * (same entries PresenceList consumes: { id, name, color?, isActive?,
@@ -10,7 +10,7 @@ import { initialsForDisplayName } from '../../lib/room';
  * presence state says is in the room, re-rendering as participants
  * join/leave. `currentUserId` (the local identity's user id) marks the
  * "You" row; a `role` string is shown only when an entry actually
- * carries one - roles are never invented here.
+ * carries one — roles are never invented here.
  *
  * Props: { users, currentUserId, onClose, className }
  */

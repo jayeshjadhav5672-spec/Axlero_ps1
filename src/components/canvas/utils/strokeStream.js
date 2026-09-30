@@ -1,22 +1,22 @@
 import { isFiniteNum } from './shapes.js';
 
 /**
- * strokeStream.js - pure helpers for real-time in-progress pen stroke
+ * strokeStream.js — pure helpers for real-time in-progress pen stroke
  * streaming. No Konva / socket deps; safe to import from tests.
  *
  * Wire protocol (room-scoped, relayed by `server/socket.cjs`):
  * - `draw:stroke-progress` { roomId, data: { strokeId, points, stroke,
- *   strokeWidth, opacity } } - throttled (~30ms) while the pen is down.
- * - `draw:stroke-complete` { roomId, data: { strokeId, shape } } - final
+ *   strokeWidth, opacity } } — throttled (~30ms) while the pen is down.
+ * - `draw:stroke-complete` { roomId, data: { strokeId, shape } } — final
  *   committed shape on pointerup (authoritative copy follows via the
  *   normal `canvas:update` create op).
- * - `draw:stroke-cancel` { roomId, data: { strokeId } } - degenerate
+ * - `draw:stroke-cancel` { roomId, data: { strokeId } } — degenerate
  *   stroke discarded; peers drop the preview.
  */
 
 export const STROKE_STREAM_INTERVAL_MS = 30;
 export const STROKE_STREAM_EVENTS = ['draw:stroke-progress', 'draw:stroke-complete', 'draw:stroke-cancel'];
-/** Cheap per-message cap (flat [x, y, ...] numbers) - no JSON.stringify needed. */
+/** Cheap per-message cap (flat [x, y, ...] numbers) — no JSON.stringify needed. */
 export const MAX_STREAM_POINTS = 20000;
 
 /**
@@ -51,7 +51,7 @@ function isValidPoints(points) {
  * Definitive points-format normalization (failure mode 3): accept BOTH the
  * canonical flat format `[x1, y1, x2, y2, ...]` AND the nested object
  * format `[{ x, y }, ...]` on ingest, always producing flat finite pairs.
- * Filtering is PAIR-WISE atomic - a pair with any non-finite member is
+ * Filtering is PAIR-WISE atomic — a pair with any non-finite member is
  * dropped whole (pending slot reset), so a bad value can never shift the
  * alignment of subsequent coordinates; trailing orphans are trimmed. The
  * renderer can therefore never receive a shape Konva silently refuses to
@@ -88,7 +88,7 @@ export function toFlatPoints(points) {
 /** Build a throttled progress payload from the in-flight stroke ref. */
 export function buildStrokeProgressPayload({ strokeId, points, stroke, strokeWidth, opacity }) {
   // toFlatPoints subsumes sanitizePoints (finite-filter + orphan trim) and
-  // additionally tolerates nested [{ x, y }] input - never pre-strip
+  // additionally tolerates nested [{ x, y }] input — never pre-strip
   // objects before it runs.
   const clean = toFlatPoints(points);
   if (!isStrokeId(strokeId) || clean.length < 2) return null;

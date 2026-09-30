@@ -1,4 +1,4 @@
-# PR #9 - Shravan Review Handoff
+# PR #9 — Shravan Review Handoff
 
 ## Repository
 
@@ -6,19 +6,19 @@ https://github.com/jayeshjadhav5672-spec/Axlero_ps1.git (`jayeshjadhav5672-spec/
 
 ## PR Information
 
-- PR #9 - `feat(yjs): initialize collaboration document`
+- PR #9 — `feat(yjs): initialize collaboration document`
 - State: open, unmerged, not draft; `mergeable: true` / clean
 - Base: `main` @ `8cdc4891ebb82b6582be22d8e9eeefef7f5b28af`
 - Head: `feature/shree-yjs` @ `70d1bf0` (reviewed `43cd053` + one doc/comment correction commit)
 
 ## Reviewed Commit
 
-`70d1bf0` - `docs(yjs): correct Phase 1 report metadata and reset comment`
+`70d1bf0` — `docs(yjs): correct Phase 1 report metadata and reset comment`
 (parent `43cd053`, the shipped implementation + docs).
 
 ## Base Commit
 
-`8cdc4891ebb82b6582be22d8e9eeefef7f5b28af` - current `origin/main`, also the merge-base (clean ancestry, honest 6-file diff).
+`8cdc4891ebb82b6582be22d8e9eeefef7f5b28af` — current `origin/main`, also the merge-base (clean ancestry, honest 6-file diff).
 
 ## Review Scope
 
@@ -26,7 +26,7 @@ Full fresh review: SHAs, PR metadata, graph, two/three-dot diffs, provider code 
 
 ## Implementation Summary
 
-Phase 1 (only): `src/lib/yjsProvider.js` - one `Y.Doc` per room with validated IDs, pre-initialized `canvas → Y.Array` / `code → Y.Text` / `metadata → Y.Map`, explicit create/destroy/lookup/reset lifecycle, transport-agnostic (zero socket/awareness imports). Plus `yjs@^13.6.32` (+2 transitive deps, zero version changes) and 24 behavioral tests.
+Phase 1 (only): `src/lib/yjsProvider.js` — one `Y.Doc` per room with validated IDs, pre-initialized `canvas → Y.Array` / `code → Y.Text` / `metadata → Y.Map`, explicit create/destroy/lookup/reset lifecycle, transport-agnostic (zero socket/awareness imports). Plus `yjs@^13.6.32` (+2 transitive deps, zero version changes) and 24 behavioral tests.
 
 ## Validation Results
 
@@ -43,7 +43,7 @@ Phase 1 (only): `src/lib/yjsProvider.js` - one `Y.Doc` per room with validated I
 
 ## Final Verdict
 
-**APPROVE AND MERGE** - no further changes needed.
+**APPROVE AND MERGE** — no further changes needed.
 
 ## Required Actions
 
@@ -80,7 +80,7 @@ Y.Doc
 
 ## Integration Notes
 
-- No integration wiring in this PR by design: no socket events, no hook binding, no Whiteboard changes - `main` behavior is fully preserved (proven by green suite).
+- No integration wiring in this PR by design: no socket events, no hook binding, no Whiteboard changes — `main` behavior is fully preserved (proven by green suite).
 - `canvas → Y.Array` cannot merge concurrent shape edits property-wise (accepted Phase 1 limit).
 - Caller-owned lifecycle: wire `destroyYDoc()` into the room-leave flow during Phase 2 transport work.
 
