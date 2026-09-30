@@ -1,5 +1,5 @@
 /**
- * cors.test.cjs — Express CORS origin-policy tests (no network, no database).
+ * cors.test.cjs - Express CORS origin-policy tests (no network, no database).
  * Verifies server/cors.cjs: explicit FRONTEND_ORIGIN allow-list plus the
  * development loopback rule (any localhost port while NOT in production).
  */

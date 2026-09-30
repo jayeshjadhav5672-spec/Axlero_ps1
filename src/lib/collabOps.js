@@ -1,5 +1,5 @@
 /**
- * collabOps.js — Integration Engineer (core integration)
+ * collabOps.js - Integration Engineer (core integration)
  *
  * Pure, framework-free reducers for collaborative updates. Used by the
  * React hooks AND by node --test, so the contract is verified in one place.
@@ -44,7 +44,7 @@ export function isValidWhiteboardOp(op) {
       // Full-array sync (z-order, undo/redo restore): entries are
       // sanitized on apply, so validity here only requires an array.
       // Unknown-op senders (older clients) are dropped by THEIR
-      // validator, never by ours — forward/back compatible.
+      // validator, never by ours - forward/back compatible.
       return Array.isArray(op.shapes);
     default:
       return false;
@@ -90,7 +90,7 @@ export function applyWhiteboardOp(shapes, op, selfId) {
 function replaceOrder(list, nextShapes) {
   const clean = serializeShapes(nextShapes);
   // Full-array ops double as undo/redo restores, which can change content
-  // with identical order — so compare full JSON, not just ids.
+  // with identical order - so compare full JSON, not just ids.
   if (JSON.stringify(clean) === JSON.stringify(list)) {
     return { shapes: list, applied: false };
   }

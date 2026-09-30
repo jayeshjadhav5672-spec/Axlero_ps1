@@ -1,10 +1,10 @@
 /**
- * useRoomConnection — Integration Engineer (core integration)
+ * useRoomConnection - Integration Engineer (core integration)
  *
  * Owns the Socket.io lifecycle for one room and exposes it in the exact
  * shape Avantee's UI consumes:
  * - status: 'connected' | 'connecting' | 'reconnecting' | 'disconnected' | 'error'
- *   (TRANSPORT state — 'connected' does NOT imply the room join completed)
+ *   (TRANSPORT state - 'connected' does NOT imply the room join completed)
  * - joinedRoom: roomId confirmed by the server's `room:joined` ack, or null.
  *   Shared-project operations must wait for joinedRoom === roomId: the
  *   server runs socket.join(roomId) only inside `room:join`, so anything
@@ -15,7 +15,7 @@
  * Rules: single shared socket (see lib/socket.js), listeners attached once
  * per mount with full cleanup (no leaks, no duplicates under StrictMode),
  * room:join re-emitted on every (re)connect, graceful offline mode when the
- * server is unreachable — never a silent failure.
+ * server is unreachable - never a silent failure.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -133,7 +133,7 @@ export default function useRoomConnection({ roomId, userId, displayName, authTok
       try {
         if (socket.connected) socket.emit('room:leave', { roomId: roomRef.current });
       } catch {
-        // unmount path — never throw
+        // unmount path - never throw
       }
     };
   }, [roomId, userId, displayName, authToken]);
@@ -157,7 +157,7 @@ export default function useRoomConnection({ roomId, userId, displayName, authTok
       if (socket.connected) socket.emit('room:leave', { roomId: roomRef.current });
       socket.disconnect();
     } catch {
-      // leave path — never throw
+      // leave path - never throw
     }
     setPresence([]);
     setStatus('disconnected');

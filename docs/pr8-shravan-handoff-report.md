@@ -1,4 +1,4 @@
-# PR #8 — Shravan Review Handoff
+# PR #8 - Shravan Review Handoff
 
 ## Repository
 
@@ -6,17 +6,17 @@ https://github.com/jayeshjadhav5672-spec/Axlero_ps1.git (`jayeshjadhav5672-spec/
 
 ## PR Information
 
-- PR #8 — `fix(canvas): resolve export UI wiring, prevent transparent black downloads, and fix PropertySidebar syntax`
+- PR #8 - `fix(canvas): resolve export UI wiring, prevent transparent black downloads, and fix PropertySidebar syntax`
 - Base: `main` @ `db0919e` (current); Head: `feature/sayon-whiteboard` @ `450158e`
-- State at review: open, unmerged, mergeable:true/clean; 16 behind / 3 ahead (integration history only — no content conflict, proven by merge simulation)
+- State at review: open, unmerged, mergeable:true/clean; 16 behind / 3 ahead (integration history only - no content conflict, proven by merge simulation)
 
 ## Reviewed Head
 
-`450158e` — Sayon's `cbc821d` + Shravan fixes `57b170e` (PDF geometry, AVIF name, modal Escape, log removal) + `450158e` (raster downscale). All on the feature branch; `main` untouched.
+`450158e` - Sayon's `cbc821d` + Shravan fixes `57b170e` (PDF geometry, AVIF name, modal Escape, log removal) + `450158e` (raster downscale). All on the feature branch; `main` untouched.
 
 ## Current Main
 
-`db0919e` (PR #9 Yjs merge). Branch predates it by history but not by content — merge unions cleanly including the lockfile (yjs + jspdf coexist, proven).
+`db0919e` (PR #9 Yjs merge). Branch predates it by history but not by content - merge unions cleanly including the lockfile (yjs + jspdf coexist, proven).
 
 ## What PR #8 Adds
 
@@ -24,16 +24,16 @@ Week-2 productivity on the whiteboard: universal export (JSON/PNG/JPEG/AVIF/SVG/
 
 ## What Was Verified
 
-- Full line-level review of all 15 files; 30-assert logic harness (bounds, mermaid incl. cycles, recognition incl. negatives, morph matrix, ids) — all PASS
+- Full line-level review of all 15 files; 30-assert logic harness (bounds, mermaid incl. cycles, recognition incl. negatives, morph matrix, ids) - all PASS
 - `npm test` 11/11 PASS; `npm run build` PASS; production screenshot with live presence, zero console errors
 - Export duality mapped (both paths correct on wired routes); PDF geometry proven by construction; callers verified
-- Scope: canvas/UI + jspdf only — no socket/server/hooks/lib/backend/Yjs/Monaco/Mongo/auth changes
+- Scope: canvas/UI + jspdf only - no socket/server/hooks/lib/backend/Yjs/Monaco/Mongo/auth changes
 - Security sanity: no eval/injection vectors; image ingest restricted to `data:image`; labels escaped
 
 ## What Was Not Verified
 
-- Click-level browser flows (actual file download, picker/drop/paste gestures, modal compile click, bend drags, morph clicks) — no CDP/click automation available; covered by code-path audit + logic harness instead
-- PDF pixel output (no canvas inspection headlessly) — geometry proven by construction; recommend one manual export click post-merge
+- Click-level browser flows (actual file download, picker/drop/paste gestures, modal compile click, bend drags, morph clicks) - no CDP/click automation available; covered by code-path audit + logic harness instead
+- PDF pixel output (no canvas inspection headlessly) - geometry proven by construction; recommend one manual export click post-merge
 - Zero committed automated tests for the new features (top follow-up)
 
 ## Findings
@@ -48,7 +48,7 @@ Week-2 productivity on the whiteboard: universal export (JSON/PNG/JPEG/AVIF/SVG/
 
 ## Required Changes
 
-None remaining — all review fixes are already pushed on the feature branch (`57b170e`, `450158e`).
+None remaining - all review fixes are already pushed on the feature branch (`57b170e`, `450158e`).
 
 ## Integration Notes
 
@@ -58,13 +58,13 @@ None remaining — all review fixes are already pushed on the feature branch (`5
 
 ## Yjs Compatibility Notes
 
-- New shapes are plain JSON with stable ids across three prefixes (`shape-`/`img-`/`frame-`) — Y.Map keys must accept all three in Phase 2.
-- Image `src` data URLs are capped at 640px but still heavy — Phase 2/sync design should consider thumbnails or reference storage before realtime image sync at scale.
-- No Yjs/awareness/transport code in this PR — boundary intact.
+- New shapes are plain JSON with stable ids across three prefixes (`shape-`/`img-`/`frame-`) - Y.Map keys must accept all three in Phase 2.
+- Image `src` data URLs are capped at 640px but still heavy - Phase 2/sync design should consider thumbnails or reference storage before realtime image sync at scale.
+- No Yjs/awareness/transport code in this PR - boundary intact.
 
 ## Phase 2 Considerations
 
-Phase 2 (shape-level `Y.Map` + z-order `Y.Array` + `useCollaborativeWhiteboard.js` binding) is unaffected structurally but must handle the extended schema (image/frame types, ellipse radii, arrow tension, text box widths). This PR is whiteboard/productivity work and is NOT Yjs collaboration — the two tracks must remain separate.
+Phase 2 (shape-level `Y.Map` + z-order `Y.Array` + `useCollaborativeWhiteboard.js` binding) is unaffected structurally but must handle the extended schema (image/frame types, ellipse radii, arrow tension, text box widths). This PR is whiteboard/productivity work and is NOT Yjs collaboration - the two tracks must remain separate.
 
 ## Next Action
 

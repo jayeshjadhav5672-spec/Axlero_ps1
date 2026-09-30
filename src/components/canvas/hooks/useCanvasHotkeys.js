@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 
 /**
- * useCanvasHotkeys — global keyboard hotkeys for the whiteboard.
+ * useCanvasHotkeys - global keyboard hotkeys for the whiteboard.
  *
  * Binds window key listeners, ignoring events when typing inside <input>,
  * <textarea>, <select>, or contentEditable elements (and while the text

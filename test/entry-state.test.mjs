@@ -1,5 +1,5 @@
 /**
- * entry-state.test.mjs — MEDIUM-1 reload behavior (no network, no DOM).
+ * entry-state.test.mjs - MEDIUM-1 reload behavior (no network, no DOM).
  * Covers the session-scoped "entered app" flag in src/lib/room.js and the
  * pure Landing-vs-Dashboard decision used by App.jsx:
  *

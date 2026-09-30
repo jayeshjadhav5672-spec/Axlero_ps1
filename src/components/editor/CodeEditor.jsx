@@ -1,9 +1,9 @@
 /**
- * CodeEditor — Monaco collaboration editor (Kishan, leader-integrated).
+ * CodeEditor - Monaco collaboration editor (Kishan, leader-integrated).
  *
  * Fills the documented integration seam (docs/INTEGRATION.md §5): the shell
  * only knows `{ value, onChange }`, so this drops in wherever the
- * `CollabTextEditor` fallback was used — no change to the sync hooks or
+ * `CollabTextEditor` fallback was used - no change to the sync hooks or
  * panels. `useCollaborativeCode` stays the LWW transport; Monaco is the
  * presentation layer only.
  *
@@ -19,7 +19,7 @@
  * `syncspace-dark` theme on a #1e1e1e background, bracket colorization,
  * indentation guides, folding, smooth scrolling, minimap that hides
  * itself on narrow panes). The surrounding IDE chrome (activity bar,
- * explorer, tabs, status bar) lives in `CodeEditorPanel` — this component
+ * explorer, tabs, status bar) lives in `CodeEditorPanel` - this component
  * only owns the Monaco instance.
  */
 
@@ -186,7 +186,7 @@ export default function CodeEditor({
     try {
       onEditorMountRef.current?.(editor);
     } catch {
-      // host-provided callback — never break the editor
+      // host-provided callback - never break the editor
     }
 
     const contentSubscription = editor.onDidChangeModelContent(() => {
@@ -199,7 +199,7 @@ export default function CodeEditor({
           column: event?.position?.column ?? 1,
         });
       } catch {
-        // cursor readout is presentational — never throw into Monaco
+        // cursor readout is presentational - never throw into Monaco
       }
     });
 
@@ -215,14 +215,14 @@ export default function CodeEditor({
             try {
               editor.updateOptions({ minimap: { enabled: shouldEnable } });
             } catch {
-              // presentational toggle — never throw
+              // presentational toggle - never throw
             }
           }
         });
         widthObserver.observe(hostRef.current);
       }
     } catch {
-      // ResizeObserver unavailable — minimap simply stays enabled
+      // ResizeObserver unavailable - minimap simply stays enabled
     }
 
     return () => {

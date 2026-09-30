@@ -1,5 +1,5 @@
 /**
- * collab-ops.test.mjs — Integration contract tests (no network, no DOM).
+ * collab-ops.test.mjs - Integration contract tests (no network, no DOM).
  * Verifies the pure reducers in src/lib/collabOps.js + room helpers that
  * every sync hook depends on: malformed ops dropped, self-echo suppressed,
  * stale revisions dropped, presence mapping stable.

@@ -11,7 +11,7 @@ const MAX_STREAM_POINTS = 20000;
 
 /**
  * Server-side room snapshots (Issue 1: ghost artifacts). The relay is
- * otherwise stateless, so a late joiner would see an empty board — and any
+ * otherwise stateless, so a late joiner would see an empty board - and any
  * shape deleted/cleared before they arrived would resurrect the moment an
  * older client re-broadcasts. `roomState` tracks the authoritative shape
  * array per room from every validated mutation channel (unified +
@@ -24,7 +24,7 @@ const MAX_STREAM_POINTS = 20000;
  *
  * Capacity contract (explicit, never silent): a mutation that would push a
  * room past MAX_ROOM_SHAPES is REJECTED with `connection:error` ("room
- * shape limit reached") and is neither relayed nor stored — so the stored
+ * shape limit reached") and is neither relayed nor stored - so the stored
  * snapshot is always complete and a late joiner can never receive a
  * silently truncated board. Room eviction likewise only targets rooms with
  * no live presence (nothing connected to lose state).
@@ -34,7 +34,7 @@ const MAX_ROOM_SHAPES = 2000;
 
 /**
  * Shared room project (collaborative file tree + per-file contents).
- * Every room owns exactly one project, keyed by roomId — the server is the
+ * Every room owns exactly one project, keyed by roomId - the server is the
  * authority for the tree, so browsers can never diverge. The default
  * "Collaborative Code" document (DEFAULT_FILE_ID) always exists: rooms
  * created before projects existed migrate automatically the first time a
@@ -43,7 +43,7 @@ const MAX_ROOM_SHAPES = 2000;
  * Memory bounds (per room): at most MAX_PROJECT_NODES nodes, each file at
  * most MAX_FILE_TEXT_BYTES, whole-project text at most
  * MAX_PROJECT_TEXT_BYTES. Over-cap mutations are REJECTED with
- * `connection:error` — never stored, never relayed. In-memory only: a
+ * `connection:error` - never stored, never relayed. In-memory only: a
  * server restart drops all projects (documented in docs/architecture.md).
  */
 const DEFAULT_FILE_ID = "shared-collaborative-code";
@@ -99,7 +99,7 @@ function projectTextBytes(project) {
     try {
       total += Buffer.byteLength(typeof entry.text === "string" ? entry.text : "", "utf8");
     } catch {
-      // unmeasurable entry — ignore (validation rejects it on write)
+      // unmeasurable entry - ignore (validation rejects it on write)
     }
   }
   return total;
@@ -109,7 +109,7 @@ function projectTextBytes(project) {
  * Validate a client-proposed tree node against the authoritative project.
  * Returns the clean node to commit. Throws with a user-facing message on
  * any violation (duplicate names resolve deterministically: the first
- * commit wins, later ones are rejected — never silently overwritten).
+ * commit wins, later ones are rejected - never silently overwritten).
  * Exported for unit tests.
  */
 function validateProjectNode(input, project) {
@@ -280,7 +280,7 @@ const LIVE_COLLAB_EVENTS = [
   "canvas:clear",
   "canvas:history-sync",
   // Peer selection presence (ephemeral overlay; tools/selection stay local
-  // per client — this channel only paints non-intrusive peer highlights).
+  // per client - this channel only paints non-intrusive peer highlights).
   "collab:selection",
   // Shared viewport + toolbar sync (ephemeral, last-writer-wins).
   "canvas:viewport-sync",
@@ -367,7 +367,7 @@ function assertStrokeStreamPayload(payload, event) {
  * Validation for the unified live-collaboration envelope. Ephemeral
  * streams use cheap structural/size checks (no hot-path stringify beyond
  * a capped byte measure on small preview objects); committed mutations
- * reuse the generic byte cap. Every branch throws — callers convert to
+ * reuse the generic byte cap. Every branch throws - callers convert to
  * `connection:error` so malformed input fails LOUD, never silent.
  */
 function assertLiveCollabPayload(payload, event) {
@@ -537,7 +537,7 @@ function createSocketServer(httpServer, options = {}) {
   const roomState = new Map(); // roomId -> { shapes: [], updatedAt }
   // Authoritative shared projects: roomId -> { nodes, files, updatedAt }.
   // Room-scoped by construction (keyed by roomId, relayed only within the
-  // room, snapshotted joiner-only). In-memory only — a restart drops them.
+  // room, snapshotted joiner-only). In-memory only - a restart drops them.
   const roomProjects = new Map();
 
   function freeProjectCapacity() {
@@ -582,7 +582,7 @@ function createSocketServer(httpServer, options = {}) {
 
   /**
    * Free one room-state slot when at capacity. Evicts the oldest IDLE
-   * room (zero live presence) only — a live room is never evicted
+   * room (zero live presence) only - a live room is never evicted
    * automatically. Returns true when a slot is available.
    */
   function freeRoomCapacity() {
@@ -601,7 +601,7 @@ function createSocketServer(httpServer, options = {}) {
     // Recency refresh: rooms written to re-insert at the end, so eviction
     // below only targets rooms nobody has touched recently.
     if (roomState.has(roomId)) roomState.delete(roomId);
-    // Bounded memory: evict rooms with no live presence first — their state
+    // Bounded memory: evict rooms with no live presence first - their state
     // is unobservable (nobody connected to lose it), so eviction can never
     // silently empty a board out from under connected clients. A room with
     // live presence is NEVER evicted; when every slot is live, refuse the
@@ -615,13 +615,13 @@ function createSocketServer(httpServer, options = {}) {
    * Fold a validated mutation into the room snapshot and store it.
    * MUST be called BEFORE relaying the op: mutations that would overflow
    * MAX_ROOM_SHAPES throw (converted to `connection:error` by callers),
-   * so an over-cap op is never relayed without being stored — peers and
+   * so an over-cap op is never relayed without being stored - peers and
    * the snapshot can never silently diverge. No-op mutations return the
    * previous array untouched (no entry created, no eviction triggered).
    * A mutation needing a new entry while every MAX_ROOMS slot holds a
    * live room throws a coded ROOM_CAPACITY_EXHAUSTED error (likewise
    * converted to `connection:error`, with no relay and no snapshot
-   * change) — a live room's snapshot is never discarded.
+   * change) - a live room's snapshot is never discarded.
    */
   function commitRoomMutation(roomId, event, data) {
     const prev = getRoomShapes(roomId);
@@ -645,7 +645,7 @@ function createSocketServer(httpServer, options = {}) {
    * are relayed by the caller but never stored, so old clients keep working
    * and can never poison a snapshot. New-protocol envelopes (text + finite
    * rev, optional fileId defaulting to the shared document) are stored with
-   * arrival last-writer-wins — the same semantic receivers already apply —
+   * arrival last-writer-wins - the same semantic receivers already apply -
    * and over-cap writes throw (rejected loudly, never relayed unstored).
    */
   function commitCodeUpdate(roomId, data) {
@@ -793,7 +793,7 @@ function createSocketServer(httpServer, options = {}) {
         // `presence:update` broadcast goes out BEFORE the `room:joined`
         // ack. Socket.io preserves per-socket send order, so any listener
         // attached after observing `room:joined` can never catch this
-        // stale join broadcast — it only sees subsequent events (leaves,
+        // stale join broadcast - it only sees subsequent events (leaves,
         // disconnects, later joins). Snapshot delivery stays last: it is
         // joiner-only and order-independent.
         broadcastPresence(payload.roomId);
@@ -836,13 +836,13 @@ function createSocketServer(httpServer, options = {}) {
     });
 
     // Shared project tree: the server is the authority. A creation is
-    // validated, committed, then fanned out — ack to the creator (who opens
+    // validated, committed, then fanned out - ack to the creator (who opens
     // the node on receipt) plus broadcast to peers (whose active editors are
     // untouched). Rejections carry requestId so the creator's inline draft
     // can show the reason; first commit wins on simultaneous same-name
-    // creates, the loser gets "already exists" — never a silent overwrite.
+    // creates, the loser gets "already exists" - never a silent overwrite.
     //
-    // Membership is NOT removed — it is grounded two ways (same contract as
+    // Membership is NOT removed - it is grounded two ways (same contract as
     // the stroke/live-collab channels): the adapter-level socket.rooms set
     // is ground truth and the app-level tracker is re-synced on divergence.
     // Sockets that never joined are still rejected. Genuinely early sends
@@ -934,7 +934,7 @@ function createSocketServer(httpServer, options = {}) {
     });
 
     // On-demand authoritative snapshot (Explorer Refresh, panel remounts).
-    // Joiner-only, like the room:join delivery — never a room broadcast.
+    // Joiner-only, like the room:join delivery - never a room broadcast.
     socket.on("project:state-request", (payload) => {
       try {
         if (!isPlainObject(payload) || !isValidRoomId(payload.roomId)) {
@@ -1003,7 +1003,7 @@ function createSocketServer(httpServer, options = {}) {
     // packet; sockets that never joined the room are still rejected, so
     // room-spoofing stays impossible (no blind auto-join on claim).
     // Self-instrumenting pipeline probe (audit): structured TRACE lines
-    // for every stroke event. Enable with SYNCSPACE_STROKE_DEBUG=1 — kept
+    // for every stroke event. Enable with SYNCSPACE_STROKE_DEBUG=1 - kept
     // behind the flag so the ~30Hz hot path never spams production logs
     // (unconditional per-flush logging would itself add latency).
     const strokeDebugOn = process.env.SYNCSPACE_STROKE_DEBUG === "1";
@@ -1016,7 +1016,7 @@ function createSocketServer(httpServer, options = {}) {
     for (const event of STROKE_STREAM_EVENTS) {
       socket.on(event, (payload) => {
         try {
-          // TRACE: incoming vs outgoing identity — pinpoints routing breaks.
+          // TRACE: incoming vs outgoing identity - pinpoints routing breaks.
           traceServer(`In-progress stroke received from ${socket.id}`, {
             event,
             payloadRoomId: payload?.roomId,
@@ -1040,11 +1040,11 @@ function createSocketServer(httpServer, options = {}) {
             member = socket.data.roomId === targetRoom;
           }
           if (!member) {
-            // TRACE: sender not in the target room — packet must NOT relay
+            // TRACE: sender not in the target room - packet must NOT relay
             // (blind force-join here would let any client inject into any
             // room, breaking room isolation; see stroke-streaming tests).
             traceServerError(
-              `Sender ${socket.id} not in room "${targetRoom}" (joined: [${Array.from(socket.rooms || []).join(", ")}]) — packet dropped, spoofing rejected`
+              `Sender ${socket.id} not in room "${targetRoom}" (joined: [${Array.from(socket.rooms || []).join(", ")}]) - packet dropped, spoofing rejected`
             );
             throw new Error("socket does not belong to this room");
           }
@@ -1074,7 +1074,7 @@ function createSocketServer(httpServer, options = {}) {
     }
 
     // Unified live-collaboration relay: ephemeral previews/cursors AND
-    // committed mutations share one hardened path — verified roomId,
+    // committed mutations share one hardened path - verified roomId,
     // adapter-level membership (tracker re-synced on divergence, spoofers
     // rejected with connection:error), peers-only broadcast, TRACE probe.
     for (const event of LIVE_COLLAB_EVENTS) {
@@ -1099,7 +1099,7 @@ function createSocketServer(httpServer, options = {}) {
           }
           if (!member) {
             traceServerError(
-              `Sender ${socket.id} not in room "${targetRoom}" (joined: [${Array.from(socket.rooms || []).join(", ")}]) — packet dropped, spoofing rejected`
+              `Sender ${socket.id} not in room "${targetRoom}" (joined: [${Array.from(socket.rooms || []).join(", ")}]) - packet dropped, spoofing rejected`
             );
             throw new Error("socket does not belong to this room");
           }
@@ -1109,7 +1109,7 @@ function createSocketServer(httpServer, options = {}) {
 
           // Ephemeral previews & cursor moves: broadcast only to other peers.
           // Committed mutations: broadcast to other peers (sender already
-          // applied locally — loop-free by construction). Committed
+          // applied locally - loop-free by construction). Committed
           // mutations also fold into the room snapshot for late joiners;
           // ephemeral streams never touch it. Stored BEFORE relay so an
           // over-cap mutation is rejected loudly instead of

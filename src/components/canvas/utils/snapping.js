@@ -3,7 +3,7 @@ import { getShapeBounds } from './shapes.js';
 export const SNAP_THRESHOLD = 5;
 
 /**
- * snapping.js — pure geometric snapping computations (no Konva deps).
+ * snapping.js - pure geometric snapping computations (no Konva deps).
  *
  * During `onDragMove` of any shape, the moving shape's edges and center
  * (x, y, x + width/2, x + width, y + height/2, y + height) are compared

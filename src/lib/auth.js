@@ -1,5 +1,5 @@
 /**
- * auth.js — frontend auth client (no React).
+ * auth.js - frontend auth client (no React).
  *
  * Thin fetch wrapper over the backend auth API (POST /api/auth/signup,
  * POST /api/auth/login, POST /api/auth/firebase, GET /api/auth/me)
@@ -37,7 +37,7 @@ async function request(path, { method = 'GET', body, token } = {}) {
     });
   } catch (err) {
     // Network-level failure (server down, wrong backend URL, or CORS
-    // rejection — browsers surface all three as a TypeError with no HTTP
+    // rejection - browsers surface all three as a TypeError with no HTTP
     // status). Name the target URL so a misconfigured VITE_SYNCSPACE_SERVER_URL
     // is diagnosable; CORS details remain in the browser console.
     const detail = err && err.message ? ` (${err.message})` : '';
@@ -99,7 +99,7 @@ export function setStoredSession(session) {
     if (!session?.token || !session?.user) return;
     localStorage.setItem(SESSION_KEY, JSON.stringify({ token: session.token, user: session.user }));
   } catch {
-    // storage unavailable — session simply won't persist
+    // storage unavailable - session simply won't persist
   }
 }
 

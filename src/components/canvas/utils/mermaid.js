@@ -1,7 +1,7 @@
 import { createShapeId, estimateTextWidth, isFiniteNum } from './shapes.js';
 
 /**
- * mermaid.js — Sayon (Week 2: "Mermaid to Draw" compiler)
+ * mermaid.js - Sayon (Week 2: "Mermaid to Draw" compiler)
  *
  * Lightweight flowchart parser (no mermaid dependency): parses a subset of
  * Mermaid flowchart syntax into nodes + edges, then lays them out as native

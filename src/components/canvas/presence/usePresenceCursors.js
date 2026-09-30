@@ -4,7 +4,7 @@ export const CURSOR_THROTTLE_MS = 40;
 const PEER_STALE_MS = 5000;
 
 /**
- * usePresenceCursors — live multiplayer cursor & presence broadcasting.
+ * usePresenceCursors - live multiplayer cursor & presence broadcasting.
  *
  * - Listens to `stage.on('pointermove')`, throttled to 30–50ms (40ms),
  *   converting pointer coordinates to canvas space (world coords via
@@ -150,7 +150,7 @@ export default function usePresenceCursors({
   // for senders that omit it). Keying by userId alone collapses multiple
   // tabs/shares of one account into a single cursor AND produces duplicate
   // React keys downstream (`user-dinlgym2` twice). Self-echo is filtered
-  // by our own socket id — never by userId, so a second tab on the same
+  // by our own socket id - never by userId, so a second tab on the same
   // account still renders.
   useEffect(() => {
     if (!enabled || !socket || typeof socket.on !== 'function') return undefined;

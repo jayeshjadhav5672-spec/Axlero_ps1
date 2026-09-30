@@ -7,12 +7,12 @@ import {
 } from '../../lib/room';
 
 /**
- * Dashboard — Avantee (React UI / Frontend Engineer)
+ * Dashboard - Avantee (React UI / Frontend Engineer)
  *
  * Application home screen for SyncSpace (Day 3). Pure frontend UI:
  * - Welcome section
  * - Create New Room (generates a ROOM_PATTERN-safe id, navigates via the
- *   existing `?room=` mechanism — the realtime layer owns joining)
+ *   existing `?room=` mechanism - the realtime layer owns joining)
  * - Join New Room (trim + validate with isValidRoomId, same navigation)
  * - Recent Rooms (browser-local list only, with intentional empty state)
  * - Last-room / Return to Workspace (reuses the existing reconnect seam)
@@ -234,7 +234,7 @@ export default function Dashboard({
               Dashboard
             </span>
           </span>
-          {/* Account area: entry points branch on session state — signed-in
+          {/* Account area: entry points branch on session state - signed-in
               users get profile/sign-out, everyone else gets log-in and
               create-account. Frontend-only navigation, no backend. */}
           <span className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
@@ -302,7 +302,7 @@ export default function Dashboard({
             Your workspace, together.
           </h1>
           <p className="dashboard-hero-desc mx-auto mt-3 max-w-xl text-sm text-[#57534E] sm:text-base">
-            Create a room or join your team in real time — shared whiteboard and code, in one place.
+            Create a room or join your team in real time - shared whiteboard and code, in one place.
           </p>
         </section>
 
@@ -470,7 +470,7 @@ export default function Dashboard({
                   </li>
                 ))}
               </ul>
-              <p className="mt-4 text-xs text-[#57534E]">Stored in this browser only — not shared across devices.</p>
+              <p className="mt-4 text-xs text-[#57534E]">Stored in this browser only - not shared across devices.</p>
             </>
           )}
         </section>

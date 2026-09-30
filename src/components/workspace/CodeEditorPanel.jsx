@@ -13,7 +13,7 @@ import {
 } from './fileTree.js';
 
 /**
- * CodeEditorPanel — SyncSpace IDE shell around the Monaco editor.
+ * CodeEditorPanel - SyncSpace IDE shell around the Monaco editor.
  *
  * ARCHITECTURE: the Explorer tree is SHARED room state. The server
  * (server/socket.cjs) is the authority: creations are requested over
@@ -36,21 +36,23 @@ import {
  *   `value` / `onChange` seam: the open file's shared text and change
  *   handler are injected on the SAME element type at the SAME position, so
  *   Monaco is never recreated when switching files.
- * - Search operates on the ACTUAL open document through the mounted Monaco
- *   instance (`getModel().findMatches()`); results navigate via
- *   `setPosition()` + `revealLineInCenter()`.
+ * - Search operates on the CURRENT SHARED project state (project.nodes +
+ *   project.fileTexts): every shared file is searched, results navigate via
+ *   the single Monaco instance (`setPosition()` + `revealLineInCenter()`).
+ * - Explorer width is draggable React state (180-450px) with a
+ *   pointer-event divider; the editor flexes into remaining space.
  * - The status bar shows only real state: the `connectionStatus` passed
  *   through Workspace, the live Monaco cursor, the active file's language,
  *   and "Spaces: 2" which matches Monaco's genuine tabSize.
  *
- * No Monaco / Yjs / Socket.io logic lives here — the editor arrives via
+ * No Monaco / Yjs / Socket.io logic lives here - the editor arrives via
  * `children` (Kishan's <CodeEditor />) and is only injected with the
  * optional presentational callbacks `onCursorChange` / `onEditorMount`;
  * shared state arrives via the `project` prop (useCollaborativeProject).
  */
 
-// Upper bound for displayed search matches (the count still reflects the
-// full findMatches result length).
+// Upper bound for displayed search matches (per-file counts still reflect
+// the full project search result length).
 const MAX_SEARCH_RESULTS = 200;
 
 const LANGUAGE_DISPLAY = {
@@ -91,6 +93,36 @@ const STATUS_META = {
 // width in tight splits.
 const NARROW_PANE_WIDTH = 520;
 
+// Explorer sidebar resizing (VS Code-like): draggable divider between the
+// side panel and the editor. Editor width is never hard-coded - it flexes
+// into the remaining horizontal space.
+const EXPLORER_MIN_WIDTH = 180;
+const EXPLORER_DEFAULT_WIDTH = 260;
+const EXPLORER_MAX_WIDTH = 450;
+const EXPLORER_WIDTH_STORAGE_KEY = 'syncspace:explorer-width';
+
+// Debounce for project-wide search so large shared rooms stay responsive.
+const SEARCH_DEBOUNCE_MS = 150;
+
+function clampExplorerWidth(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return EXPLORER_DEFAULT_WIDTH;
+  return Math.max(EXPLORER_MIN_WIDTH, Math.min(EXPLORER_MAX_WIDTH, n));
+}
+
+function readStoredExplorerWidth() {
+  try {
+    const saved = localStorage.getItem(EXPLORER_WIDTH_STORAGE_KEY);
+    if (saved !== null && saved !== '') {
+      const n = Number(saved);
+      if (Number.isFinite(n)) return clampExplorerWidth(n);
+    }
+  } catch {
+    // storage unavailable - fall through to default
+  }
+  return EXPLORER_DEFAULT_WIDTH;
+}
+
 function languageDisplayName(language) {
   if (!language) return 'JavaScript';
   const key = String(language).toLowerCase();
@@ -99,33 +131,166 @@ function languageDisplayName(language) {
 }
 
 /**
- * Search the live Monaco model. Returns { total, matches } where matches
- * are capped for rendering. Never throws — search is presentational.
+ * Project-wide search over the CURRENT SHARED project state (nodes +
+ * per-file texts from useCollaborativeProject). No filesystem, no second
+ * copy - callers pass project.nodes / project.fileTexts directly so newly
+ * created, renamed, or edited shared files are reflected immediately.
+ *
+ * Matches BOTH file names/paths and file contents: a file with empty
+ * content still matches when its name matches (reported as a file name
+ * match). Content matches carry line/column/preview for Monaco navigation.
+ *
+ * Returns { error, totalMatches, totalFiles, fileResults } where
+ * fileResults is [{ id, name, path, matchCount, nameMatch, matches }],
+ * matches are [{ key, lineNumber, column, preview }] capped at
+ * MAX_SEARCH_RESULTS globally (matchCount still reflects the full count),
+ * and nameMatch flags a filename/path hit. Never throws.
  */
-function searchSharedDocument(editor, rawQuery) {
-  const query = (rawQuery ?? '').trim();
-  if (!query || !editor) return { total: 0, matches: [] };
-  try {
-    const model = editor.getModel?.();
-    if (!model || typeof model.findMatches !== 'function') return { total: 0, matches: [] };
-    const found = model.findMatches(query, false, false, false, null, false) ?? [];
-    return {
-      total: found.length,
-      matches: found.slice(0, MAX_SEARCH_RESULTS).map((m, i) => {
-        const lineNumber = m?.range?.startLineNumber ?? 1;
-        const column = m?.range?.startColumn ?? 1;
-        let preview = '';
-        try {
-          preview = (model.getLineContent(lineNumber) ?? '').trim();
-        } catch {
-          preview = '';
-        }
-        return { key: `${lineNumber}:${column}:${i}`, lineNumber, column, preview };
-      }),
-    };
-  } catch {
-    return { total: 0, matches: [] };
+function escapeRegExpText(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildProjectSearchRegExp(rawQuery, { caseSensitive, wholeWord, useRegex }) {
+  let pattern = String(rawQuery ?? '');
+  if (!useRegex) pattern = escapeRegExpText(pattern);
+  if (wholeWord) pattern = `\\b(?:${pattern})\\b`;
+  const flags = caseSensitive ? 'g' : 'gi';
+  return new RegExp(pattern, flags);
+}
+
+function relativePathForNode(node, nodes) {
+  if (!node) return '';
+  const byId = new Map((nodes ?? []).map((n) => [n?.id, n]));
+  const parts = [node.name];
+  let current = node;
+  let guard = 0;
+  while (current && current.parentId != null && guard < 100) {
+    const parent = byId.get(current.parentId);
+    if (!parent) break;
+    parts.unshift(parent.name);
+    current = parent;
+    guard += 1;
   }
+  return parts.join('/');
+}
+
+function searchSharedProject(nodes, fileTexts, rawQuery, options = {}) {
+  const query = String(rawQuery ?? '');
+  const empty = { error: null, totalMatches: 0, totalFiles: 0, totalResults: 0, fileResults: [] };
+  if (query === '') return empty;
+  const { caseSensitive = false, wholeWord = false, useRegex = false } = options;
+  let regex;
+  try {
+    regex = buildProjectSearchRegExp(query, { caseSensitive, wholeWord, useRegex });
+  } catch {
+    return { ...empty, error: 'Invalid regular expression' };
+  }
+  // Empty regex (e.g. "()") matches everywhere - treat as no query.
+  try {
+    if (regex.test('') && query.trim() === '') return empty;
+  } catch {
+    return { ...empty, error: 'Invalid regular expression' };
+  }
+  const list = Array.isArray(nodes) ? nodes : [];
+  const texts = fileTexts && typeof fileTexts === 'object' ? fileTexts : {};
+  const fileResults = [];
+  let totalMatches = 0;
+  // Non-global variant for filename/path tests (global regex.test is
+  // stateful via lastIndex, so filenames use a fresh non-global regex
+  // with the same source + case sensitivity).
+  let nameRegex;
+  try {
+    nameRegex = new RegExp(regex.source, caseSensitive ? '' : 'i');
+  } catch {
+    return { ...empty, error: 'Invalid regular expression' };
+  }
+  const nameMatches = (value) => {
+    try {
+      nameRegex.lastIndex = 0;
+      return nameRegex.test(String(value ?? ''));
+    } catch {
+      return false;
+    }
+  };
+  for (const node of list) {
+    if (!node || node.type === 'folder' || typeof node.id !== 'string') continue;
+    const filePath = relativePathForNode(node, list);
+    // Filename/path hit even when the file content is empty (freshly
+    // created files start empty server-side and client-side).
+    const nameMatch = nameMatches(node.name) || nameMatches(filePath);
+    const text = typeof texts[node.id] === 'string' ? texts[node.id] : String(node.content ?? '');
+    const matches = [];
+    if (text) {
+      const lines = text.split('\n');
+      for (let i = 0; i < lines.length; i += 1) {
+        const line = lines[i];
+        if (!line) continue;
+        let m;
+        regex.lastIndex = 0;
+        let guard = 0;
+        while (guard < 500) {
+          guard += 1;
+          try {
+            m = regex.exec(line);
+          } catch {
+            return { ...empty, error: 'Invalid regular expression' };
+          }
+          if (!m) break;
+          // Avoid infinite loops on zero-length matches.
+          if (m[0] === '') {
+            regex.lastIndex += 1;
+            if (regex.lastIndex > line.length) break;
+            continue;
+          }
+          matches.push({
+            key: `${node.id}:${i + 1}:${m.index}`,
+            lineNumber: i + 1,
+            column: m.index + 1,
+            preview: line.length > 200 ? line.slice(0, 200) : line,
+          });
+          if (m.index === line.length) break;
+        }
+        if (matches.length > 5000) break;
+      }
+    }
+    if (!nameMatch && matches.length === 0) continue;
+    totalMatches += matches.length;
+    fileResults.push({
+      id: node.id,
+      name: node.name,
+      path: filePath,
+      matchCount: matches.length,
+      nameMatch,
+      matches,
+    });
+  }
+  // Sort files: filename hits first, then most content matches, then name.
+  fileResults.sort(
+    (a, b) =>
+      Number(b.nameMatch) - Number(a.nameMatch) ||
+      b.matchCount - a.matchCount ||
+      String(a.name).localeCompare(String(b.name)),
+  );
+  // Cap rendered matches globally; per-file matchCount stays full.
+  let remaining = MAX_SEARCH_RESULTS;
+  const capped = [];
+  for (const file of fileResults) {
+    if (remaining <= 0) {
+      capped.push({ ...file, matches: [] });
+      continue;
+    }
+    const shown = file.matches.slice(0, remaining);
+    remaining -= shown.length;
+    capped.push({ ...file, matches: shown });
+  }
+  return {
+    error: null,
+    totalMatches,
+    totalFiles: fileResults.length,
+    // Filename hits count as one result each on top of content matches.
+    totalResults: totalMatches + fileResults.filter((f) => f.nameMatch).length,
+    fileResults: capped,
+  };
 }
 
 function FileIcon({ color = '#8db9e2' }) {
@@ -202,6 +367,12 @@ export default function CodeEditorPanel({
   // 'search'), or null when the panel is collapsed for full-width code.
   const [openPanel, setOpenPanel] = useState('explorer');
   const [narrow, setNarrow] = useState(false);
+  // Explorer sidebar width (React state, VS Code-like drag behavior).
+  const [explorerWidth, setExplorerWidth] = useState(() => readStoredExplorerWidth());
+  const [isResizingExplorer, setIsResizingExplorer] = useState(false);
+  const resizeDragRef = useRef(null);
+  // Pending Monaco navigation after opening a search-hit file.
+  const pendingSearchNavRef = useRef(null);
   const [cursor, setCursor] = useState({ lineNumber: 1, column: 1 });
   // Local-only UI state (never broadcast): open tabs, active file,
   // selection, expansion. The TREE itself is shared (project.nodes).
@@ -221,9 +392,11 @@ export default function CodeEditorPanel({
   const [renaming, setRenaming] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [query, setQuery] = useState('');
-  const [searchResult, setSearchResult] = useState({ total: 0, matches: [] });
-  // Bumped on every local/remote model change so open search results stay
-  // in sync with the open document.
+  const [caseSensitive, setCaseSensitive] = useState(false);
+  const [wholeWord, setWholeWord] = useState(false);
+  const [useRegex, setUseRegex] = useState(false);
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  // Bumped on every local/remote model change so cursor/status stay live.
   const [docVersion, setDocVersion] = useState(0);
 
   const fallbackSharedNode = useMemo(() => sharedFileNode(), []);
@@ -241,7 +414,7 @@ export default function CodeEditorPanel({
 
   // Keep local tab/selection state consistent when the authoritative tree
   // changes (late join, reconnect, peer creates). Valid ids are never
-  // disturbed — only vanished ids fall back.
+  // disturbed - only vanished ids fall back.
   useEffect(() => {
     const valid = new Set(nodes.map((n) => n.id));
     setOpenIds((ids) => (ids.every((id) => valid.has(id)) ? ids : ids.filter((id) => valid.has(id))));
@@ -258,7 +431,7 @@ export default function CodeEditorPanel({
   }, [nodes]);
 
   // Collapse the side panel automatically when the pane itself (not just
-  // the viewport) gets too narrow — the editor lives in a resizable split.
+  // the viewport) gets too narrow - the editor lives in a resizable split.
   useEffect(() => {
     const el = sectionRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return undefined;
@@ -266,7 +439,7 @@ export default function CodeEditorPanel({
       try {
         setNarrow((el.clientWidth || 0) < NARROW_PANE_WIDTH);
       } catch {
-        // measurement failure — keep the full layout
+        // measurement failure - keep the full layout
       }
     };
     update();
@@ -296,7 +469,7 @@ export default function CodeEditorPanel({
           setDocVersion((v) => v + 1);
         });
       } catch {
-        // cursor/content readout is presentational — never throw into Monaco
+        // cursor/content readout is presentational - never throw into Monaco
       }
       setDocVersion((v) => v + 1);
     }
@@ -328,7 +501,7 @@ export default function CodeEditorPanel({
           setOpenPanel('search');
         }
       } catch {
-        // shortcut hint — never throw
+        // shortcut hint - never throw
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -341,15 +514,48 @@ export default function CodeEditorPanel({
       try {
         searchInputRef.current?.focus?.();
       } catch {
-        // focus hint — never throw
+        // focus hint - never throw
       }
     }
   }, [openPanel, narrow]);
 
-  // Re-run the search when the query changes or the open document does.
+  // Debounce the search input so large shared rooms stay responsive.
+  // The memoized project search below consumes debouncedQuery.
   useEffect(() => {
-    setSearchResult(searchSharedDocument(editorInstanceRef.current, query));
-  }, [query, docVersion]);
+    const timer = setTimeout(() => setDebouncedQuery(query), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  // Persist the Explorer width per browser (layout only, never synced).
+  useEffect(() => {
+    try {
+      localStorage.setItem(EXPLORER_WIDTH_STORAGE_KEY, String(explorerWidth));
+    } catch {
+      // storage unavailable - layout state is unaffected
+    }
+  }, [explorerWidth]);
+
+  // While dragging the Explorer divider, force col-resize + no-select
+  // globally so Monaco text selection never steals the gesture.
+  useEffect(() => {
+    if (!isResizingExplorer) return undefined;
+    const prevCursor = document.body.style.cursor;
+    const prevSelect = document.body.style.userSelect;
+    try {
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    } catch {
+      // presentational - never throw
+    }
+    return () => {
+      try {
+        document.body.style.cursor = prevCursor;
+        document.body.style.userSelect = prevSelect;
+      } catch {
+        // teardown - never throw
+      }
+    };
+  }, [isResizingExplorer]);
 
   // The editor instance only exists while a file is open; clear the stale
   // ref when the last tab closes so search/navigate degrade honestly.
@@ -362,7 +568,7 @@ export default function CodeEditorPanel({
       try {
         editorInstanceRef.current?.focus?.();
       } catch {
-        // focus hint — never throw
+        // focus hint - never throw
       }
     }, 0);
   }, []);
@@ -402,7 +608,7 @@ export default function CodeEditorPanel({
     try {
       project?.onFileChange?.(fileId, next);
     } catch {
-      // emit path — never throw into Monaco
+      // emit path - never throw into Monaco
     }
   }, [project]);
 
@@ -434,7 +640,7 @@ export default function CodeEditorPanel({
     setCreating({ type, parentId, id: makeNodeId() });
   }, [creationParentId, nodes, project]);
 
-  // Commit only SENDS the request — the draft closes when the server ack
+  // Commit only SENDS the request - the draft closes when the server ack
   // arrives (node opens) or rejects (reason shown inline, same draft).
   const commitCreating = useCallback(() => {
     if (!creating) return;
@@ -448,11 +654,11 @@ export default function CodeEditorPanel({
       return;
     }
     if (!project) {
-      setDraftError('Collaboration is unavailable — reconnect to create shared files.');
+      setDraftError('Collaboration is unavailable - reconnect to create shared files.');
       return;
     }
     if (!roomJoined) {
-      setDraftError('Still joining the room — wait for the connection, then try again.');
+      setDraftError('Still joining the room - wait for the connection, then try again.');
       return;
     }
     createCommittedRef.current = true;
@@ -474,7 +680,7 @@ export default function CodeEditorPanel({
     setDraftError('');
   }, []);
 
-  // Server ack: the requested node exists — finalize this exact draft.
+  // Server ack: the requested node exists - finalize this exact draft.
   useEffect(() => {
     if (!pendingCreateId) return;
     const node = nodeById(pendingCreateId);
@@ -546,7 +752,7 @@ export default function CodeEditorPanel({
     setContextMenu(null);
   }, [deleteTarget, project]);
 
-  // Focusing the open document — used by the Explorer's shared row.
+  // Focusing the open document - used by the Explorer's shared row.
   const handleDocumentActivate = useCallback(() => {
     try {
       const editor = editorInstanceRef.current;
@@ -556,12 +762,12 @@ export default function CodeEditorPanel({
       }
       slotRef.current?.querySelector?.('textarea, [tabindex]')?.focus?.();
     } catch {
-      // focus hint — never throw
+      // focus hint - never throw
     }
   }, []);
 
-  // Jump Monaco to a search hit: cursor move only, no content change, so
-  // collaboration state is untouched.
+  // Jump Monaco to a line/column: cursor move only, no content change, so
+  // collaboration state is untouched. Single editor instance is reused.
   const navigateToMatch = useCallback((match) => {
     try {
       const editor = editorInstanceRef.current;
@@ -570,20 +776,103 @@ export default function CodeEditorPanel({
       editor.revealLineInCenter(match.lineNumber);
       editor.focus();
     } catch {
-      // navigation hint — never throw
+      // navigation hint - never throw
     }
   }, []);
 
+  // Open a shared file (stable id, no duplicate tabs) and navigate Monaco
+  // to a search hit. When the target file is not yet active, the navigation
+  // is deferred until the active file + editor catch up (see flush effect).
+  const openAndNavigateToMatch = useCallback((fileId, match) => {
+    if (!fileId || !match) return;
+    pendingSearchNavRef.current = {
+      fileId,
+      lineNumber: match.lineNumber,
+      column: match.column,
+    };
+    setOpenIds((ids) => (ids.includes(fileId) ? ids : [...ids, fileId]));
+    setActiveId(fileId);
+    setSelectedId(fileId);
+  }, []);
+
+  // Open a shared file from a filename-only search hit (stable id, no
+  // duplicate tabs) and focus the editor. No line navigation - there is no
+  // content match to reveal.
+  const openSearchFile = useCallback((fileId) => {
+    if (!fileId) return;
+    pendingSearchNavRef.current = null;
+    setOpenIds((ids) => (ids.includes(fileId) ? ids : [...ids, fileId]));
+    setActiveId(fileId);
+    setSelectedId(fileId);
+    focusEditorSoon();
+  }, [focusEditorSoon]);
+
+  // Flush a pending search navigation once the target file is active and
+  // the Monaco instance is available.
+  useEffect(() => {
+    const pending = pendingSearchNavRef.current;
+    if (!pending || pending.fileId !== activeId) return;
+    const editor = editorInstanceRef.current;
+    if (!editor) return;
+    try {
+      editor.setPosition({ lineNumber: pending.lineNumber, column: pending.column });
+      editor.revealLineInCenter(pending.lineNumber);
+      editor.focus();
+      pendingSearchNavRef.current = null;
+    } catch {
+      // navigation hint - never throw
+    }
+  }, [activeId, docVersion, project?.fileTexts]);
+
+  // Explorer resize drag (pointer events). Divider-only gesture so Monaco
+  // mouse interactions are untouched.
+  const handleExplorerResizeStart = useCallback((event) => {
+    try {
+      event.preventDefault();
+    } catch {
+      // preventDefault is best-effort
+    }
+    resizeDragRef.current = { startX: event.clientX, startWidth: explorerWidth };
+    setIsResizingExplorer(true);
+    try {
+      event.currentTarget?.setPointerCapture?.(event.pointerId);
+    } catch {
+      // pointer capture is best-effort
+    }
+  }, [explorerWidth]);
+
+  useEffect(() => {
+    if (!isResizingExplorer) return undefined;
+    const handlePointerMove = (event) => {
+      const drag = resizeDragRef.current;
+      if (!drag) return;
+      const next = drag.startWidth + (event.clientX - drag.startX);
+      setExplorerWidth(clampExplorerWidth(next));
+    };
+    const handlePointerUp = () => {
+      resizeDragRef.current = null;
+      setIsResizingExplorer(false);
+    };
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+    };
+  }, [isResizingExplorer]);
+
   // Refresh re-syncs the authoritative snapshot (re-expand the root and
   // recompute results). Tree data comes from the server, not the network
-  // of peers — nothing to fetch from anywhere else.
+  // of peers - nothing to fetch from anywhere else.
   const handleRefreshExplorer = useCallback(() => {
     setSyncspaceExpanded(true);
     setDocVersion((v) => v + 1);
     try {
       project?.requestSnapshot?.();
     } catch {
-      // refresh hint — never throw
+      // refresh hint - never throw
     }
   }, [project]);
 
@@ -611,17 +900,26 @@ export default function CodeEditorPanel({
   // Keep Explorer actions present while the room is connecting. Narrow panes
   // may reduce the editor width, but must not remove the shared tree controls.
   const showSidePanel = openPanel !== null;
-  const trimmedQuery = query.trim();
-  const editorReady = Boolean(activeFile) && (Boolean(editorInstanceRef.current) || docVersion > 0);
-  const searchStatusText = !editorReady
-    ? 'Editor is not ready.'
-    : trimmedQuery === ''
-      ? 'Enter a query to search the open document.'
-      : searchResult.total === 0
+  // Project-wide search over shared state (never the filesystem). Recomputes
+  // whenever the query, options, tree, or shared contents change, so peer
+  // creates/edits/renames/deletes are reflected automatically.
+  const searchResult = React.useMemo(
+    () => searchSharedProject(nodes, project?.fileTexts, debouncedQuery, {
+      caseSensitive,
+      wholeWord,
+      useRegex,
+    }),
+    [nodes, project?.fileTexts, debouncedQuery, caseSensitive, wholeWord, useRegex],
+  );
+  const searchStatusText = searchResult.error
+    ? searchResult.error
+    : debouncedQuery === ''
+      ? 'Enter a query to search all shared files.'
+      : (searchResult.totalResults ?? 0) === 0
         ? 'No results'
-        : `${searchResult.total} result${searchResult.total === 1 ? '' : 's'}${
-            searchResult.total > searchResult.matches.length
-              ? ` (showing first ${searchResult.matches.length})`
+        : `${searchResult.totalResults} result${searchResult.totalResults === 1 ? '' : 's'} in ${searchResult.totalFiles} file${searchResult.totalFiles === 1 ? '' : 's'}${
+            searchResult.totalMatches > MAX_SEARCH_RESULTS
+              ? ` (showing first ${MAX_SEARCH_RESULTS})`
               : ''
           }`;
   const activeLanguage = activeFile && activeFile.id !== SHARED_FILE_ID
@@ -776,7 +1074,7 @@ export default function CodeEditorPanel({
       className={`syncspace-ide flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-[#1e1e1e] text-[#cccccc] ${className}`}
     >
       <div className="flex min-h-0 w-full flex-1 flex-row overflow-hidden">
-        {/* Activity bar — Explorer and Search only. */}
+        {/* Activity bar - Explorer and Search only. */}
         <nav
           aria-label="Activity bar"
           className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-[#2b2b2b] bg-[#333333] py-2"
@@ -819,27 +1117,39 @@ export default function CodeEditorPanel({
           </button>
         </nav>
 
-        {/* Explorer — the shared room project. */}
+        {/* Explorer - the shared room project. Width is draggable state. */}
         {showSidePanel && openPanel === 'explorer' && (
           <aside
             aria-label="Explorer"
-            className="flex w-56 shrink-0 flex-col overflow-hidden border-r border-[#2b2b2b] bg-[#252526]"
+            className="flex shrink-0 flex-col overflow-hidden bg-[#252526]"
+            style={{ width: explorerWidth, minWidth: EXPLORER_MIN_WIDTH, maxWidth: EXPLORER_MAX_WIDTH }}
           >
             <div className="flex items-center justify-between pl-4 pr-2 pt-3">
               <p className="pb-1 text-[11px] font-normal uppercase tracking-wider text-[#bbbbbb]">
                 Explorer
               </p>
-              <RowActionIcon
-                label="More actions (not available)"
-                title="More actions — not available in SyncSpace"
-                disabled
-              >
-                <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <circle cx="5" cy="12" r="1.5" />
-                  <circle cx="12" cy="12" r="1.5" />
-                  <circle cx="19" cy="12" r="1.5" />
-                </svg>
-              </RowActionIcon>
+              <div className="flex items-center">
+                <RowActionIcon
+                  label="More actions (not available)"
+                  title="More actions - not available in SyncSpace"
+                  disabled
+                >
+                  <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="5" cy="12" r="1.5" />
+                    <circle cx="12" cy="12" r="1.5" />
+                    <circle cx="19" cy="12" r="1.5" />
+                  </svg>
+                </RowActionIcon>
+                <RowActionIcon
+                  label="Close Explorer"
+                  title="Close Sidebar"
+                  onClick={() => setOpenPanel(null)}
+                >
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 6l12 12M18 6L6 18" />
+                  </svg>
+                </RowActionIcon>
+              </div>
             </div>
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pb-3">
               <div className="flex items-center gap-0.5 pr-1">
@@ -915,7 +1225,7 @@ export default function CodeEditorPanel({
                     node.type === 'folder' ? renderFolderRow(node, 0) : renderFileRow(node, 0),
                   )}
                   <p className="px-4 pt-3 text-[11px] leading-relaxed text-[#858585]">
-                    Shared workspace — visible to everyone in this room.
+                    Shared workspace - visible to everyone in this room.
                   </p>
                   {operationError && (
                     <p role="alert" className="px-4 pt-2 text-[11px] leading-snug text-rose-300">
@@ -928,16 +1238,28 @@ export default function CodeEditorPanel({
           </aside>
         )}
 
-        {/* Search — queries the open document via Monaco's findMatches; a
-            hit moves the real editor cursor + viewport. */}
+        {/* Search - project-wide over shared nodes + fileTexts; a hit opens
+            the file and moves the real editor cursor + viewport. */}
         {showSidePanel && openPanel === 'search' && (
           <aside
             aria-label="Search"
-            className="flex w-56 shrink-0 flex-col overflow-hidden border-r border-[#2b2b2b] bg-[#252526]"
+            className="flex shrink-0 flex-col overflow-hidden bg-[#252526]"
+            style={{ width: explorerWidth, minWidth: EXPLORER_MIN_WIDTH, maxWidth: EXPLORER_MAX_WIDTH }}
           >
-            <p className="px-4 pb-1 pt-3 text-[11px] font-normal uppercase tracking-wider text-[#bbbbbb]">
-              Search
-            </p>
+            <div className="flex items-center justify-between pl-4 pr-2 pt-3">
+              <p className="pb-1 text-[11px] font-normal uppercase tracking-wider text-[#bbbbbb]">
+                Search
+              </p>
+              <RowActionIcon
+                label="Close Search"
+                title="Close Sidebar"
+                onClick={() => setOpenPanel(null)}
+              >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </RowActionIcon>
+            </div>
             <div className="px-3 pb-2">
               <div className="relative">
                 <input
@@ -951,8 +1273,8 @@ export default function CodeEditorPanel({
                       setOpenPanel('explorer');
                     }
                   }}
-                  placeholder="Search"
-                  aria-label="Search the open document"
+                  placeholder="Search in files..."
+                  aria-label="Search in shared files"
                   autoCapitalize="off"
                   autoCorrect="off"
                   spellCheck={false}
@@ -972,36 +1294,126 @@ export default function CodeEditorPanel({
                   </button>
                 )}
               </div>
+              <div role="group" aria-label="Search options" className="flex items-center gap-1 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setCaseSensitive((v) => !v)}
+                  aria-pressed={caseSensitive}
+                  aria-label="Case sensitive"
+                  title="Case sensitive"
+                  className={`rounded border px-1.5 py-0.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 ${
+                    caseSensitive
+                      ? 'border-teal-400 bg-teal-500/20 text-teal-200'
+                      : 'border-[#3c3c3c] text-[#858585] hover:text-white'
+                  }`}
+                >
+                  Aa
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWholeWord((v) => !v)}
+                  aria-pressed={wholeWord}
+                  aria-label="Whole word"
+                  title="Whole word"
+                  className={`rounded border px-1.5 py-0.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 ${
+                    wholeWord
+                      ? 'border-teal-400 bg-teal-500/20 text-teal-200'
+                      : 'border-[#3c3c3c] text-[#858585] hover:text-white'
+                  }`}
+                >
+                  Ab
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUseRegex((v) => !v)}
+                  aria-pressed={useRegex}
+                  aria-label="Regular expression"
+                  title="Regular expression"
+                  className={`rounded border px-1.5 py-0.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 ${
+                    useRegex
+                      ? 'border-teal-400 bg-teal-500/20 text-teal-200'
+                      : 'border-[#3c3c3c] text-[#858585] hover:text-white'
+                  }`}
+                >
+                  .*
+                </button>
+              </div>
               <p role="status" aria-live="polite" className="px-1 pt-1.5 text-[11px] text-[#858585]">
                 {searchStatusText}
               </p>
             </div>
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pb-3">
-              {searchResult.matches.length > 0 && (
-                <ul className="flex flex-col">
-                  {searchResult.matches.map((match) => (
-                    <li key={match.key}>
-                      <button
-                        type="button"
-                        onClick={() => navigateToMatch(match)}
-                        aria-label={`Go to line ${match.lineNumber} in ${activeFile?.name ?? 'the open document'}`}
-                        title={`Line ${match.lineNumber}`}
-                        className="flex w-full flex-col gap-0.5 rounded px-4 py-1.5 text-left transition-colors hover:bg-[#2a2d2e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-400"
-                      >
-                        <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-white">
-                          <FileIcon color={activeFile && activeFile.id !== SHARED_FILE_ID ? colorForFileName(activeFile.name) : '#8db9e2'} />
-                          <span className="min-w-0 flex-1 truncate">{activeFile?.name ?? 'Open document'}</span>
+              {searchResult.fileResults.length > 0 && (
+                <ul className="flex flex-col gap-2">
+                  {searchResult.fileResults.map((file) => (
+                    <li key={file.id}>
+                      <div className="flex min-w-0 items-center gap-1.5 px-4 pt-1 text-[12px] text-white">
+                        <FileIcon color={file.id !== SHARED_FILE_ID ? colorForFileName(file.name) : '#8db9e2'} />
+                        <span className="min-w-0 flex-1 truncate font-semibold">{file.name}</span>
+                        <span className="shrink-0 rounded-full bg-[#3c3c3c] px-1.5 py-px text-[10px] text-[#bbbbbb]">
+                          {file.matchCount}
                         </span>
-                        <span className="min-w-0 truncate pl-6 font-mono text-[11px] text-[#858585]">
-                          Line {match.lineNumber}: {match.preview !== '' ? match.preview : '(empty line)'}
-                        </span>
-                      </button>
+                      </div>
+                      <p className="truncate px-4 py-0.5 font-mono text-[10px] text-[#6e6e6e]" title={file.path}>
+                        {file.path}
+                      </p>
+                      {file.nameMatch && (
+                        <button
+                          type="button"
+                          onClick={() => openSearchFile(file.id)}
+                          aria-label={`Open ${file.name}`}
+                          title={`${file.path} : File name match`}
+                          className="mx-4 mb-0.5 flex w-auto items-center gap-2 rounded px-0 py-1 text-left transition-colors hover:bg-[#2a2d2e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-400"
+                        >
+                          <span className="font-mono text-[11px] italic text-[#858585]">
+                            File name match
+                          </span>
+                        </button>
+                      )}
+                      <ul className="flex flex-col">
+                        {file.matches.map((match) => (
+                          <li key={match.key}>
+                            <button
+                              type="button"
+                              onClick={() => openAndNavigateToMatch(file.id, match)}
+                              aria-label={`Open ${file.name} at line ${match.lineNumber}`}
+                              title={`${file.path} : Line ${match.lineNumber}`}
+                              className="flex w-full min-w-0 items-baseline gap-2 rounded px-4 py-1 text-left transition-colors hover:bg-[#2a2d2e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-400"
+                            >
+                              <span className="shrink-0 font-mono text-[11px] text-teal-300">
+                                {match.lineNumber}
+                              </span>
+                              <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[#cccccc]">
+                                {match.preview !== '' ? match.preview.trim() : '(empty line)'}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
                     </li>
                   ))}
                 </ul>
               )}
             </div>
           </aside>
+        )}
+
+        {/* Resizable divider between the side panel and the editor. Pointer
+            events only - Monaco interactions are untouched. */}
+        {showSidePanel && (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize Explorer"
+            aria-valuenow={Math.round(explorerWidth)}
+            aria-valuemin={EXPLORER_MIN_WIDTH}
+            aria-valuemax={EXPLORER_MAX_WIDTH}
+            onPointerDown={handleExplorerResizeStart}
+            data-testid="explorer-divider"
+            className={`w-1 shrink-0 cursor-col-resize touch-none transition-colors ${
+              isResizingExplorer ? 'bg-teal-400' : 'bg-[#2b2b2b] hover:bg-teal-500/60'
+            }`}
+          />
         )}
 
         {contextMenu && (
@@ -1042,7 +1454,7 @@ export default function CodeEditorPanel({
           </div>
         )}
 
-        {/* Editor column: tabs + editor. No breadcrumbs — no hierarchy. */}
+        {/* Editor column: tabs + editor. No breadcrumbs - no hierarchy. */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[#1e1e1e]">
           <div role="tablist" aria-label="Open documents" className="flex h-9 shrink-0 items-stretch overflow-x-auto bg-[#252526]">
             {openFiles.map((file) => {
@@ -1141,7 +1553,7 @@ export default function CodeEditorPanel({
         </div>
       </div>
 
-      {/* Status bar — only real state. Connection comes from Workspace;
+      {/* Status bar - only real state. Connection comes from Workspace;
           cursor is the live Monaco position; "Spaces: 2" matches the
           editor's genuine tabSize; UTF-8 is Monaco's encoding. */}
       <footer className="flex h-6 shrink-0 items-center gap-3 bg-[#0f766e] px-3 text-[11px] text-white">

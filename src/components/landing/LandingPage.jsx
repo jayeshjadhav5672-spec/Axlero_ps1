@@ -1,10 +1,10 @@
 import React from 'react';
 
 /**
- * LandingPage — Avantee (React UI / Frontend Engineer)
+ * LandingPage - Avantee (React UI / Frontend Engineer)
  *
  * Product landing page and default entry view for SyncSpace, shown before
- * the Dashboard on the same "/" route (see App.jsx `showLanding` state —
+ * the Dashboard on the same "/" route (see App.jsx `showLanding` state -
  * no router involved). Pure presentational UI: the single `onEnter`
  * callback returns the user to the existing Dashboard/Workspace flow.
  *
@@ -12,7 +12,7 @@ import React from 'react';
  * surfaces, #111111 headings and primary actions, #57534E body,
  * #E7DFCC borders). Tailwind utilities only, no new dependencies.
  *
- * The hero visual is ONE connected abstraction (plain SVG — a freeform
+ * The hero visual is ONE connected abstraction (plain SVG - a freeform
  * whiteboard stroke flowing into a shared sync hub with collaborator
  * nodes, continuing into a brace-and-cursor code motif). It deliberately
  * contains no simulated product UI: no fake browser window, editor,
@@ -22,7 +22,7 @@ import React from 'react';
  */
 
 /* ------------------------------------------------------------------ */
-/* Brand mark (verbatim from WorkspaceHeader — do not redraw)           */
+/* Brand mark (verbatim from WorkspaceHeader - do not redraw)           */
 /* ------------------------------------------------------------------ */
 
 function BrandMark() {
@@ -38,7 +38,7 @@ function BrandMark() {
 
 /* ------------------------------------------------------------------ */
 /* Hand-authored stroke icons (project convention: 24x24 grid, round    */
-/* caps, ~1.8px stroke — no icon library)                               */
+/* caps, ~1.8px stroke - no icon library)                               */
 /* ------------------------------------------------------------------ */
 
 function StrokeIcon({ className = 'h-6 w-6', children }) {
@@ -96,7 +96,7 @@ function RoomIcon({ className }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Hero visual — one connected abstraction (decorative SVG only)        */
+/* Hero visual - one connected abstraction (decorative SVG only)        */
 /*                                                                     */
 /* A single eye-flow reads left → right as one idea: a freeform        */
 /* whiteboard stroke flows into a shared hub ring; thin sync           */
@@ -120,7 +120,7 @@ function HeroVisual() {
     <div aria-hidden="true" className="relative mx-auto w-full max-w-md select-none">
       <style>{`@media (prefers-reduced-motion: no-preference){@keyframes sync-node-in{from{opacity:0;transform:scale(0.5)}to{opacity:1;transform:scale(1)}}@keyframes sync-draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}@keyframes sync-fade-in{from{opacity:0}to{opacity:1}}@keyframes sync-cursor-pulse{0%,100%{opacity:1}50%{opacity:0.3}}.sync-node{transform-box:fill-box;transform-origin:center;animation:sync-node-in 350ms ease-out both}.sync-line{stroke-dasharray:1;stroke-dashoffset:1;animation:sync-draw 450ms ease-out 250ms both}.sync-code{animation:sync-fade-in 300ms ease-out 550ms both}.sync-cursor{animation:sync-cursor-pulse 3s ease-in-out 1.2s infinite}}`}</style>
       <svg viewBox="0 0 360 280" className="h-auto w-full" focusable="false">
-        {/* faint dashed orbit for depth — decorative, hidden on small screens */}
+        {/* faint dashed orbit for depth - decorative, hidden on small screens */}
         <ellipse
           className="hidden sm:block"
           cx="180"
@@ -226,7 +226,7 @@ function HeroVisual() {
           <path d="M282 122 C287 122 289 124 289 129 L289 133 C289 136 291 138 294 138 C291 138 289 140 289 143 L289 147 C289 152 287 154 282 154" />
         </g>
         <rect className="sync-code sync-cursor" x="274" y="128" width="4.5" height="20" rx="1" fill="#111111" />
-        {/* small geometric accents — decorative, hidden on small screens */}
+        {/* small geometric accents - decorative, hidden on small screens */}
         <g className="hidden sm:block" stroke="rgba(17,17,17,0.4)" strokeWidth="1.5" strokeLinecap="round">
           <path d="M52 116h14M59 109v14" />
           <path d="M312 168h12M318 162v12" />
@@ -238,7 +238,7 @@ function HeroVisual() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Content data (real product concepts only — nothing invented)         */
+/* Content data (real product concepts only - nothing invented)         */
 /* ------------------------------------------------------------------ */
 
 const CAPABILITIES = [

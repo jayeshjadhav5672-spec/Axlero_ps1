@@ -3,14 +3,14 @@ import { isValidShape, normalizeShape, serializeShape, serializeShapes } from '.
 import useCanvasHistory, { HISTORY_LIMIT } from './useCanvasHistory.js';
 
 /**
- * hooks/useWhiteboardState.js — Sayon (Whiteboard / Konva.js Engineer)
+ * hooks/useWhiteboardState.js - Sayon (Whiteboard / Konva.js Engineer)
  *
  * Local shape store for the whiteboard. Holds ONLY plain serializable
  * objects (no Konva nodes). Supports two modes:
  *
  * - Uncontrolled (default): `shapes` prop omitted; the hook owns the array.
  * - Controlled (Yjs/Socket): `shapes` prop provided; the hook treats it as
- *   the source of truth and never mutates it — parents apply the callback
+ *   the source of truth and never mutates it - parents apply the callback
  *   payloads (`onShapeCreate/Update/Delete/Clear`) to their external store.
  *
  * Every commit helper normalizes + serializes before storing/firing, and
@@ -20,7 +20,7 @@ import useCanvasHistory, { HISTORY_LIMIT } from './useCanvasHistory.js';
  * `roomId` and the store broadcasts every local mutation
  * (`shapes:commit` / `shapes:update-batch` / `shapes:delete` /
  * `canvas:clear` / `canvas:history-sync`) and applies inbound events from
- * peers — but ONLY in uncontrolled mode. In controlled mode the parent
+ * peers - but ONLY in uncontrolled mode. In controlled mode the parent
  * shell owns transport via the collab callbacks (emitting here too would
  * double-apply on peers), so socket emission and inbound listeners stay
  * off and the legacy callback path is the single source of truth.
@@ -63,7 +63,7 @@ export default function useWhiteboardState({
   onCanvasClear,
   onSelectionChange,
   onShapesReorder,
-  // Unified-protocol transport (uncontrolled mode only — see header).
+  // Unified-protocol transport (uncontrolled mode only - see header).
   socket = null,
   roomId = null,
 } = {}) {
@@ -78,7 +78,7 @@ export default function useWhiteboardState({
   roomRef.current = roomId;
 
   /**
-   * Best-effort unified broadcast. Controlled mode never emits — the
+   * Best-effort unified broadcast. Controlled mode never emits - the
    * parent shell propagates the same intent through the collab callbacks
    * (`canvas:update` ops), and emitting here too would double-apply every
    * mutation on peers. Never throws into mutation paths.
@@ -162,7 +162,7 @@ export default function useWhiteboardState({
     (shapeId, { fromRemote = false } = {}) => {
       if (!shapeId) return;
       // Already gone (e.g. eraser pointerdown + click double-fire):
-      // record nothing and emit nothing — keeps history and the
+      // record nothing and emit nothing - keeps history and the
       // collaboration channel free of duplicate delete ops.
       if (!(shapes ?? []).some((s) => s.id === shapeId)) return;
       const next = (shapes ?? []).filter((s) => s.id !== shapeId);
@@ -186,7 +186,7 @@ export default function useWhiteboardState({
    * Atomic delete: remove the shape(s), reset the selection to null, and
    * fire onShapeDelete in one synchronized update. Resetting the
    * selection here (rather than leaving it to callers) guarantees the
-   * board never points at a removed shape — the root cause of
+   * board never points at a removed shape - the root cause of
    * "subsequent deletions fail until Clear" reports.
    * Accepts a single id or an array (multi-select); emits one
    * `shapes:delete` carrying every actually-removed id.
@@ -216,12 +216,12 @@ export default function useWhiteboardState({
    * Reconcile an EXTERNAL (remote/Yjs snapshot) shape array into the local
    * uncontrolled store. Invalid entries are dropped; valid ones are
    * normalized + cloned so remote object identity never leaks into state.
-   * In controlled mode this is a no-op (parent already owns the array) —
+   * In controlled mode this is a no-op (parent already owns the array) -
    * remote updates arrive via the `shapes` prop directly.
    *
    * Returns the number of shapes applied.
    *
-   * Remote snapshots are intentionally NOT recorded in undo history —
+   * Remote snapshots are intentionally NOT recorded in undo history -
    * undo reverts local intent; replaying remote state would surprise.
    */
   const applyRemoteShapes = useCallback(
@@ -242,7 +242,7 @@ export default function useWhiteboardState({
   }, [controlledSelection, isControlled, onCanvasClear, recordHistory, emitUnified]);
 
   /**
-   * Z-ordering: `shapes` array order IS the layer order — index 0 renders
+   * Z-ordering: `shapes` array order IS the layer order - index 0 renders
    * at the back, the last element renders on top (Konva paints in order).
    * Moving a large enclosing rectangle to the back lets nested inner
    * shapes receive pointer events first.
@@ -273,12 +273,12 @@ export default function useWhiteboardState({
       }
       if (!isControlled) setInternalShapes(next);
       recordHistory(next);
-      // Controlled parents own the array — apply the new order via callback.
+      // Controlled parents own the array - apply the new order via callback.
       // Uncontrolled listeners (collab) also receive the full new order.
       onShapesReorder?.(next);
       // Uncontrolled + socket: propagate the reorder as a batch carrying
       // the full new order (peers adopt sender order when id sets match).
-      // Always local intent — remote order arrives via the silent inbound
+      // Always local intent - remote order arrives via the silent inbound
       // appliers below, never through reorder().
       emitUnified('shapes:update-batch', { shapes: next });
     },
@@ -293,7 +293,7 @@ export default function useWhiteboardState({
   /**
    * Restore a history snapshot: uncontrolled writes it directly;
    * controlled forwards the full array through `onShapesReorder` (the
-   * existing full-array channel — no new Yjs/Socket surface) so the
+   * existing full-array channel - no new Yjs/Socket surface) so the
    * external store stays in sync. Selection always clears.
    * Bound to Cmd+Z / Ctrl+Z (undo) and Cmd+Shift+Z / Ctrl+Shift+Z or
    * Cmd+Y (redo) in useCanvasDrawing.
@@ -327,8 +327,8 @@ export default function useWhiteboardState({
 
   /**
    * Inbound unified-protocol listeners (uncontrolled mode only). Every
-   * handler applies through SILENT appliers — direct `setInternalShapes`
-   * writes with no history push, no re-emit, and no collab callbacks —
+   * handler applies through SILENT appliers - direct `setInternalShapes`
+   * writes with no history push, no re-emit, and no collab callbacks -
    * which makes echo loops structurally impossible (remote state never
    * re-enters the broadcast path). Room filtering uses the live roomRef so
    * a room switch never needs a resubscribe. Like `applyRemoteShapes`,
@@ -413,7 +413,7 @@ export default function useWhiteboardState({
     // snapshot as `canvas:sync-init` right after `room:joined`. An empty
     // local board adopts it wholesale; otherwise server state wins on id
     // conflicts while local-only shapes are preserved (covers rejoin with
-    // unsynced work). Silent like all inbound appliers — no history, no
+    // unsynced work). Silent like all inbound appliers - no history, no
     // emit, no callbacks. Controlled shells own their own snapshot
     // reconciliation, so this listener stays uncontrolled-only.
     const handleSyncInit = (payload) => {
