@@ -32,6 +32,148 @@ const MAX_STREAM_POINTS = 20000;
 const MAX_ROOMS = 200;
 const MAX_ROOM_SHAPES = 2000;
 
+/**
+ * Shared room project (collaborative file tree + per-file contents).
+ * Every room owns exactly one project, keyed by roomId — the server is the
+ * authority for the tree, so browsers can never diverge. The default
+ * "Collaborative Code" document (DEFAULT_FILE_ID) always exists: rooms
+ * created before projects existed migrate automatically the first time a
+ * snapshot is built or a legacy `code:update` (no fileId) arrives.
+ *
+ * Memory bounds (per room): at most MAX_PROJECT_NODES nodes, each file at
+ * most MAX_FILE_TEXT_BYTES, whole-project text at most
+ * MAX_PROJECT_TEXT_BYTES. Over-cap mutations are REJECTED with
+ * `connection:error` — never stored, never relayed. In-memory only: a
+ * server restart drops all projects (documented in docs/architecture.md).
+ */
+const DEFAULT_FILE_ID = "shared-collaborative-code";
+const DEFAULT_FILE_NAME = "Collaborative Code";
+const MAX_PROJECT_NODES = 200;
+const MAX_NODE_NAME = 100;
+const MAX_FILE_TEXT_BYTES = 100 * 1024;
+const MAX_PROJECT_TEXT_BYTES = 2 * 1024 * 1024;
+
+function createEmptyProject() {
+  const now = Date.now();
+  return {
+    nodes: new Map([
+      [DEFAULT_FILE_ID, { id: DEFAULT_FILE_ID, name: DEFAULT_FILE_NAME, type: "file", parentId: null, createdAt: now }],
+    ]),
+    files: new Map([[DEFAULT_FILE_ID, { text: "", rev: 0 }]]),
+    updatedAt: now,
+  };
+}
+
+function ensureDefaultFile(project) {
+  if (!project.nodes.has(DEFAULT_FILE_ID)) {
+    project.nodes.set(DEFAULT_FILE_ID, {
+      id: DEFAULT_FILE_ID,
+      name: DEFAULT_FILE_NAME,
+      type: "file",
+      parentId: null,
+      createdAt: Date.now(),
+    });
+  }
+  if (!project.files.has(DEFAULT_FILE_ID)) {
+    project.files.set(DEFAULT_FILE_ID, { text: "", rev: 0 });
+  }
+}
+
+function publicNode(node) {
+  return { id: node.id, name: node.name, type: node.type, parentId: node.parentId ?? null, createdAt: node.createdAt };
+}
+
+/** Snapshot payload for `project:state` (late joiners, reconnects, refresh). */
+function projectSnapshot(project) {
+  ensureDefaultFile(project);
+  const files = {};
+  for (const [id, entry] of project.files) {
+    files[id] = { text: typeof entry.text === "string" ? entry.text : "", rev: Number.isFinite(entry.rev) ? entry.rev : 0 };
+  }
+  return { nodes: [...project.nodes.values()].map(publicNode), files };
+}
+
+function projectTextBytes(project) {
+  let total = 0;
+  for (const entry of project.files.values()) {
+    try {
+      total += Buffer.byteLength(typeof entry.text === "string" ? entry.text : "", "utf8");
+    } catch {
+      // unmeasurable entry — ignore (validation rejects it on write)
+    }
+  }
+  return total;
+}
+
+/**
+ * Validate a client-proposed tree node against the authoritative project.
+ * Returns the clean node to commit. Throws with a user-facing message on
+ * any violation (duplicate names resolve deterministically: the first
+ * commit wins, later ones are rejected — never silently overwritten).
+ * Exported for unit tests.
+ */
+function validateProjectNode(input, project) {
+  if (!isPlainObject(input)) throw new Error("node must be an object");
+  const id = input.id;
+  if (!isIdString(id)) throw new Error("node id must be a 1-128 character string");
+  if (project.nodes.has(id)) throw new Error("node id already exists");
+  const name = typeof input.name === "string" ? input.name.trim() : "";
+  if (!name) throw new Error("Enter a name.");
+  if (name.length > MAX_NODE_NAME) throw new Error(`Keep names under ${MAX_NODE_NAME} characters.`);
+  if (/[\\/]/.test(name)) throw new Error("Names can't contain / or \\.");
+  if (name === "." || name === ".." || /^\.+$/.test(name)) throw new Error("That name is reserved.");
+  if (/[\0-\x1f\x7f]/.test(name)) throw new Error("Names can't contain control characters.");
+  if (input.type !== "file" && input.type !== "folder") throw new Error("type must be 'file' or 'folder'");
+  const parentId = input.parentId === undefined || input.parentId === null ? null : input.parentId;
+  if (parentId !== null) {
+    if (typeof parentId !== "string") throw new Error("parentId must be a node id or null");
+    const parent = project.nodes.get(parentId);
+    if (!parent || parent.type !== "folder") throw new Error("parent folder does not exist");
+  }
+  for (const sibling of project.nodes.values()) {
+    if ((sibling.parentId ?? null) === parentId && String(sibling.name).toLowerCase() === name.toLowerCase()) {
+      throw new Error("An item with this name already exists.");
+    }
+  }
+  if (project.nodes.size >= MAX_PROJECT_NODES) {
+    throw new Error(`room file limit reached (${MAX_PROJECT_NODES} items)`);
+  }
+  return { id, name, type: input.type, parentId, createdAt: Date.now() };
+}
+
+function validateProjectRename(input, project) {
+  if (!isPlainObject(input) || !isIdString(input.id)) throw new Error("node id must be a 1-128 character string");
+  if (input.id === DEFAULT_FILE_ID) throw new Error("The shared document cannot be renamed.");
+  const current = project.nodes.get(input.id);
+  if (!current) throw new Error("item not found");
+  const name = typeof input.name === "string" ? input.name.trim() : "";
+  if (!name) throw new Error("Enter a name.");
+  if (name.length > MAX_NODE_NAME) throw new Error(`Keep names under ${MAX_NODE_NAME} characters.`);
+  if (/[\\/]/.test(name)) throw new Error("Names can't contain / or \\");
+  if (name === "." || name === ".." || /^\.+$/.test(name)) throw new Error("That name is reserved.");
+  if (/[\0-\x1f\x7f]/.test(name)) throw new Error("Names can't contain control characters.");
+  for (const sibling of project.nodes.values()) {
+    if (sibling.id !== current.id && (sibling.parentId ?? null) === (current.parentId ?? null) && String(sibling.name).toLowerCase() === name.toLowerCase()) {
+      throw new Error("An item with this name already exists.");
+    }
+  }
+  return { ...current, name };
+}
+
+function projectDeleteIds(nodeId, project) {
+  if (nodeId === DEFAULT_FILE_ID) throw new Error("The shared document cannot be deleted.");
+  if (!project.nodes.has(nodeId)) throw new Error("item not found");
+  const deleted = [];
+  const visit = (id) => {
+    deleted.push(id);
+    for (const child of project.nodes.values()) {
+      if ((child.parentId ?? null) === id) visit(child.id);
+    }
+  };
+  visit(nodeId);
+  return deleted;
+}
+
 function commitListOf(data) {
   if (!isPlainObject(data)) return [];
   if (Array.isArray(data.shapes)) return data.shapes;
@@ -393,6 +535,53 @@ function createSocketServer(httpServer, options = {}) {
   });
   const roomPresence = new Map();
   const roomState = new Map(); // roomId -> { shapes: [], updatedAt }
+  // Authoritative shared projects: roomId -> { nodes, files, updatedAt }.
+  // Room-scoped by construction (keyed by roomId, relayed only within the
+  // room, snapshotted joiner-only). In-memory only — a restart drops them.
+  const roomProjects = new Map();
+
+  function freeProjectCapacity() {
+    if (roomProjects.size < MAX_ROOMS) return true;
+    for (const [id] of roomProjects) {
+      if (!roomHasLivePresence(id)) {
+        roomProjects.delete(id);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Return the authoritative project for a room, creating it (with the
+   * default Collaborative Code document) on first use. Idle rooms are
+   * evicted first when at capacity; a room with live presence is always
+   * served its project (per-room node/text caps still bound memory).
+   * When every one of the MAX_ROOMS slots holds a live room, creation
+   * fails loudly with a coded ROOM_CAPACITY_EXHAUSTED error instead of
+   * silently exceeding the documented bound. Live rooms are never evicted
+   * (freeProjectCapacity only drops zero-presence rooms, never the
+   * requested room itself).
+   */
+  function getRoomProject(roomId) {
+    let project = roomProjects.get(roomId);
+    if (!project) {
+      if (!freeProjectCapacity()) {
+        const error = new Error(
+          `room project capacity exhausted (${MAX_ROOMS} live rooms); try again later`
+        );
+        error.code = "ROOM_CAPACITY_EXHAUSTED";
+        throw error;
+      }
+      project = createEmptyProject();
+      // Recency refresh so eviction targets rooms nobody touches.
+      roomProjects.set(roomId, project);
+    } else {
+      roomProjects.delete(roomId);
+      roomProjects.set(roomId, project);
+    }
+    project.updatedAt = Date.now();
+    return project;
+  }
 
   function getRoomShapes(roomId) {
     return roomState.get(roomId)?.shapes ?? [];
@@ -461,6 +650,65 @@ function createSocketServer(httpServer, options = {}) {
     return next;
   }
 
+  /**
+   * Fold a `code:update` payload into the room project's per-file contents.
+   * Returns true when the caller should relay the op, false to drop it.
+   * Legacy-tolerant: non-object payloads (or objects without a text string)
+   * are relayed by the caller but never stored, so old clients keep working
+   * and can never poison a snapshot. Unknown fileIds are DROPPED (never
+   * relayed, never stored): only files in the authoritative tree may reach
+   * peers, so a client cannot inject content under an invented fileId.
+   * New-protocol envelopes (text + finite rev, optional fileId defaulting
+   * to the shared document) are stored unless strictly older than the
+   * stored revision. A stale rev is dropped outright - no snapshot change
+   * AND no relay - so a behind peer can never adopt it over the newer
+   * authoritative state. Same-rev collisions stay arrival-LWW (not a
+   * regression: the revision does not move backward). Over-cap writes
+   * throw (rejected loudly, never relayed unstored).
+   */
+  function commitCodeUpdate(roomId, data) {
+    if (!isPlainObject(data) || typeof data.text !== "string") return true;
+    const project = getRoomProject(roomId);
+    ensureDefaultFile(project);
+    const fileId = typeof data.fileId === "string" && data.fileId ? data.fileId : DEFAULT_FILE_ID;
+    const file = project.files.get(fileId);
+    if (!file) return false; // unknown file: drop (never relay, never store)
+    if (Buffer.byteLength(data.text, "utf8") > MAX_FILE_TEXT_BYTES) {
+      throw new Error(`file text exceeds the ${MAX_FILE_TEXT_BYTES}-byte cap`);
+    }
+    let currentTotal = 0;
+    try {
+      currentTotal = projectTextBytes(project);
+    } catch {
+      currentTotal = 0;
+    }
+    let prevBytes = 0;
+    try {
+      prevBytes = Buffer.byteLength(file.text, "utf8");
+    } catch {
+      prevBytes = 0;
+    }
+    let nextBytes = 0;
+    try {
+      nextBytes = Buffer.byteLength(data.text, "utf8");
+    } catch {
+      throw new Error("file text is not measurable");
+    }
+    if (currentTotal - prevBytes + nextBytes > MAX_PROJECT_TEXT_BYTES) {
+      throw new Error("room project storage limit reached");
+    }
+    if (
+      Number.isFinite(data.rev) &&
+      Number.isFinite(file.rev) &&
+      data.rev < file.rev
+    ) {
+      return false; // stale rev: keep the newer snapshot AND do not relay it
+    }
+    project.files.set(fileId, { text: data.text, rev: Number.isFinite(data.rev) ? data.rev : file.rev });
+    project.updatedAt = Date.now();
+    return true;
+  }
+
   function presenceFor(roomId) {
     return [...(roomPresence.get(roomId) || [])].map((entry) => ({ ...entry }));
   }
@@ -472,8 +720,29 @@ function createSocketServer(httpServer, options = {}) {
     });
   }
 
-  function sendError(socket, event, message, code = "INVALID_PAYLOAD") {
-    socket.emit("connection:error", { event, code, message });
+  function sendError(socket, event, message, code = "INVALID_PAYLOAD", extra = null) {
+    socket.emit("connection:error", { ...(isPlainObject(extra) ? extra : null), event, code, message });
+  }
+
+  // Membership diagnostics: the app-level tracker plus the adapter-level
+  // ground truth (socket.rooms always contains the socket's own id plus
+  // every room socket.join() added). Used by logs and by the
+  // definitive-matching check on project:create-node. Never throws.
+  function socketRoomDebug(socket) {
+    let rooms = [];
+    try {
+      rooms =
+        socket && socket.rooms && typeof socket.rooms.values === "function" ? [...socket.rooms.values()] : [];
+    } catch {
+      rooms = [];
+    }
+    let tracked = null;
+    try {
+      tracked = socket && socket.data ? (socket.data.roomId ?? null) : null;
+    } catch {
+      tracked = null;
+    }
+    return { tracked, rooms };
   }
 
   function removeFromPresence(socket) {
@@ -508,7 +777,14 @@ function createSocketServer(httpServer, options = {}) {
         const userId = normalizeOptionalString(payload.userId, "userId", 128);
         const displayName = normalizeOptionalString(payload.displayName, "displayName", 128);
 
-        if (socket.data.roomId === payload.roomId) {
+        // `socket.data.roomId` is an application-level hint. The adapter's
+        // socket.rooms set is authoritative, including after reconnects.
+        const alreadyMember =
+          socket.data.roomId === payload.roomId &&
+          socket.rooms &&
+          typeof socket.rooms.has === "function" &&
+          socket.rooms.has(payload.roomId);
+        if (alreadyMember) {
           socket.emit("room:joined", {
             roomId: payload.roomId,
             presence: presenceFor(payload.roomId),
@@ -519,6 +795,12 @@ function createSocketServer(httpServer, options = {}) {
             roomId: payload.roomId,
             shapes: getRoomShapes(payload.roomId),
           });
+          // Shared project: joiner-only snapshot so late joiners and
+          // reconnects converge on the authoritative tree + file contents.
+          socket.emit("project:state", {
+            roomId: payload.roomId,
+            data: projectSnapshot(getRoomProject(payload.roomId)),
+          });
           return;
         }
 
@@ -528,6 +810,9 @@ function createSocketServer(httpServer, options = {}) {
           socket.leave(prevRoom);
         }
         socket.join(payload.roomId);
+        if (!socket.rooms || !socket.rooms.has(payload.roomId)) {
+          throw new Error("room join did not complete");
+        }
         socket.data.roomId = payload.roomId;
         addToPresence(socket, payload.roomId, { userId, displayName });
         // Emission order matters (fixes presence-race flakes): the join's
@@ -548,8 +833,13 @@ function createSocketServer(httpServer, options = {}) {
           roomId: payload.roomId,
           shapes: getRoomShapes(payload.roomId),
         });
+        // Shared project snapshot (authoritative tree + per-file contents).
+        socket.emit("project:state", {
+          roomId: payload.roomId,
+          data: projectSnapshot(getRoomProject(payload.roomId)),
+        });
       } catch (error) {
-        sendError(socket, "room:join", error.message);
+        sendError(socket, "room:join", error.message, error.code ?? "INVALID_PAYLOAD");
       }
     });
 
@@ -568,6 +858,123 @@ function createSocketServer(httpServer, options = {}) {
         socket.emit("room:left", { roomId });
       } catch (error) {
         sendError(socket, "room:leave", error.message);
+      }
+    });
+
+    // Shared project tree: the server is the authority. A creation is
+    // validated, committed, then fanned out — ack to the creator (who opens
+    // the node on receipt) plus broadcast to peers (whose active editors are
+    // untouched). Rejections carry requestId so the creator's inline draft
+    // can show the reason; first commit wins on simultaneous same-name
+    // creates, the loser gets "already exists" — never a silent overwrite.
+    //
+    // Membership is NOT removed — it is grounded two ways (same contract as
+    // the stroke/live-collab channels): the adapter-level socket.rooms set
+    // is ground truth and the app-level tracker is re-synced on divergence.
+    // Sockets that never joined are still rejected. Genuinely early sends
+    // (before room:join is processed) are correctly rejected; the client
+    // gates creates on the room:joined ack so users never hit this.
+    socket.on("project:create-node", (payload) => {
+      const nodeInput = isPlainObject(payload) && isPlainObject(payload.data) ? payload.data.node : null;
+      try {
+        if (!isPlainObject(payload) || !isValidRoomId(payload.roomId)) {
+          throw new Error("payload must include a valid roomId");
+        }
+        let member = false;
+        try {
+          member =
+            socket.rooms && typeof socket.rooms.has === "function"
+              ? socket.rooms.has(payload.roomId)
+              : socket.data.roomId === payload.roomId;
+        } catch {
+          member = socket.data.roomId === payload.roomId;
+        }
+        if (!member) {
+          const dbg = socketRoomDebug(socket);
+          console.warn(
+            `[project] create-node rejected (not a member) socket=${socket.id} requested=${payload.roomId} tracked=${dbg.tracked} rooms=[${dbg.rooms.join(",")}]`
+          );
+          throw new Error("socket does not belong to this room");
+        }
+        if (socket.data.roomId !== payload.roomId) {
+          socket.data.roomId = payload.roomId;
+        }
+        if (!isPlainObject(payload.data) || !hasAcceptableSize(payload.data)) {
+          throw new Error("payload must include acceptable data");
+        }
+        const project = getRoomProject(payload.roomId);
+        const node = validateProjectNode(nodeInput, project);
+        project.nodes.set(node.id, node);
+        if (node.type === "file") project.files.set(node.id, { text: "", rev: 0 });
+        project.updatedAt = Date.now();
+        const out = { roomId: payload.roomId, data: { node: publicNode(node) }, socketId: socket.id };
+        socket.emit("project:node-created", out);
+        socket.to(payload.roomId).emit("project:node-created", out);
+      } catch (error) {
+        const requestId = isPlainObject(nodeInput) && typeof nodeInput.id === "string" ? nodeInput.id : null;
+        console.warn(`[project] create-node rejected room=${payload && payload.roomId} reason=${error.message}`);
+        sendError(socket, "project:create-node", error.message, error.code ?? "INVALID_PAYLOAD", { requestId });
+      }
+    });
+
+    socket.on("project:rename-node", (payload) => {
+      const input = isPlainObject(payload) && isPlainObject(payload.data) ? payload.data.node : null;
+      try {
+        if (!isPlainObject(payload) || !isValidRoomId(payload.roomId)) throw new Error("payload must include a valid roomId");
+        if (!socket.rooms.has(payload.roomId)) throw new Error("socket does not belong to this room");
+        if (!isPlainObject(payload.data) || !hasAcceptableSize(payload.data)) throw new Error("payload must include acceptable data");
+        const project = getRoomProject(payload.roomId);
+        const node = validateProjectRename(input, project);
+        project.nodes.set(node.id, node);
+        project.updatedAt = Date.now();
+        const out = { roomId: payload.roomId, data: { node: publicNode(node) }, socketId: socket.id };
+        socket.emit("project:node-renamed", out);
+        socket.to(payload.roomId).emit("project:node-renamed", out);
+      } catch (error) {
+        const requestId = isPlainObject(input) && typeof input.id === "string" ? input.id : null;
+        sendError(socket, "project:rename-node", error.message, error.code ?? "INVALID_PAYLOAD", { requestId });
+      }
+    });
+
+    socket.on("project:delete-node", (payload) => {
+      const nodeId = isPlainObject(payload) && isPlainObject(payload.data) ? payload.data.nodeId : null;
+      try {
+        if (!isPlainObject(payload) || !isValidRoomId(payload.roomId)) throw new Error("payload must include a valid roomId");
+        if (!socket.rooms.has(payload.roomId)) throw new Error("socket does not belong to this room");
+        if (!isPlainObject(payload.data) || !hasAcceptableSize(payload.data)) throw new Error("payload must include acceptable data");
+        const project = getRoomProject(payload.roomId);
+        const deletedIds = projectDeleteIds(nodeId, project);
+        for (const id of deletedIds) {
+          project.nodes.delete(id);
+          project.files.delete(id);
+        }
+        project.updatedAt = Date.now();
+        const out = { roomId: payload.roomId, data: { deletedIds }, socketId: socket.id };
+        socket.emit("project:nodes-deleted", out);
+        socket.to(payload.roomId).emit("project:nodes-deleted", out);
+      } catch (error) {
+        sendError(socket, "project:delete-node", error.message, error.code ?? "INVALID_PAYLOAD", {
+          requestId: typeof nodeId === "string" ? nodeId : null,
+        });
+      }
+    });
+
+    // On-demand authoritative snapshot (Explorer Refresh, panel remounts).
+    // Joiner-only, like the room:join delivery — never a room broadcast.
+    socket.on("project:state-request", (payload) => {
+      try {
+        if (!isPlainObject(payload) || !isValidRoomId(payload.roomId)) {
+          throw new Error("payload must include a valid roomId");
+        }
+        if (socket.data.roomId !== payload.roomId) {
+          throw new Error("socket does not belong to this room");
+        }
+        socket.emit("project:state", {
+          roomId: payload.roomId,
+          data: projectSnapshot(getRoomProject(payload.roomId)),
+        });
+      } catch (error) {
+        sendError(socket, "project:state-request", error.message, error.code ?? "INVALID_PAYLOAD");
       }
     });
 
@@ -592,6 +999,15 @@ function createSocketServer(httpServer, options = {}) {
           // below preserves ROOM_CAPACITY_EXHAUSTED).
           if (event === "canvas:update") {
             commitRoomMutation(socket.data.roomId, event, payload.data);
+          }
+          // Per-file code contents fold into the room project snapshot
+          // BEFORE relay (same store-before-relay contract as canvas: an
+          // over-cap write is rejected with connection:error instead of
+          // relayed-but-unstored). Unknown fileIds and stale revs are
+          // dropped outright (never relayed); legacy payloads pass through
+          // untouched.
+          if (event === "code:update") {
+            if (!commitCodeUpdate(socket.data.roomId, payload.data)) return;
           }
           socket.to(socket.data.roomId).emit(event, {
             roomId: socket.data.roomId,
@@ -757,7 +1173,27 @@ function createSocketServer(httpServer, options = {}) {
     });
   });
 
-  return { io, roomPresence, roomState, applyRoomMutation };
+  // Project capacity + lookup (exposed for regression tests).
+  return { io, roomPresence, roomState, applyRoomMutation, getRoomProject, freeProjectCapacity };
 }
 
-module.exports = { createSocketServer, isValidRoomId, applyRoomMutation, MAX_ROOMS, MAX_ROOM_SHAPES };
+module.exports = {
+  createSocketServer,
+  isValidRoomId,
+  applyRoomMutation,
+  MAX_ROOMS,
+  MAX_ROOM_SHAPES,
+  // Shared project surface (room-scoped file tree + per-file contents).
+  createEmptyProject,
+  ensureDefaultFile,
+  validateProjectNode,
+  validateProjectRename,
+  projectDeleteIds,
+  projectSnapshot,
+  DEFAULT_FILE_ID,
+  DEFAULT_FILE_NAME,
+  MAX_PROJECT_NODES,
+  MAX_NODE_NAME,
+  MAX_FILE_TEXT_BYTES,
+  MAX_PROJECT_TEXT_BYTES,
+};

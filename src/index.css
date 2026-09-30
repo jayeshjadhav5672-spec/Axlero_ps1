@@ -67,3 +67,18 @@ select {
     animation: landing-rise 600ms ease-out both;
   }
 }
+
+/* SyncSpace IDE (code editor panel): thin dark scrollbars for the tab
+   strip / explorer overflow so they stay subtle on #252526 surfaces.
+   Monaco renders its own scrollbars; this only affects plain divs. */
+.syncspace-ide ::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+.syncspace-ide ::-webkit-scrollbar-thumb {
+  background: #79797966;
+  border-radius: 4px;
+}
+.syncspace-ide ::-webkit-scrollbar-track {
+  background: transparent;
+}
