@@ -5,13 +5,18 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
 } from 'firebase/auth';
-import { auth } from './firebase.js';
+import { auth, isFirebaseConfigured } from './firebase.js';
+import { requireFirebaseAuth } from './firebaseConfig.js';
 
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: 'select_account' });
 
+function requireAuth() {
+  return requireFirebaseAuth(auth, isFirebaseConfigured);
+}
+
 export async function signInWithGoogle() {
-  const result = await signInWithPopup(auth, provider);
+  const result = await signInWithPopup(requireAuth(), provider);
   const idToken = await result.user.getIdToken();
   return {
     idToken,
@@ -22,7 +27,7 @@ export async function signInWithGoogle() {
 }
 
 export async function signUpWithEmail(email, password) {
-  const result = await createUserWithEmailAndPassword(auth, email, password);
+  const result = await createUserWithEmailAndPassword(requireAuth(), email, password);
   const idToken = await result.user.getIdToken();
   return {
     idToken,
@@ -33,7 +38,7 @@ export async function signUpWithEmail(email, password) {
 }
 
 export async function signInWithEmail(email, password) {
-  const result = await signInWithEmailAndPassword(auth, email, password);
+  const result = await signInWithEmailAndPassword(requireAuth(), email, password);
   const idToken = await result.user.getIdToken();
   return {
     idToken,
@@ -44,9 +49,9 @@ export async function signInWithEmail(email, password) {
 }
 
 export async function signOutFirebase() {
-  await signOut(auth);
+  await signOut(requireAuth());
 }
 
 export function onAuthStateChanged(callback) {
-  return auth.onAuthStateChanged(callback);
+  return requireAuth().onAuthStateChanged(callback);
 }
