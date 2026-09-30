@@ -1,8 +1,8 @@
 /**
- * socket.js - Integration Engineer (core integration)
+ * socket.js — Integration Engineer (core integration)
  *
  * Singleton socket.io client. Exactly one connection per page, shared by
- * every collaboration hook - hooks must never call io() themselves.
+ * every collaboration hook — hooks must never call io() themselves.
  *
  * URL resolution: VITE_SYNCSPACE_SERVER_URL when set (production),
  * otherwise http://localhost:3000 (local `npm run dev:server`).
@@ -32,7 +32,7 @@ export function getSocket() {
   return socket;
 }
 
-/** Test/dev escape hatch - the app itself never needs this. */
+/** Test/dev escape hatch — the app itself never needs this. */
 export function resetSocketForTests() {
   try {
     socket?.disconnect();

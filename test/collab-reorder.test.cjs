@@ -1,5 +1,5 @@
 /**
- * collab-reorder.test.cjs - reorder/undo-Redo sync over the real transport.
+ * collab-reorder.test.cjs — reorder/undo-Redo sync over the real transport.
  * A emits a full-array reorder op via canvas:update; B must receive and be
  * able to apply it, while B itself never rebroadcasts (loop-freedom is
  * structural: the receive path only ever calls setShapes).
@@ -69,7 +69,7 @@ test('A reorders → B receives → B does not rebroadcast; undo-shaped restore 
   assert.equal(applied.applied, true);
   assert.deepEqual(applied.shapes.map((s) => s.id), ['shape-2', 'shape-1']);
 
-  // No rebroadcast loop: B applies silently - A must hear nothing back.
+  // No rebroadcast loop: B applies silently — A must hear nothing back.
   const echoBack = waitForEvent(a, 'canvas:update');
   await assert.rejects(
     Promise.race([

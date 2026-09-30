@@ -1,7 +1,7 @@
 /**
- * room.js - Integration Engineer (core integration)
+ * room.js — Integration Engineer (core integration)
  *
- * Room + identity helpers. No React, no networking - safe to import from
+ * Room + identity helpers. No React, no networking — safe to import from
  * tests. The ROOM_PATTERN intentionally mirrors the backend
  * (server/socket.cjs) so invalid ids fail fast client-side with the same rule.
  */
@@ -32,7 +32,7 @@ export function getRoomIdFromUrl() {
     const room = params.get('room');
     if (isValidRoomId(room)) return room;
   } catch {
-    // non-browser (tests) - fall through to default
+    // non-browser (tests) — fall through to default
   }
   return DEFAULT_ROOM_ID;
 }
@@ -88,7 +88,7 @@ const GUEST_TAG_PATTERN = /^guest[-_ ]?([A-Za-z0-9]{4})$/i;
  * established convention (first letters, up to 2: "Avantee Sarve" →
  * "AS", "Avantee" → "A"); auto guest tags resolve to their unique
  * suffix ("Guest-ABCD" → "A"); anything else falls back to '?'.
- * Pure display helper - never invents identity, never touches ids.
+ * Pure display helper — never invents identity, never touches ids.
  */
 export function initialsForDisplayName(name) {
   if (typeof name !== 'string') return '?';
@@ -142,7 +142,7 @@ export function generateRoomId() {
 }
 
 /**
- * Browser-local recent rooms (Dashboard display only - NOT backend
+ * Browser-local recent rooms (Dashboard display only — NOT backend
  * persistence, NOT shared across devices). Stored as a JSON string array
  * under RECENT_ROOMS_STORAGE_KEY, most-recent first, capped at
  * RECENT_ROOMS_LIMIT. All access is try/catch guarded so non-browser
@@ -183,7 +183,7 @@ export function recordRecentRoom(roomId) {
   try {
     localStorage.setItem(RECENT_ROOMS_STORAGE_KEY, JSON.stringify(next));
   } catch {
-    // storage unavailable (private mode/tests) - caller still gets the list
+    // storage unavailable (private mode/tests) — caller still gets the list
   }
   return next;
 }
@@ -251,7 +251,7 @@ export function markEnteredApp() {
   try {
     sessionStorage.setItem(ENTERED_APP_STORAGE_KEY, '1');
   } catch {
-    // storage unavailable - view state is unaffected
+    // storage unavailable — view state is unaffected
   }
 }
 

@@ -9,7 +9,7 @@ const ACCENT = '#6965db';
 const CLICK_SLACK_PX = 4; // screen px; a press+release inside this radius = click (no bend committed)
 
 /**
- * BendHandles - Sayon (Whiteboard / Konva.js Engineer)
+ * BendHandles — Sayon (Whiteboard / Konva.js Engineer)
  *
  * Single draggable midpoint anchor for bending the selected arrow OR line.
  * Renders whenever an arrow/line shape is selected, regardless of the

@@ -1,5 +1,5 @@
 /**
- * routes.cjs - authentication HTTP API (mounted at /api/auth).
+ * routes.cjs — authentication HTTP API (mounted at /api/auth).
  *
  *   POST /api/auth/signup  { email, password, displayName } -> 201 { user, token }
  *   POST /api/auth/login   { email, password }              -> 200 { user, token }
@@ -7,7 +7,7 @@
  *   GET  /api/auth/me                                           -> 200 { user } (Bearer JWT)
  *
  * Only safe user objects ({ id, email, displayName, createdAt,
- * updatedAt }) ever leave the server - passwordHash is never returned.
+ * updatedAt }) ever leave the server — passwordHash is never returned.
  * Login failures use one generic message so callers cannot tell an
  * unknown email from a wrong password.
  */
@@ -27,7 +27,7 @@ function createAuthRouter({ getUserStore, signTokenFn, requireAuth, verifyFireba
   const sign = signTokenFn || signToken;
   const verifyFirebase = verifyFirebaseFn || verifyFirebaseIdToken;
   const auth = requireAuth || createAuthMiddleware({ getUserStore: resolveStore });
-  // Server-side stage diagnostics. Logs contain stage tags only - never
+  // Server-side stage diagnostics. Logs contain stage tags only — never
   // tokens, passwords, URIs, keys, or credentials. Injectable for tests.
   const warn = typeof logWarn === "function" ? logWarn : (message) => console.warn(message);
   const router = express.Router();
@@ -39,7 +39,7 @@ function createAuthRouter({ getUserStore, signTokenFn, requireAuth, verifyFireba
   }
 
   // getUserStore() throws while the initial connection is still in
-  // flight - await it once instead of failing cold-start requests.
+  // flight — await it once instead of failing cold-start requests.
   async function readyStore() {
     try {
       return resolveStore();

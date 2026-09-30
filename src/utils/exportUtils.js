@@ -1,17 +1,17 @@
 /**
- * exportUtils.js - bulletproof direct canvas export (PNG / JPEG).
+ * exportUtils.js — bulletproof direct canvas export (PNG / JPEG).
  *
  * `exportCanvasDirect` is the PRIMARY raster export: it captures the
  * whiteboard straight from the DOM (` .konvajs-content canvas`), so it
- * needs zero props and zero Konva refs - a dead `stageRef` chain or a
+ * needs zero props and zero Konva refs — a dead `stageRef` chain or a
  * swallowed click handler can no longer kill a download. The toolbar
  * PNG/JPEG paths call it via `handleExport` in
  * `src/components/canvas/index.jsx`.
  *
  * - Solid white background is baked on an offscreen canvas (transparent
  *   pixels otherwise render as solid black in viewers without alpha
- *   support; Konva's `toDataURL` silently IGNORES any `fill` option -
- *   verified in `konva/lib/Node.js` `_toKonvaCanvas` - so white is
+ *   support; Konva's `toDataURL` silently IGNORES any `fill` option —
+ *   verified in `konva/lib/Node.js` `_toKonvaCanvas` — so white is
  *   composited explicitly here instead).
  * - Transformer handles are hidden synchronously (`stage.draw()` redraws
  *   immediately, unlike the async `batchDraw()`) before the bitmap is
@@ -209,7 +209,7 @@ export const exportCanvas = async (stageRef, format = 'png', fileName = 'syncspa
 
     if (stage) {
       // Option A: capture the Konva stage, then composite over solid white.
-      // NOTE: `fill` is NOT passed to `toDataURL` - Konva ignores it, so a
+      // NOTE: `fill` is NOT passed to `toDataURL` — Konva ignores it, so a
       // transparent capture would export with a black background in viewers
       // that render alpha as dark fill. White is painted explicitly below.
       const transparent = stage.toDataURL({

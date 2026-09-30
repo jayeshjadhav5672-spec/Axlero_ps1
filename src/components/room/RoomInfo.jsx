@@ -1,13 +1,13 @@
 import React from 'react';
 
 /**
- * RoomInfo - Avantee (React UI / Frontend Engineer)
+ * RoomInfo — Avantee (React UI / Frontend Engineer)
  *
  * Session/room display. Consumes room data via props and exposes
  * leave/share as callbacks for Vaishnavi's backend + App wiring.
  *
  * Day 1: Leave Room is a clearly visible labeled action sized for the
- * enlarged navbar. It still calls the existing onLeave callback -
+ * enlarged navbar. It still calls the existing onLeave callback —
  * no new room-leave system.
  */
 export default function RoomInfo({ roomId = 'demo-room', roomName, onLeave, onShare, className = '' }) {

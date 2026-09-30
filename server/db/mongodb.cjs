@@ -1,6 +1,6 @@
 /**
- * mongodb.cjs - MongoDB Atlas connection infrastructure (no schemas,
- * no auth, no persistence yet - connection only).
+ * mongodb.cjs — MongoDB Atlas connection infrastructure (no schemas,
+ * no auth, no persistence yet — connection only).
  *
  * Single shared MongoClient for the process: call `connectMongo()` once
  * at backend startup, then use `getDb()` anywhere. Never creates a
@@ -81,7 +81,7 @@ function redactCredentials(text) {
   // user:password@ token, not just the password).
   out = out.replace(/(^|[\s"'`(])[A-Za-z0-9_.%+-]+:[^@\s"'`\\]+@/g, "$1<redacted>@");
   // Credential-bearing query/connection parameters, whether &-joined,
-  // whitespace-separated, or at the start of the message - and whether
+  // whitespace-separated, or at the start of the message — and whether
   // or not spaces surround the `=` sign.
   out = out.replace(
     /(^|[\s?&;])(password|passwd|pwd|secret|token|authMechanismProperties)\s*=\s*[^&\s"'`\\]*/gi,

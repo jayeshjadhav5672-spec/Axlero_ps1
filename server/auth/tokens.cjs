@@ -1,5 +1,5 @@
 /**
- * tokens.js - JWT issuance/verification (no HTTP, no DB).
+ * tokens.js — JWT issuance/verification (no HTTP, no DB).
  *
  * Payload is minimal identity only: { sub, email, displayName }.
  * Never place passwords, hashes, database credentials, or anything
@@ -36,7 +36,7 @@ function signToken(user) {
 
 /**
  * Verify a token. Returns the decoded payload ({ sub, email,
- * displayName, iat, exp }) or throws a generic error - raw
+ * displayName, iat, exp }) or throws a generic error — raw
  * jsonwebtoken messages (expired/malformed/signature) are never
  * propagated so callers cannot leak internals or distinguish cases
  * beyond what the HTTP layer already declares.

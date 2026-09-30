@@ -1,5 +1,5 @@
 /**
- * middleware.js - JWT authentication middleware for Express.
+ * middleware.js — JWT authentication middleware for Express.
  *
  * Flow: Authorization: Bearer <JWT> -> extract -> verify signature +
  * expiry -> load user from MongoDB -> attach req.user -> next().
@@ -48,7 +48,7 @@ function createAuthMiddleware({ getUserStore } = {}) {
       try {
         store = resolveStore();
       } catch {
-        // Cold start: the initial connection may still be in flight -
+        // Cold start: the initial connection may still be in flight —
         // await it once instead of failing the request.
         try {
           const { connectMongo } = require("../db/mongodb.cjs");

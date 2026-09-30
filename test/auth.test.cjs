@@ -1,5 +1,5 @@
 /**
- * auth.test.cjs - authentication foundation tests (no database, no network).
+ * auth.test.cjs — authentication foundation tests (no database, no network).
  * Uses an in-memory fake user store behind the real store factory shape,
  * plus live HTTP tests against an express app wiring the real router.
  * JWT uses a throwaway test secret confined to this process.

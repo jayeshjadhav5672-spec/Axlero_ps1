@@ -1,7 +1,7 @@
 import { getShapeBounds, serializeShapes } from './shapes.js';
 
 /**
- * exportHub.js - Sayon (Week 2: Universal Export Hub)
+ * exportHub.js — Sayon (Week 2: Universal Export Hub)
  *
  * Canvas export into JSON, PNG, JPEG, AVIF, SVG, and PDF.
  * Pure helpers + thin Konva-stage capture. No Socket.io / Yjs deps.
@@ -48,7 +48,7 @@ function downloadText(text, filename, mime = 'application/json') {
 
 /**
  * Resolve whatever the caller passed (raw Konva Stage, React ref, or
- * nothing) into an exportable source. Never throws - returns
+ * nothing) into an exportable source. Never throws — returns
  * `{ stage: null, domCanvas: null }` when nothing is exportable, so
  * callers can raise a readable error instead of crashing on
  * `undefined.toDataURL`.
@@ -62,7 +62,7 @@ export function resolveStageOrCanvas(target) {
     if (window.Konva && Array.isArray(window.Konva.stages) && window.Konva.stages.length > 0) {
       stage = window.Konva.stages[0];
     }
-    // ESM-bundled Konva never populates window.Konva - CanvasStage
+    // ESM-bundled Konva never populates window.Konva — CanvasStage
     // publishes its live stage to this registry on mount.
     if (
       (!stage || typeof stage.toDataURL !== 'function') &&
@@ -111,7 +111,7 @@ export function resolveStageOrCanvas(target) {
 }
 
 /**
- * Deprecated alias - use `exportCanvas` / `exportCanvasDirect` from
+ * Deprecated alias — use `exportCanvas` / `exportCanvasDirect` from
  * `src/utils/exportUtils.js`. Kept so older callers keep working.
  */
 export const exportCanvas = async (stageRef, format = 'png', fileName = 'syncspace-board') => {
@@ -129,7 +129,7 @@ export function exportBounds(shapes, padding = 32) {
   for (const s of shapes ?? []) {
     const b = getShapeBounds(s);
     if (!b) continue;
-    // Frames are layout guides, not content - exclude them from the
+    // Frames are layout guides, not content — exclude them from the
     // exported bounds so empty frames don't inflate the document.
     if (s?.type === 'frame') continue;
     if (!Number.isFinite(b.x) || !Number.isFinite(b.y)) continue;
@@ -185,7 +185,7 @@ function stageDataURL(stage, { mimeType, pixelRatio = 2, bounds } = {}) {
     url = stage.toDataURL(opts);
   } catch (err) {
     // Tainted canvas (CORS-blocked image pixels) makes Konva throw a
-    // security DOMException here - surface it readably so the shell toast
+    // security DOMException here — surface it readably so the shell toast
     // can tell the user what happened instead of failing silently.
     throw new Error(
       'Export failed: canvas is tainted by a CORS-blocked image. Re-insert images via file picker, paste, or drag & drop.',
@@ -294,7 +294,7 @@ function assertExportable(resolved) {
 
 /**
  * PNG: white-composited, auto-cropped capture from a React ref, a raw
- * Konva Stage, the stage registries, or the DOM canvas - in that order.
+ * Konva Stage, the stage registries, or the DOM canvas — in that order.
  * Content bounds come from `exportBounds(shapes)` with a 32px padding
  * margin and are passed into
  * `stage.toDataURL({ x, y, width, height, pixelRatio: 2 })`.
@@ -335,7 +335,7 @@ export async function exportJPEG(stageOrRef, filename = 'syncspace-board.jpg', s
  */
 export async function exportSelectedPNG(stageOrRef, selectedShapes, filename = 'syncspace-board-selection.png') {
   const bounds = getSelectionBounds(selectedShapes, 20);
-  if (!bounds) throw new Error('No shape selected - select shapes to export, or export the full board.');
+  if (!bounds) throw new Error('No shape selected — select shapes to export, or export the full board.');
   const resolved = assertExportable(resolveStageOrCanvas(stageOrRef));
   const url = await whitePngDataURL(resolved, 2, bounds);
   downloadDataUrl(url, filename, 'image/png');
@@ -347,7 +347,7 @@ export async function exportSelectedPNG(stageOrRef, selectedShapes, filename = '
  */
 export async function exportSelectedJPEG(stageOrRef, selectedShapes, filename = 'syncspace-board-selection.jpg') {
   const bounds = getSelectionBounds(selectedShapes, 20);
-  if (!bounds) throw new Error('No shape selected - select shapes to export, or export the full board.');
+  if (!bounds) throw new Error('No shape selected — select shapes to export, or export the full board.');
   const resolved = assertExportable(resolveStageOrCanvas(stageOrRef));
   const whitePng = await whitePngDataURL(resolved, 2, bounds);
   const url = await flattenOverBackground(whitePng, '#ffffff', 'image/jpeg', 0.92);
@@ -367,7 +367,7 @@ export async function exportAVIF(stageOrRef, filename = 'syncspace-board.avif', 
   if (resolved.stage) {
     try {
       const url = stageDataURL(resolved.stage, { mimeType: 'image/avif', pixelRatio: 2, bounds });
-      // Chrome returns a PNG data URL silently when AVIF encode fails -
+      // Chrome returns a PNG data URL silently when AVIF encode fails —
       // verify the prefix before trusting the extension.
       if (typeof url === 'string' && url.startsWith('data:image/avif')) {
         downloadDataUrl(url, filename, 'image/avif');
@@ -512,7 +512,7 @@ export async function exportPDF(stageOrRef, shapes, filename = 'syncspace-board.
     const mod = await import('jspdf');
     jsPDFCtor = mod.jsPDF ?? mod.default?.jsPDF ?? mod.default;
   } catch {
-    throw new Error('PDF export needs the `jspdf` package - run `npm i jspdf`.');
+    throw new Error('PDF export needs the `jspdf` package — run `npm i jspdf`.');
   }
   if (typeof jsPDFCtor !== 'function') throw new Error('jspdf module did not expose jsPDF.');
   const resolved = assertExportable(resolveStageOrCanvas(stageOrRef));
@@ -527,7 +527,7 @@ export async function exportPDF(stageOrRef, shapes, filename = 'syncspace-board.
     ) ?? exportBounds(clean, 32);
     // Auto-cropped capture: bounds flow directly into
     // stage.toDataURL({ x, y, width, height, pixelRatio: 2 }) via
-    // whitePngDataURL - no full-viewport capture + manual crop.
+    // whitePngDataURL — no full-viewport capture + manual crop.
     png = await whitePngDataURL(resolved, 2, bounds);
     pageW = bounds.width;
     pageH = bounds.height;

@@ -1,5 +1,5 @@
 /**
- * useCollaborativeProject - shared room project (tree + per-file contents).
+ * useCollaborativeProject — shared room project (tree + per-file contents).
  *
  * Generalizes useCollaborativeCode's single-document LWW transport to one
  * collaborative document per fileId:
@@ -10,7 +10,7 @@
  *   `code:update` now carries fileId; legacy ops without fileId land on the
  *   shared document, so old clients keep interoperating.
  *
- * Local-only state (never broadcast): nothing in this hook - active file,
+ * Local-only state (never broadcast): nothing in this hook — active file,
  * open tabs, cursor, and viewport stay in the panel. This hook owns exactly
  * the SHARED state: nodes, per-file texts, and create-request errors.
  *
@@ -21,7 +21,7 @@
  * Join gating: `joined` must be the server's room:joined confirmation for
  * this roomId (see useRoomConnection.joinedRoom). Emits sent before the
  * server ran socket.join(roomId) are correctly rejected with "socket does
- * not belong to this room" - so createNode refuses loudly while unjoined,
+ * not belong to this room" — so createNode refuses loudly while unjoined,
  * and content edits stay local-only until joined (converging through the
  * snapshot re-emit once the join completes). Local state always updates;
  * only the network send is gated, so no keystrokes are ever lost.
@@ -35,7 +35,7 @@ import { sharedFileNode } from '../components/workspace/fileTree.js';
 // How long a create request waits for the server ack/rejection before the
 // hook reports a timeout. Without this, talking to a stale server (one
 // whose socket.cjs predates the project protocol and silently ignores the
-// event) looks exactly like "nothing happens" - the failure that motivated
+// event) looks exactly like "nothing happens" — the failure that motivated
 // this guard. A late ack still applies normally after a timeout.
 export const CREATE_ACK_TIMEOUT_MS = 8000;
 
@@ -48,8 +48,11 @@ export default function useCollaborativeProject({ socket, roomId, enabled = true
   // timers only feed setCreateError, never render output.
   const pendingTimers = useRef(new Map());
   const operationTimers = useRef(new Map());
-  // Per-file { text, rev } - the Lamport clock behind LWW. Ref (not state)
-  // so high-frequency typing never re-renders beyond the text setState.
+  // Per-file { text, rev }: sender-side counters adopted when strictly
+  // newer (arrival-order LWW, NOT a Lamport clock — concurrent same-rev
+  // writes are dropped on both sides; see docs/architecture.md). Ref
+  // (not state) so high-frequency typing never re-renders beyond the text
+  // setState.
   const filesRef = useRef(new Map());
   const roomRef = useRef(roomId);
   roomRef.current = roomId;
@@ -69,7 +72,7 @@ export default function useCollaborativeProject({ socket, roomId, enabled = true
       if (timer) clearTimeout(timer);
       pendingTimers.current.delete(requestId);
     } catch {
-      // timer bookkeeping - never throw
+      // timer bookkeeping — never throw
     }
   }, []);
 
@@ -107,7 +110,7 @@ export default function useCollaborativeProject({ socket, roomId, enabled = true
         }, CREATE_ACK_TIMEOUT_MS),
       );
     } catch {
-      // timer bookkeeping - never throw
+      // timer bookkeeping — never throw
     }
   }, []);
 
@@ -119,7 +122,7 @@ export default function useCollaborativeProject({ socket, roomId, enabled = true
         for (const timer of operationTimers.current.values()) clearTimeout(timer);
         operationTimers.current.clear();
       } catch {
-        // unmount teardown - never throw
+        // unmount teardown — never throw
       }
     },
     [],
@@ -143,7 +146,7 @@ export default function useCollaborativeProject({ socket, roomId, enabled = true
           data: { fileId: id, text: value, rev: next.rev, actorId: socket.id },
         });
       } catch {
-        // emit path - local state is already updated, never throw
+        // emit path — local state is already updated, never throw
       }
     },
     [socket],
@@ -155,11 +158,11 @@ export default function useCollaborativeProject({ socket, roomId, enabled = true
       const node = { id, name, type, parentId: parentId ?? null };
       try {
         if (!socket || !socket.connected) {
-          setCreateError({ requestId: id ?? null, message: 'You are offline - reconnect to create shared files.' });
+          setCreateError({ requestId: id ?? null, message: 'You are offline — reconnect to create shared files.' });
           return;
         }
         if (!joinedRef.current) {
-          setCreateError({ requestId: id ?? null, message: 'Still joining the room - wait for the connection, then try again.' });
+          setCreateError({ requestId: id ?? null, message: 'Still joining the room — wait for the connection, then try again.' });
           return;
         }
         socket.emit('project:create-node', { roomId: roomRef.current, data: { node } });
@@ -177,7 +180,7 @@ export default function useCollaborativeProject({ socket, roomId, enabled = true
       if (!socket || !socket.connected) return;
       socket.emit('project:state-request', { roomId: roomRef.current });
     } catch {
-      // refresh hint - never throw
+      // refresh hint — never throw
     }
   }, [socket]);
 
@@ -227,7 +230,7 @@ export default function useCollaborativeProject({ socket, roomId, enabled = true
               });
             }
           } catch {
-            // re-emit path - never throw
+            // re-emit path — never throw
           }
         }
       }

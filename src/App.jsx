@@ -1,5 +1,5 @@
 /**
- * App - Integration Engineer (core integration composition)
+ * App — Integration Engineer (core integration composition)
  *
  * Wires the existing modules without modifying them:
  * - Avantee: AppLayout / Workspace / panels (rendered as-is)
@@ -69,7 +69,7 @@ export default function App() {
   // Day 3 full Dashboard: the home/start screen. Shown by default when the
   // URL carries no explicit `?room=`, and entered later via "Go to
   // Dashboard" or the 10s left-room countdown. No router, no
-  // room-lifecycle changes - `?room=` stays intact so Rejoin / Return to
+  // room-lifecycle changes — `?room=` stays intact so Rejoin / Return to
   // Workspace returns to the same workspace.
   const [initialPresence] = useState(() => {
     try {
@@ -88,7 +88,7 @@ export default function App() {
     () => shouldShowLanding(initialPresence.hasRoom, hasEnteredApp()),
   );
   // Frontend-only auth views extend the existing useState-based view
-  // switching - no router. One of null | 'login' | 'signup' | 'profile'.
+  // switching — no router. One of null | 'login' | 'signup' | 'profile'.
   const [authView, setAuthView] = useState(null);
 
   // Re-validate a restored session once per load: an expired or revoked
@@ -161,14 +161,14 @@ export default function App() {
     if (status === 'disconnected')
       return {
         tone: 'amber',
-        text: 'Realtime server unreachable - whiteboard and editor work locally. Start it with `npm run dev:server`, then Retry.',
+        text: 'Realtime server unreachable — whiteboard and editor work locally. Start it with `npm run dev:server`, then Retry.',
         showRetry: true,
       };
     if (status === 'reconnecting') return { tone: 'amber', text: 'Reconnecting to the room…', showRetry: false };
     return null;
   }, [error, status, left, dashboardView]);
 
-  // Browser-local recent list (display only - not backend persistence).
+  // Browser-local recent list (display only — not backend persistence).
   // Recorded when the workspace is visible so the Dashboard can offer it.
   useEffect(() => {
     if (!dashboardView && !left && isValidRoomId(roomId)) recordRecentRoom(roomId);
@@ -189,7 +189,7 @@ export default function App() {
       const next = inDashboard ? urlForDashboardView(current) : urlForWorkspaceView(current, id);
       if (next !== current) window.history.replaceState(null, '', next);
     } catch {
-      // non-browser / restricted context - view state is unaffected
+      // non-browser / restricted context — view state is unaffected
     }
   };
 

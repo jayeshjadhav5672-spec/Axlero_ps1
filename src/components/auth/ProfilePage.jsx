@@ -1,7 +1,7 @@
 import React from 'react';
 
 /**
- * ProfilePage - account screen for the signed-in user.
+ * ProfilePage — account screen for the signed-in user.
  *
  * Shows Name and Email for the current session user plus sign-out.
  * (Username editing is intentionally out of scope for the auth
@@ -72,12 +72,12 @@ export default function ProfilePage({ user, onLogout, onBack, onLogin, onSignup 
                 <div>
                   <dt className="text-sm font-medium text-[#57534E]">Name</dt>
                   <dd className="mt-1 truncate text-base font-semibold text-[#111111]">
-                    {user.displayName || user.name || '-'}
+                    {user.displayName || user.name || '—'}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-sm font-medium text-[#57534E]">Email</dt>
-                  <dd className="mt-1 truncate text-base text-[#111111]">{user.email || '-'}</dd>
+                  <dd className="mt-1 truncate text-base text-[#111111]">{user.email || '—'}</dd>
                 </div>
               </dl>
             </section>

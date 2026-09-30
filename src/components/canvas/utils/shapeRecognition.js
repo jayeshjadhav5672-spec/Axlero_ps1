@@ -1,11 +1,11 @@
 import { createShapeId, isFiniteNum } from './shapes.js';
 
 /**
- * shapeRecognition.js - Sayon (Week 2: "Draw to Shape" / Auto-straighten)
+ * shapeRecognition.js — Sayon (Week 2: "Draw to Shape" / Auto-straighten)
  *
  * Analyzes a finished freehand stroke (flat absolute world points) and,
  * when confident, returns a clean replacement shape descriptor
- * ({ type, ...geometry } - caller attaches id/style). Returns null when
+ * ({ type, ...geometry } — caller attaches id/style). Returns null when
  * the stroke matches nothing (caller keeps the raw freehand stroke).
  *
  * Detectors (tried in order: line -> rectangle -> circle):

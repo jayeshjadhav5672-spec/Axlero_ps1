@@ -4,9 +4,9 @@ import { signUpWithEmail } from '../../lib/firebaseAuth';
 import { firebaseLoginRequest } from '../../lib/auth';
 
 /**
- * SignupPage - account creation form backed by the real auth API.
+ * SignupPage — account creation form backed by the real auth API.
  *
- * Fields: Name, Email, Password - exactly. Client-side validation
+ * Fields: Name, Email, Password — exactly. Client-side validation
  * first, then POST /api/auth/signup; on success the session
  * ({ user, token }) is handed to `onSuccess`.
  *

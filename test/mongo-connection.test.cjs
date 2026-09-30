@@ -1,5 +1,5 @@
 /**
- * mongo-connection.test.cjs - MongoDB connection infrastructure tests.
+ * mongo-connection.test.cjs — MongoDB connection infrastructure tests.
  * No live Atlas credentials required: verifies the missing-variable
  * failure path, concurrent/sequential failure reset (shared in-flight
  * attempt settles for all callers; failures never wedge later calls),
@@ -63,7 +63,7 @@ test("sanitizedError redacts credential-bearing URIs, userinfo, and secret param
     assert.ok(!out.includes("cluster0.example.net"), `URI host leaked: ${out}`);
     assert.ok(!out.includes("docdb.local"), `URI host leaked: ${out}`);
   }
-  // Multiline truncation drops later lines entirely - nothing to redact,
+  // Multiline truncation drops later lines entirely — nothing to redact,
   // and the leaked line must not survive.
   const multi = String(sanitizedError(new Error(`first line ok\nsecond line leaks ${fakeAwsUri}`)).message);
   assert.equal(multi, "MongoDB connection failed: first line ok");

@@ -1,19 +1,20 @@
 /**
- * fileTree.js - pure helpers for the frontend-only virtual Explorer tree.
+ * fileTree.js — pure helpers for the frontend-only virtual Explorer tree.
  *
- * ARCHITECTURE NOTE (do not remove): the Explorer file/folder tree is
- * frontend-only React state (persisted to localStorage when available).
- * The repository has NO backend filesystem and NO multi-document
- * collaboration architecture. Only the special "Collaborative Code"
- * document (SHARED_FILE_ID) uses the existing `useCollaborativeCode`
- * transport; every other virtual file is local to this browser session
- * and is never sent over Socket.io.
+ * ARCHITECTURE NOTE (do not remove): the Explorer tree is
+ * server-authoritative and room-scoped (see server/socket.cjs roomProjects
+ * and docs/architecture.md). Browsers hold a replica: creates, renames,
+ * and deletes go through server-validated `project:*` requests, per-file
+ * contents sync over `code:update`, and snapshots arrive on join and
+ * reconnect. Local-only UI state (active file, open tabs, expansion,
+ * search) is never broadcast; only tree mutations and file contents
+ * travel over Socket.io.
  *
  * Node shape:
  *   { id, name, type: 'file' | 'folder', parentId: string | null,
  *     content: string (files), shared?: true, updatedAt: number }
  *
- * No React, no DOM here - imported by CodeEditorPanel and by node --test.
+ * No React, no DOM here — imported by CodeEditorPanel and by node --test.
  */
 
 export const SHARED_FILE_ID = 'shared-collaborative-code';
@@ -57,7 +58,7 @@ export function validateItemName(rawName) {
     return { ok: false, error: `Keep names under ${MAX_NAME_LENGTH} characters.` };
   }
   if (/[\\/]/.test(name)) {
-    return { ok: false, error: "Names can't contain / or \\ - create hierarchy with New File / New Folder." };
+    return { ok: false, error: "Names can't contain / or \\ — create hierarchy with New File / New Folder." };
   }
   if (name === '.' || name === '..' || /^\.+$/.test(name)) {
     return { ok: false, error: 'That name is reserved.' };
@@ -83,7 +84,7 @@ function nodeRank(node) {
   return 2;
 }
 
-/** Shared doc first, then folders, then files - alphabetical within each group. */
+/** Shared doc first, then folders, then files — alphabetical within each group. */
 export function sortTreeNodes(nodes) {
   return [...(nodes ?? [])].sort(
     (a, b) => nodeRank(a) - nodeRank(b) || String(a?.name ?? '').localeCompare(String(b?.name ?? '')),
@@ -180,7 +181,7 @@ function isPersistableNode(n) {
 }
 
 /**
- * Persist virtual nodes only (never the shared doc - its content belongs
+ * Persist virtual nodes only (never the shared doc — its content belongs
  * to the collaboration transport). `storage` is injected so tests can pass
  * a stub; the panel passes localStorage. Never throws.
  */

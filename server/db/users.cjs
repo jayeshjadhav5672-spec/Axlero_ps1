@@ -1,5 +1,5 @@
 /**
- * users.cjs - minimal user store for authentication (no ODM).
+ * users.cjs — minimal user store for authentication (no ODM).
  *
  * Collection: `users`, documents:
  *   Firebase-authenticated users: { _id, firebaseUid, email, displayName, createdAt, updatedAt }
@@ -9,9 +9,9 @@
  * - Email is normalized (trim + lowercase) everywhere, enforced unique
  *   via a MongoDB unique index AND a duplicate-key guard.
  * - `firebaseUid` has its own unique SPARSE index; duplicate firebaseUids and
- *   duplicate emails are rejected - existing password accounts are NEVER
+ *   duplicate emails are rejected — existing password accounts are NEVER
  *   silently merged with a Firebase account (see createFirebaseUser).
- * - `toSafeUser` strips `passwordHash` - the only shape ever returned
+ * - `toSafeUser` strips `passwordHash` — the only shape ever returned
  *   to HTTP clients.
  * - `createUserStore(collection)` accepts any collection-like object so
  *   tests can inject an in-memory fake; `getUserStore()` wires the real
@@ -175,9 +175,9 @@ function createUserStore(collection) {
 
   /**
    * Create a Firebase-backed account. Firebase is the source of truth for
-   * passwords - no passwordHash is stored. Never merges: an existing email
+   * passwords — no passwordHash is stored. Never merges: an existing email
    * owned by a password account (or a different firebaseUid) yields
-   * DUPLICATE_EMAIL instead of linking - account linking is explicitly out of scope.
+   * DUPLICATE_EMAIL instead of linking — account linking is explicitly out of scope.
    */
   async function createFirebaseUser({ firebaseUid, email, displayName }) {
     const cleanUid = validFirebaseUid(firebaseUid);
@@ -203,7 +203,7 @@ function createUserStore(collection) {
     }
     if (await collection.findOne({ email: cleanEmail })) {
       const err = new Error(
-        "An Axlero account already exists with that email. Sign in with the original method - automatic account linking is not enabled."
+        "An Axlero account already exists with that email. Sign in with the original method — automatic account linking is not enabled."
       );
       err.code = "DUPLICATE_EMAIL";
       throw err;
@@ -224,7 +224,7 @@ function createUserStore(collection) {
         const keyValue = (err && err.keyValue) || {};
         if (keyValue.email !== undefined && keyValue.firebaseUid === undefined) {
           const dup = new Error(
-            "An Axlero account already exists with that email. Sign in with the original method - automatic account linking is not enabled."
+            "An Axlero account already exists with that email. Sign in with the original method — automatic account linking is not enabled."
           );
           dup.code = "DUPLICATE_EMAIL";
           throw dup;

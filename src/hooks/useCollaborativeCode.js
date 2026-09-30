@@ -1,8 +1,8 @@
 /**
- * useCollaborativeCode - Integration Engineer (core integration)
+ * useCollaborativeCode — Integration Engineer (core integration)
  *
  * Minimal last-writer-wins text sync over Arun's code:update transport.
- * This is the integration seam for Kishan's Monaco editor - NOT a Monaco
+ * This is the integration seam for Kishan's Monaco editor — NOT a Monaco
  * replacement: it exposes { text, onLocalChange } so his <CodeEditor />
  * drops in by accepting the same two props. Shree's Y.Text will replace
  * the revision guard with CRDT merge when it lands (see docs/INTEGRATION.md).
@@ -29,7 +29,7 @@ export default function useCollaborativeCode({ socket, roomId, enabled = true })
           data: { text: value, rev: stateRef.current.rev, actorId: socket.id },
         });
       } catch {
-        // emit path - local state is already updated, never throw
+        // emit path — local state is already updated, never throw
       }
     },
     [socket, enabled],

@@ -4,7 +4,7 @@ import { serializeShapes } from '../utils/shapes.js';
 export const HISTORY_LIMIT = 50;
 
 /**
- * useCanvasHistory - immutable undo/redo history ring buffer.
+ * useCanvasHistory — immutable undo/redo history ring buffer.
  *
  * Lightweight, serializable state history (maximum 50 states, FIFO
  * truncation). Maintains `past` (array of serialized shape snapshots),
@@ -13,7 +13,7 @@ export const HISTORY_LIMIT = 50;
  * Snapshots are pushed on discrete operations only: dragEnd,
  * transformEnd, shape additions, deletions, and morphing. High-frequency
  * freehand strokes must push once on pointerUp (callers commit the
- * finished stroke a single time - see useCanvasDrawing.handleStageMouseUp).
+ * finished stroke a single time — see useCanvasDrawing.handleStageMouseUp).
  *
  * All snapshots are JSON-serializable (via serializeShapes) so the stack
  * stays Yjs/CRDT-safe and cheap to clone.

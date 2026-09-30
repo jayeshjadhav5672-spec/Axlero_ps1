@@ -1,11 +1,11 @@
 /**
- * code-editor-sync.test.mjs - Monaco remote-sync guard (no DOM, no Monaco).
+ * code-editor-sync.test.mjs — Monaco remote-sync guard (no DOM, no Monaco).
  *
  * `src/components/editor/CodeEditor.jsx` cannot be mounted under node:test
  * (it needs a DOM + the Monaco bundle), so this tests the exact mechanism
  * the component uses: `createRemoteSync()` from
  * `src/lib/controlledEditorSync.js`, driven through a FakeEditor that
- * replicates Monaco's semantics - `setValue()` fires model-content
+ * replicates Monaco's semantics — `setValue()` fires model-content
  * listeners synchronously, just like the real editor.
  *
  * Regression: remote socket update → parent `value` changes → editor adopts

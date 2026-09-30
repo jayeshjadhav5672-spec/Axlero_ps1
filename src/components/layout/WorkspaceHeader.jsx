@@ -4,7 +4,7 @@ import { PeoplePanel, PresenceList } from '../presence';
 import { RoomInfo } from '../room';
 
 /**
- * WorkspaceHeader - Avantee (React UI / Frontend Engineer)
+ * WorkspaceHeader — Avantee (React UI / Frontend Engineer)
  *
  * Top bar: branding, room/session, connection state, collaborators.
  * All live data arrives via props so Arun/Shree/Vaishnavi modules can
@@ -13,14 +13,14 @@ import { RoomInfo } from '../room';
  * Day 1: enlarged into a proper application header (taller, roomier
  * padding, clearer hierarchy) while keeping the SyncSpace
  * developer-tool aesthetic. Leave-room still flows through the
- * existing onLeaveRoom callback - no new room lifecycle here.
+ * existing onLeaveRoom callback — no new room lifecycle here.
  */
 export default function WorkspaceHeader({
   roomId,
   roomName,
   connectionStatus = 'disconnected',
   users = [],
-  // Local identity's user id - marks the "You" row in the people panel.
+  // Local identity's user id — marks the "You" row in the people panel.
   // Raw presence data is untouched; this only labels existing entries.
   currentUserId = null,
   onLeaveRoom,
