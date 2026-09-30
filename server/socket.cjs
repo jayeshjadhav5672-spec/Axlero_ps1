@@ -660,10 +660,11 @@ function createSocketServer(httpServer, options = {}) {
    * peers, so a client cannot inject content under an invented fileId.
    * New-protocol envelopes (text + finite rev, optional fileId defaulting
    * to the shared document) are stored unless strictly older than the
-   * stored revision - a stale rev never regresses the authoritative
-   * snapshot (it is still relayed; receivers apply strictly-newer-only
-   * guards themselves). Over-cap writes throw (rejected loudly, never
-   * relayed unstored).
+   * stored revision. A stale rev is dropped outright - no snapshot change
+   * AND no relay - so a behind peer can never adopt it over the newer
+   * authoritative state. Same-rev collisions stay arrival-LWW (not a
+   * regression: the revision does not move backward). Over-cap writes
+   * throw (rejected loudly, never relayed unstored).
    */
   function commitCodeUpdate(roomId, data) {
     if (!isPlainObject(data) || typeof data.text !== "string") return true;
@@ -701,7 +702,7 @@ function createSocketServer(httpServer, options = {}) {
       Number.isFinite(file.rev) &&
       data.rev < file.rev
     ) {
-      return true; // stale rev: keep the newer snapshot (still relayed below)
+      return false; // stale rev: keep the newer snapshot AND do not relay it
     }
     project.files.set(fileId, { text: data.text, rev: Number.isFinite(data.rev) ? data.rev : file.rev });
     project.updatedAt = Date.now();
@@ -1002,8 +1003,9 @@ function createSocketServer(httpServer, options = {}) {
           // Per-file code contents fold into the room project snapshot
           // BEFORE relay (same store-before-relay contract as canvas: an
           // over-cap write is rejected with connection:error instead of
-          // relayed-but-unstored). Unknown fileIds are dropped outright
-          // (never relayed); legacy payloads pass through untouched.
+          // relayed-but-unstored). Unknown fileIds and stale revs are
+          // dropped outright (never relayed); legacy payloads pass through
+          // untouched.
           if (event === "code:update") {
             if (!commitCodeUpdate(socket.data.roomId, payload.data)) return;
           }

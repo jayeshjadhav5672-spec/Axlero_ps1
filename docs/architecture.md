@@ -67,7 +67,7 @@ files[fileId] = { text, rev }
 | server → peers | `project:node-created` | same | broadcast — peers' editors untouched |
 | server → creator | `connection:error` (`event: 'project:create-node'`, `requestId`) | reason | rejection (dup name, bad parent, offline caps…) |
 | client → server | `code:update` | `{ roomId, data: { fileId?, text, rev, actorId } }` | per-file content op |
-| server → peers | `code:update` | relayed unless dropped | content fan-out (sender excluded); unknown fileIds dropped, stale revs relayed but never regress the snapshot |
+| server → peers | `code:update` | relayed unless dropped | content fan-out (sender excluded); unknown fileIds and stale revs are dropped, never relayed nor stored |
 | server → joiner | `project:state` | `{ roomId, data: { nodes[], files{} } }` | snapshot on join/rejoin |
 | client → server | `project:state-request` | `{ roomId }` | on-demand snapshot (Explorer Refresh) |
 
@@ -107,9 +107,8 @@ If you see that message: restart the realtime server with the latest code
 ```
 typing in file F → rev[F]++ → code:update { fileId: F, text, rev }
   → server stores files[F] = { text, rev } unless the rev is strictly older
-    than the stored rev (stale revs keep the newest snapshot but are still
-    relayed; unknown fileIds are dropped outright — never stored, never
-    relayed) → relay to peers
+    than the stored rev; stale revs and unknown fileIds are dropped outright
+    (no snapshot change, no relay) → relay to peers
   → peers with F open adopt iff op.rev > local rev (applyCodeOp)
 ```
 

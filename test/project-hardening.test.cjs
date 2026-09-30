@@ -98,6 +98,31 @@ test("stale rev cannot regress the snapshot; late joiner gets the newest", async
   assert.deepEqual(snapshot.data.files["hard-f1"], { text: "v2", rev: 2 });
 });
 
+test("stale rev is neither stored nor relayed to live peers", async () => {
+  const roomId = "hard-stale-relay";
+  const a = client();
+  const b = client();
+  await waitForEvent(a, "connect");
+  await waitForEvent(b, "connect");
+  await join(a, roomId, "a");
+  await join(b, roomId, "b");
+  await createNode(a, roomId, { id: "hard-sr", name: "sr.js", type: "file", parentId: null });
+  const fresh = waitForEvent(b, "code:update");
+  a.emit("code:update", { roomId, data: { fileId: "hard-sr", text: "v5", rev: 5 } });
+  const [relayed] = await fresh;
+  assert.equal(relayed.data.rev, 5);
+  assert.equal(relayed.data.text, "v5");
+  // Stale arrival must reach no peer, even one behind the snapshot.
+  a.emit("code:update", { roomId, data: { fileId: "hard-sr", text: "STALE", rev: 4 } });
+  await expectNoEvent(b, "code:update", 300);
+  const { snapshot } = await joinState(roomId, "late");
+  assert.deepEqual(snapshot.data.files["hard-sr"], { text: "v5", rev: 5 });
+  // Legacy rev-less ops still flow after the fix.
+  a.emit("code:update", { roomId, data: { text: "legacy-ok" } });
+  const { snapshot: legacySnap } = await joinState(roomId, "late2");
+  assert.equal(legacySnap.data.files[DEFAULT_FILE_ID].text, "legacy-ok");
+});
+
 test("same-rev tie stays arrival-LWW without rev regression", async () => {
   const roomId = "hard-tie";
   const a = client();
