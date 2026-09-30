@@ -1,7 +1,7 @@
 import React from 'react';
 
 /**
- * PresenceCursors — smooth remote-peer cursor overlay.
+ * PresenceCursors - smooth remote-peer cursor overlay.
  *
  * Absolute HTML overlay (pointer-events-none) above the Konva stage:
  * each peer renders an SVG cursor pointer tinted with `peer.color` plus
@@ -30,7 +30,7 @@ export default function PresenceCursors({ peers = [], scale = 1, stagePos = { x:
         return (
           <div
             // Per-connection identity: socketId first (each tab/share is an
-            // individual cursor), userId + index fallback — userId alone
+            // individual cursor), userId + index fallback - userId alone
             // collides across tabs of one account.
             key={peer.socketId || `${peer.userId || peer.id || 'peer'}-${index}`}
             className="absolute left-0 top-0"

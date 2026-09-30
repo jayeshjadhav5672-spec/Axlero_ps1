@@ -1,9 +1,9 @@
 /**
- * CollabTextEditor — Integration Engineer (TEMPORARY fallback)
+ * CollabTextEditor - Integration Engineer (TEMPORARY fallback)
  *
  * Plain-textarea collaborative editor wired to useCollaborativeCode.
  * This exists only so code sync is usable/testable until Kishan's Monaco
- * <CodeEditor /> lands — it is intentionally NOT a Monaco implementation.
+ * <CodeEditor /> lands - it is intentionally NOT a Monaco implementation.
  *
  * Replacement contract: Kishan's component must accept
  *   { value, onChange(nextText), placeholder?, ariaLabel?, disabled? }
@@ -16,7 +16,7 @@ import React from 'react';
 export default function CollabTextEditor({
   value = '',
   onChange,
-  placeholder = '// Start typing — collaborators in this room see every keystroke…',
+  placeholder = '// Start typing - collaborators in this room see every keystroke…',
   ariaLabel = 'Shared code editor',
   disabled = false,
   className = '',

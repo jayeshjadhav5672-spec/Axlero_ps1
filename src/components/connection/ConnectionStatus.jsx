@@ -1,7 +1,7 @@
 import React from 'react';
 
 /**
- * ConnectionStatus — Avantee (React UI / Frontend Engineer)
+ * ConnectionStatus - Avantee (React UI / Frontend Engineer)
  *
  * Pure presentational indicator. Accepts Arun's Socket.io state via the
  * `status` prop; contains no networking logic.

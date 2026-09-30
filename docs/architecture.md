@@ -54,7 +54,7 @@ files[fileId] = { text, rev }
 ```
 
 - Identity is the stable unique `id` (client-minted UUID, server-deduplicated),
-  never the filename — renames (future UI) cannot destroy a document.
+  never the filename - renames (future UI) cannot destroy a document.
 - The default `Collaborative Code` document (`shared-collaborative-code`)
   always exists, so pre-project rooms migrate automatically.
 
@@ -63,8 +63,8 @@ files[fileId] = { text, rev }
 | Direction | Event | Payload | Purpose |
 |---|---|---|---|
 | client → server | `project:create-node` | `{ roomId, data: { node: { id, name, type, parentId } } }` | request a file/folder |
-| server → creator | `project:node-created` | `{ roomId, data: { node } }` | ack — creator opens it |
-| server → peers | `project:node-created` | same | broadcast — peers' editors untouched |
+| server → creator | `project:node-created` | `{ roomId, data: { node } }` | ack - creator opens it |
+| server → peers | `project:node-created` | same | broadcast - peers' editors untouched |
 | server → creator | `connection:error` (`event: 'project:create-node'`, `requestId`) | reason | rejection (dup name, bad parent, offline caps…) |
 | client → server | `code:update` | `{ roomId, data: { fileId?, text, rev, actorId } }` | per-file content op |
 | server → peers | `code:update` | relayed as-is | content fan-out (sender excluded) |
@@ -89,10 +89,10 @@ New File → validate (client) → project:create-node ──► server validate
 ```
 
 First commit wins on simultaneous same-name creates; the loser gets
-"An item with this name already exists." — never a silent overwrite.
+"An item with this name already exists." - never a silent overwrite.
 
 ### Create-request timeout (fail loud, never silent)
-Socket.io silently ignores events with no server listener — e.g. talking to
+Socket.io silently ignores events with no server listener - e.g. talking to
 a stale realtime server that predates the project protocol looks exactly
 like "nothing happens" (input stays open, no error). So every create request
 arms an 8s ack-timeout (`CREATE_ACK_TIMEOUT_MS` in
@@ -100,7 +100,7 @@ arms an 8s ack-timeout (`CREATE_ACK_TIMEOUT_MS` in
 `connection:error` arrives, the open draft shows "No response from the
 server…", while the pending id is kept so a late ack still opens the file.
 If you see that message: restart the realtime server with the latest code
-(`npm run dev:server`) and retry — do NOT retype blindly.
+(`npm run dev:server`) and retry - do NOT retype blindly.
 
 ### Content flow (per file)
 
@@ -116,13 +116,13 @@ Switching files later loads each file's independent content.
 
 ## Yjs / CRDT responsibilities
 
-None on the wire — deliberately. `src/lib/yjsProvider.js` is a local,
+None on the wire - deliberately. `src/lib/yjsProvider.js` is a local,
 transport-agnostic `Y.Doc` registry (Phase 1); it was never connected to
 sockets. Multi-file sharing generalizes the proven Socket.io LWW relay
 per `fileId` instead of replacing the collaboration technology.
 
 **Known limitation (not hidden):** simultaneous edits to the SAME file keep
-last-writer-wins semantics — receivers converge on the last-arriving write,
+last-writer-wins semantics - receivers converge on the last-arriving write,
 with no character-level merge. A future Yjs-per-file migration would change
 only the content channel; the tree protocol, snapshots, and room scoping are
 already transport-shaped for it (stable file ids map 1:1 to `Y.Text` docs).
@@ -159,7 +159,7 @@ on the join ack, not the transport:
 - App passes `roomJoined = joinedRoom === roomId` to the panel, which
   disables New File/Folder until true ("joining room…"), and `joined` to the
   project hook: creates refuse loudly while unjoined, content edits stay
-  local-only (no keystroke loss — they converge via the snapshot re-emit on
+  local-only (no keystroke loss - they converge via the snapshot re-emit on
   join).
 - Server-side the check was never removed; `project:create-node` additionally
   consults the adapter-level `socket.rooms` set as ground truth (same
@@ -167,14 +167,14 @@ on the join ack, not the transport:
   divergence. Sockets that never joined are still rejected.
 - Diagnostics: `[room] join socket=… room=… tracked=… rooms=[…]` and
   `[project] create-node rejected (not a member) socket=… requested=…
-  tracked=… rooms=[…]` — the `tracked`/`rooms` pair pinpoints the mismatch
+  tracked=… rooms=[…]` - the `tracked`/`rooms` pair pinpoints the mismatch
   (`tracked=null`, rooms holding only the socket id = never joined).
 
 ## Persistence limitations
 
 - **In-memory only.** `roomProjects` lives in the Node process; a server
   restart drops all projects (same as the canvas snapshots). No MongoDB was
-  added — real-time shared state was the priority.
+  added - real-time shared state was the priority.
 - **Bounded:** 200 nodes/room, 100 KB/file, 2 MB total project text, 200
   rooms (idle evicted first; live rooms always served). Over-cap writes are
   rejected with `connection:error`, never stored-or-relayed-halfway.

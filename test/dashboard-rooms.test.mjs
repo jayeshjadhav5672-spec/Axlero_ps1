@@ -1,5 +1,5 @@
 /**
- * dashboard-rooms.test.mjs — Day 3 Dashboard helpers (no network, no DOM).
+ * dashboard-rooms.test.mjs - Day 3 Dashboard helpers (no network, no DOM).
  * Covers the frontend-only seams in src/lib/room.js: generateRoomId and
  * the browser-local recent-rooms list. Persistence here is localStorage
  * display-only, never backend/MongoDB.

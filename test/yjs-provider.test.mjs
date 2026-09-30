@@ -1,5 +1,5 @@
 /**
- * yjs-provider.test.mjs — Shree (Yjs / CRDT collaboration)
+ * yjs-provider.test.mjs - Shree (Yjs / CRDT collaboration)
  *
  * Unit tests for src/lib/yjsProvider.js. No network, no DOM, no React.
  * Mirrors the convention of collab-ops.test.mjs (node:test, node:assert/strict).
@@ -65,7 +65,7 @@ test('different roomIds return different Y.Doc instances', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Room isolation — mutations in one doc must not appear in another
+// Room isolation - mutations in one doc must not appear in another
 // ---------------------------------------------------------------------------
 
 test('room documents are isolated: Y.Text mutations do not cross rooms', () => {
@@ -171,7 +171,7 @@ test('destroyYDoc removes the doc from the registry', () => {
   assert.equal(hasYDoc('room-destroy'), false);
 });
 
-test('destroyYDoc is idempotent — calling twice does not throw', () => {
+test('destroyYDoc is idempotent - calling twice does not throw', () => {
   getYDoc('room-idempotent');
   destroyYDoc('room-idempotent');
   assert.doesNotThrow(() => destroyYDoc('room-idempotent'));
@@ -187,7 +187,7 @@ test('a new Y.Doc can be created for a room after destruction', () => {
   destroyYDoc('room-lifecycle');
 
   const second = getYDoc('room-lifecycle');
-  // Must be a fresh doc — different reference, empty content
+  // Must be a fresh doc - different reference, empty content
   assert.notEqual(first, second, 'should be a new instance after destroy');
   assert.equal(second.getText('code').toString(), '', 'content should be reset after destroy+recreate');
 });

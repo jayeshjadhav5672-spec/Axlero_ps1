@@ -1,7 +1,7 @@
 /**
- * projectSync.js — pure client helpers for the shared room project.
+ * projectSync.js - pure client helpers for the shared room project.
  *
- * No React, no DOM — safe to import from hooks and node --test.
+ * No React, no DOM - safe to import from hooks and node --test.
  *
  * The server (server/socket.cjs) is the authority for the file TREE;
  * contents converge per file with the same last-writer-wins-by-rev rule as
@@ -11,7 +11,7 @@
  *
  * Collaboration-technology note: this repo's live code sync is
  * Socket.io-based LWW, NOT Yjs wire sync (yjsProvider.js is a local,
- * transport-agnostic Y.Doc registry — Phase 1 only). Multi-file sharing
+ * transport-agnostic Y.Doc registry - Phase 1 only). Multi-file sharing
  * generalizes that same Socket.io mechanism per fileId rather than
  * replacing it. Simultaneous same-file edits therefore keep LWW semantics:
  * concurrent writers converge on the last-arriving write, with no

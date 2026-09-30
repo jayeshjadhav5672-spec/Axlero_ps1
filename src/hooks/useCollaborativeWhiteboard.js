@@ -1,10 +1,10 @@
 /**
- * useCollaborativeWhiteboard — Integration Engineer (core integration)
+ * useCollaborativeWhiteboard - Integration Engineer (core integration)
  *
  * Binds Sayon's <Whiteboard /> (controlled mode) to Arun's canvas:update
  * transport without touching Sayon's code:
  * - local Whiteboard callbacks update local state AND emit an op
- * - remote ops only update local state — they are never re-emitted,
+ * - remote ops only update local state - they are never re-emitted,
  *   so synchronization loops are structurally impossible
  * - op validation/dedupe/echo-guards live in lib/collabOps.js (unit-tested)
  *
@@ -29,7 +29,7 @@ export default function useCollaborativeWhiteboard({ socket, roomId, enabled = t
           data: { ...op, actorId: socket.id },
         });
       } catch {
-        // emit path — local state is already updated, never throw
+        // emit path - local state is already updated, never throw
       }
     },
     [socket, enabled],
@@ -65,7 +65,7 @@ export default function useCollaborativeWhiteboard({ socket, roomId, enabled = t
   }, [emit]);
 
   // Sayon PR #4: z-order + undo/redo restore forward the FULL array via
-  // onShapesReorder. Same pattern as the other handlers — local set +
+  // onShapesReorder. Same pattern as the other handlers - local set +
   // emit; receivers apply without re-emitting (loop-free by construction).
   const onShapesReorder = useCallback(
     (nextShapes) => {

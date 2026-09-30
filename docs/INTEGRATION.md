@@ -1,4 +1,4 @@
-# SyncSpace — Integration Guide (Integration Engineer)
+# SyncSpace - Integration Guide (Integration Engineer)
 
 Single source of truth for how the modules fit together. Read this before
 touching cross-module code.
@@ -41,7 +41,7 @@ touching cross-module code.
    tracks `room:joined` / `presence:update` / `room:left` /
    `connection:error`, and re-joins automatically on reconnect.
 4. Unmount (or Leave) emits `room:leave`. Leaving shows an honest
-   left-state with Rejoin — never a fake room.
+   left-state with Rejoin - never a fake room.
 
 ## 2. Socket.io event contract (do not rename without updating both sides)
 
@@ -60,13 +60,13 @@ touching cross-module code.
 `whiteboardOp = { op: 'create'|'update'|'delete'|'clear', shape?, shapeId?, changes?, actorId }`
 `codeOp = { text, rev, actorId }`
 
-## 3. Yjs document structure (reserved for Shree — no Yjs dep yet)
+## 3. Yjs document structure (reserved for Shree - no Yjs dep yet)
 
 One `Y.Doc` per room, created once per room session (never per render):
 
-- `doc.getArray('shapes')` — Sayon's shape JSON (same objects as today)
-- `doc.getText('code')` — replaces the LWW `code:update` relay
-- `awareness` — replaces socket presence as the presence source
+- `doc.getArray('shapes')` - Sayon's shape JSON (same objects as today)
+- `doc.getText('code')` - replaces the LWW `code:update` relay
+- `awareness` - replaces socket presence as the presence source
 
 Transport stays Socket.io: Shree's provider should reuse the singleton
 from `src/lib/socket.js` (one connection per page). `cursor:update` is
@@ -97,7 +97,7 @@ minimal `{ value, onChange }` contract so the sync hooks stay editor-agnostic
 No persistence yet. When it lands: server subscribes to the same room
 events (or the Y.Doc update stream) and writes snapshots + op log to
 MongoDB; on `room:join`, the server sends the snapshot before live ops.
-`socket.user` is already read by `server/socket.cjs` — attach auth
+`socket.user` is already read by `server/socket.cjs` - attach auth
 middleware there to enforce authorized-room access.
 
 ## 7. Auth flow (reserved)
@@ -115,8 +115,8 @@ See `.env.example`. Frontend: `VITE_SYNCSPACE_SERVER_URL`
 
 ```bash
 npm install
-npm run dev:server   # terminal 1 — realtime backend :3000
-npm run dev          # terminal 2 — frontend :5173
+npm run dev:server   # terminal 1 - realtime backend :3000
+npm run dev          # terminal 2 - frontend :5173
 ```
 
 Open `http://localhost:5173/?room=demo` in two tabs/windows (or two
@@ -129,11 +129,11 @@ realtime server or set `VITE_SYNCSPACE_SERVER_URL` accordingly.
 
 ## 10. Testing
 
-- `npm test` — Arun's socket tests (join/presence/isolation/transport,
+- `npm test` - Arun's socket tests (join/presence/isolation/transport,
   malformed payloads, leave/disconnect, idempotent rejoin) + integration
   contract tests (`test/collab-ops.test.mjs`: op validation, echo
   suppression, revision guards, presence mapping).
-- `npm run build` — frontend production build.
+- `npm run build` - frontend production build.
 - Manual matrix (§9 + room isolation + kill-server offline banner +
-  refresh + rejoin) — see task TEST 1–12; TEST 11/12 (persistence/auth)
+  refresh + rejoin) - see task TEST 1–12; TEST 11/12 (persistence/auth)
   are pending Vaishnavi's modules.

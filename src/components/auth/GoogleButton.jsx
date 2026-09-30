@@ -3,7 +3,7 @@ import { signInWithGoogle } from '../../lib/firebaseAuth';
 import { firebaseLoginRequest } from '../../lib/auth';
 
 /**
- * GoogleButton — initiates Google sign-in through Firebase Authentication.
+ * GoogleButton - initiates Google sign-in through Firebase Authentication.
  * Uses Firebase's signInWithPopup and exchanges the Firebase ID token
  * for an Axlero session via the backend.
  *

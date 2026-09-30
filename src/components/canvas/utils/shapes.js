@@ -50,7 +50,7 @@ export const FONT_FAMILIES = {
   serif: 'serif',
 };
 
-/** Legacy full font stacks (pre-task values) — still resolve for old docs. */
+/** Legacy full font stacks (pre-task values) - still resolve for old docs. */
 export const LEGACY_FONT_FAMILIES = {
   hand: 'Virgil, "Comic Sans MS", "Segoe Print", "Bradley Hand", cursive',
   normal: 'system-ui, -apple-system, "Segoe UI", sans-serif',
@@ -98,7 +98,7 @@ export function createFrameId() {
 
 /**
  * Factory for an image shape from a base64 data URL.
- * Plain serializable JSON — no Konva nodes, no socket/Yjs deps.
+ * Plain serializable JSON - no Konva nodes, no socket/Yjs deps.
  */
 export function createImageShape(
   src,
@@ -193,7 +193,7 @@ export function createShape(
   } = {},
 ) {
   // Never seed a shape from a non-finite pointer (e.g. pointerup with no
-  // drag / uninitialized coords) — that NaN would flow into Konva props.
+  // drag / uninitialized coords) - that NaN would flow into Konva props.
   if (!worldPoint || !isFiniteNum(worldPoint.x) || !isFiniteNum(worldPoint.y)) return null;
   const id = createShapeId();
   switch (type) {
@@ -276,7 +276,7 @@ export function createShape(
         strokeStyle,
         opacity,
         roughness,
-        // Excalidraw parity: a simple Line NEVER carries arrowheads —
+        // Excalidraw parity: a simple Line NEVER carries arrowheads -
         // arrowheads belong strictly to the Arrow tool. Forcing 'none'
         // here (ignoring ambient arrow defaults) keeps new lines rendering
         // as pure `<Line />` paths with no pointer markers or dots.
@@ -364,7 +364,7 @@ export function diamondPoints(x, y, width, height) {
 }
 
 /**
- * Corner radius for a rounded diamond — scales with the smaller side
+ * Corner radius for a rounded diamond - scales with the smaller side
  * (same spirit as the rectangle's min(w,h)/4 clamp).
  */
 export function diamondCornerRadius(width, height) {
@@ -439,7 +439,7 @@ export function sanitizePoints(points) {
  * Elbow (orthogonal right-angle) points for an arrow.
  * Straight 2-point input [x0,y0,x1,y1] becomes a 3-point orthogonal
  * path [start, corner, end] via the horizontal-then-vertical corner.
- * Already-bent arrows (>2 points) keep their committed bend points —
+ * Already-bent arrows (>2 points) keep their committed bend points -
  * only degenerate 2-point arrows are orthogonalized.
  */
 export function elbowPoints(points) {
@@ -598,7 +598,7 @@ export function normalizeShape(shape) {
   // Morph hygiene: a JSON-merge update (`{ ...s, ...changes }`) cannot
   // delete keys, so a rectangle->circle morph would leave ghost
   // `width`/`height` (and circle->rectangle a ghost `radius*`). Strip
-  // stale geometry here — every commit path normalizes — so morphed
+  // stale geometry here - every commit path normalizes - so morphed
   // shapes stay clean even for controlled/Yjs parents that merge.
   if (shape.type === 'circle' && (shape.width !== undefined || shape.height !== undefined)) {
     const { width, height, ...rest } = shape;
@@ -786,11 +786,11 @@ export function normalizeShape(shape) {
  * normalized (no leftover dx/dy for shapes that keep absolute points).
  * - rect/circle/diamond/text: node x/y ARE the model x/y -> take directly.
  *   (Diamond points are origin-relative, so drag commits ONLY x/y and
- *   never mutates the points array — no double transform.)
+ *   never mutates the points array - no double transform.)
  * - freehand/pen/line/arrow: points are ABSOLUTE world coords and the node
  *   is pinned at (0, 0) at rest (see ShapeRenderer), so the drag offset IS
  *   the node position: newPoints = points + (nodeX, nodeY), reset x/y to 0.
- *   NEVER subtract shape.x/shape.y here — a stale origin in the store
+ *   NEVER subtract shape.x/shape.y here - a stale origin in the store
  *   would otherwise double-apply and teleport the stroke.
  */
 export function bakeDragEnd(shape, nodeX, nodeY) {
@@ -848,7 +848,7 @@ export function bakeTransform(shape, { scaleX, scaleY, rotation }) {
       if (Number.isFinite(scaled)) changes.radius = Math.max(1, scaled);
     } else if (uniform && Math.abs(nextRx - nextRy) / Math.max(nextRx, nextRy, 1e-9) < 0.02) {
       // Ellipse scaled back to (near-)uniform: collapse to a circle.
-      // (Keep radiusX/radiusY present-but-equal — JSON merge can't
+      // (Keep radiusX/radiusY present-but-equal - JSON merge can't
       // delete keys, and equal radii render as a circle.)
       const r = Math.max(1, (nextRx + nextRy) / 2);
       changes.radius = r;
@@ -890,7 +890,7 @@ export function bakeTransform(shape, { scaleX, scaleY, rotation }) {
  *
  * Konva's geometric models differ per type (rectangles use top-left origin
  * + width/height; circles use center origin + radius), so the morph always
- * routes through the source's visual bounding box [x, y, width, height] —
+ * routes through the source's visual bounding box [x, y, width, height] -
  * simply flipping `shape.type` would collapse or offset the shape.
  * The result is built fresh from shared `base` props, so no stale
  * geometry keys (`width` on circles, `radius` on rectangles) survive to
@@ -1089,7 +1089,7 @@ export function isShapeInsideFrame(shape, frame) {
  *   (0, 0), so only the points shift (x/y forced back to 0). Offsetting
  *   both would double-apply and teleport the copy.
  * - rect/circle/diamond/text are positioned by x/y (diamond points are
- *   origin-relative), so only x/y shift — points are never touched.
+ *   origin-relative), so only x/y shift - points are never touched.
  */
 export function duplicateShape(shape, offset = 16) {
   const clone = serializeShape(shape);
@@ -1158,7 +1158,7 @@ function pointSegDistSq(px, py, ax, ay, bx, by) {
  * Closed shapes hit anywhere inside their (tolerance-expanded) bounds;
  * path shapes hit within strokeWidth/2 + tolerance of any segment;
  * groups translate the point into child-local coords and test children.
- * Pure — drives drag-erase in useCanvasDrawing.
+ * Pure - drives drag-erase in useCanvasDrawing.
  */
 export function isShapeIntersectingPoint(shape, point, tolerance = 8) {
   if (!shape || typeof shape !== 'object') return false;

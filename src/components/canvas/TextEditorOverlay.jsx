@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 
 /**
- * TextEditorOverlay — Sayon
+ * TextEditorOverlay - Sayon
  * Excalidraw-styled HTML textarea overlay for text shapes. Positioned in
  * SCREEN coords (converted from world coords by the hook so zoom/pan stay
  * correct). Hand-drawn typography (Caveat/Virgil stack), violet focus ring.
@@ -12,7 +12,7 @@ export default function TextEditorOverlay({ editor, color, onCommit, onCancel, o
   const areaRef = useRef(null);
   // Mount guard: an instantaneous blur (within 150ms of the overlay
   // appearing) comes from the canvas click gesture that opened it, not
-  // from the user leaving the field — ignore it and keep focus.
+  // from the user leaving the field - ignore it and keep focus.
   const isMountedRef = useRef(false);
 
   useEffect(() => {
@@ -52,7 +52,7 @@ export default function TextEditorOverlay({ editor, color, onCommit, onCancel, o
 
   const handleBlur = (event) => {
     // Ignore blur if it fires immediately upon mounting from the canvas
-    // click — reclaim focus instead of closing the overlay.
+    // click - reclaim focus instead of closing the overlay.
     if (!isMountedRef.current) {
       areaRef.current?.focus();
       return;

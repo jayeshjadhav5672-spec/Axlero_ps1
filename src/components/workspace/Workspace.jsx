@@ -5,10 +5,10 @@ import WhiteboardPanel from './WhiteboardPanel';
 import CodeEditorPanel from './CodeEditorPanel';
 
 /**
- * Workspace — Avantee (React UI / Frontend Engineer)
+ * Workspace - Avantee (React UI / Frontend Engineer)
  *
  * Composes the collaborative workspace: header + whiteboard panel +
- * code editor panel. Pure UI composition — no Socket.io, Yjs, Konva
+ * code editor panel. Pure UI composition - no Socket.io, Yjs, Konva
  * drawing, Monaco, or backend logic.
  *
  * Integration contract:
@@ -24,7 +24,7 @@ export default function Workspace({
   roomName,
   connectionStatus = 'disconnected',
   // Server-confirmed room join (room:joined ack). Shared-project writes are
-  // only servable once this is true — see useRoomConnection + panel gating.
+  // only servable once this is true - see useRoomConnection + panel gating.
   roomJoined = true,
   users = [],
   // Local identity's user id for the header people panel ("You" row).
@@ -61,7 +61,7 @@ export default function Workspace({
       {/* Main split area occupies remaining vertical space with zero overflow.
       Scoped split-pane: toolbar lives inside the whiteboard column
       (Whiteboard owns its Toolbar), so it stretches/shrinks/follows its
-      parent pane on resize or swap. Layout is strictly local — no socket
+      parent pane on resize or swap. Layout is strictly local - no socket
       emits, persisted per-browser via localStorage. */}
       <main id="workspace-content" className="flex-1 min-h-0 w-full overflow-hidden flex flex-col">
         <WorkspaceSplitLayout

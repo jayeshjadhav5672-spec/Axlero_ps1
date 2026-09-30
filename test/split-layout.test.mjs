@@ -1,5 +1,5 @@
 /**
- * split-layout.test.mjs — WorkspaceSplitLayout math (no DOM, no React).
+ * split-layout.test.mjs - WorkspaceSplitLayout math (no DOM, no React).
  * Covers the pure helpers in src/components/layout/splitLayout.js that the
  * component depends on: stored-width clamping and narrow-viewport minimums.
  */

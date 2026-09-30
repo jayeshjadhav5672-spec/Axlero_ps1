@@ -1,5 +1,5 @@
 /**
- * fileTree.js — pure helpers for the frontend-only virtual Explorer tree.
+ * fileTree.js - pure helpers for the frontend-only virtual Explorer tree.
  *
  * ARCHITECTURE NOTE (do not remove): the Explorer file/folder tree is
  * frontend-only React state (persisted to localStorage when available).
@@ -13,7 +13,7 @@
  *   { id, name, type: 'file' | 'folder', parentId: string | null,
  *     content: string (files), shared?: true, updatedAt: number }
  *
- * No React, no DOM here — imported by CodeEditorPanel and by node --test.
+ * No React, no DOM here - imported by CodeEditorPanel and by node --test.
  */
 
 export const SHARED_FILE_ID = 'shared-collaborative-code';
@@ -57,7 +57,7 @@ export function validateItemName(rawName) {
     return { ok: false, error: `Keep names under ${MAX_NAME_LENGTH} characters.` };
   }
   if (/[\\/]/.test(name)) {
-    return { ok: false, error: "Names can't contain / or \\ — create hierarchy with New File / New Folder." };
+    return { ok: false, error: "Names can't contain / or \\ - create hierarchy with New File / New Folder." };
   }
   if (name === '.' || name === '..' || /^\.+$/.test(name)) {
     return { ok: false, error: 'That name is reserved.' };
@@ -83,7 +83,7 @@ function nodeRank(node) {
   return 2;
 }
 
-/** Shared doc first, then folders, then files — alphabetical within each group. */
+/** Shared doc first, then folders, then files - alphabetical within each group. */
 export function sortTreeNodes(nodes) {
   return [...(nodes ?? [])].sort(
     (a, b) => nodeRank(a) - nodeRank(b) || String(a?.name ?? '').localeCompare(String(b?.name ?? '')),
@@ -180,7 +180,7 @@ function isPersistableNode(n) {
 }
 
 /**
- * Persist virtual nodes only (never the shared doc — its content belongs
+ * Persist virtual nodes only (never the shared doc - its content belongs
  * to the collaboration transport). `storage` is injected so tests can pass
  * a stub; the panel passes localStorage. Never throws.
  */

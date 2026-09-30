@@ -1,5 +1,5 @@
 /**
- * firebase.cjs — Firebase Admin SDK initialization and ID token verification.
+ * firebase.cjs - Firebase Admin SDK initialization and ID token verification.
  *
  * Initializes Firebase Admin exactly once using environment configuration.
  * Provides verifyFirebaseIdToken() to verify Firebase ID tokens and return

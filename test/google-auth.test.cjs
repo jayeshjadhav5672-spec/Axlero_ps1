@@ -1,5 +1,5 @@
 /**
- * firebase-auth.test.cjs — Firebase Authentication tests (no Firebase network calls).
+ * firebase-auth.test.cjs - Firebase Authentication tests (no Firebase network calls).
  * The Firebase Admin verification is faked per test (canned payloads); the user store is
  * the same in-memory fake shape used by auth.test.cjs. Fake credentials only.
  */

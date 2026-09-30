@@ -10,7 +10,7 @@ const { createAuthRouter } = require("./auth/routes.cjs");
 const app = express();
 
 // CORS for the browser frontend. Explicit origins from FRONTEND_ORIGIN
-// (comma-separated) are always honored — never a wildcard, and no
+// (comma-separated) are always honored - never a wildcard, and no
 // cookies/credentials are used (JWT travels in the Authorization header),
 // so cross-origin auth calls succeed without unsafe wildcard+credentials.
 // Development nicety: Vite picks any free port (5173, 5174, ...), so any
@@ -39,7 +39,7 @@ const { io } = createSocketServer(httpServer);
 
 // Socket identity: verify an optional handshake JWT into socket.user so
 // presence/room logic can attribute authenticated users. Guests (no
-// token, invalid token) connect exactly as before — authentication is
+// token, invalid token) connect exactly as before - authentication is
 // additive and never rejects the transport.
 io.use((socket, next) => {
   try {
@@ -57,7 +57,7 @@ io.use((socket, next) => {
   return next();
 });
 
-// MongoDB Atlas (connection infrastructure only — no schemas/auth yet).
+// MongoDB Atlas (connection infrastructure only - no schemas/auth yet).
 // Non-fatal: the realtime service stays up even if the database is
 // unreachable; the error below never includes credentials.
 if (process.env.MONGODB_URI) {
