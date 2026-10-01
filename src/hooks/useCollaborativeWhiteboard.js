@@ -51,6 +51,24 @@ export default function useCollaborativeWhiteboard({ socket, roomId, enabled = t
     [emit],
   );
 
+  // Atomic batch update (frame drags: frame + translated children + arrow
+  // follows). ONE local setShapes (single render) + ONE `update-many` op,
+  // so peers apply the whole block in a single pass and never observe a
+  // half-moved frame. Entries are expected pre-cleaned ({id, changes});
+  // empty lists are dropped silently.
+  const onShapesBatchUpdate = useCallback(
+    (updates) => {
+      const list = (Array.isArray(updates) ? updates : []).filter(
+        (u) => u && typeof u.id === 'string' && u.changes && Object.keys(u.changes).length > 0,
+      );
+      if (list.length === 0) return;
+      const byId = new Map(list.map((u) => [u.id, u.changes]));
+      setShapes((prev) => prev.map((s) => (s && byId.has(s.id) ? { ...s, ...byId.get(s.id) } : s)));
+      emit({ op: 'update-many', updates: list.map((u) => ({ shapeId: u.id, changes: u.changes })) });
+    },
+    [emit],
+  );
+
   const onShapeDelete = useCallback(
     (shapeId) => {
       setShapes((prev) => prev.filter((s) => !s || s.id !== shapeId));
@@ -112,7 +130,7 @@ export default function useCollaborativeWhiteboard({ socket, roomId, enabled = t
   }, [socket]);
 
   return useMemo(
-    () => ({ shapes, onShapeCreate, onShapeUpdate, onShapeDelete, onCanvasClear, onShapesReorder }),
-    [shapes, onShapeCreate, onShapeUpdate, onShapeDelete, onCanvasClear, onShapesReorder],
+    () => ({ shapes, onShapeCreate, onShapeUpdate, onShapesBatchUpdate, onShapeDelete, onCanvasClear, onShapesReorder }),
+    [shapes, onShapeCreate, onShapeUpdate, onShapesBatchUpdate, onShapeDelete, onCanvasClear, onShapesReorder],
   );
 }

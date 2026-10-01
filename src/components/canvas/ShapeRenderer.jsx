@@ -8,6 +8,7 @@ import {
   diamondPoints,
   displayPointsForArrow,
   estimateTextWidth,
+  frameMembers,
   isFiniteNum,
   konvaOpacity,
   resolveFontFamily,
@@ -125,6 +126,202 @@ function FrameShape({ shape, common }) {
         fill="#64748b"
         listening={false}
       />
+    </Group>
+  );
+}
+
+/**
+ * FrameGroupNode — Konva-native hierarchical frame: ONE draggable Group
+ * owns the frame border plus every geometrically-contained child, so a
+ * frame drag moves the whole block through a single hardware-accelerated
+ * affine transform with zero React re-renders mid-gesture (no per-pixel
+ * setState, no child lag — children cannot drift because they share the
+ * group's transform).
+ *
+ * Coordinate trick that keeps every drag/commit path untouched: each
+ * child renders inside a `-frame.x/-frame.y` offset wrapper, so child
+ * NODES still carry WORLD coordinates (node.x()/node.y() read exactly as
+ * before; bakeDragEnd/bend/endpoint math needs no frame awareness).
+ *
+ * - Group `id` is `${frame.id}__group` (never collides with shape ids);
+ *   the BORDER keeps `id={frame.id}` and the shapeNodesRef registration,
+ *   so the Transformer, findOne(`#id`), and click-select all resolve to
+ *   the border — resize therefore scales the border only (identical to
+ *   the old flat rendering), never the children.
+ * - The border is NOT draggable itself; presses on it bubble to the
+ *   draggable group (Konva starts the ancestor drag). Draggable children
+ *   win their own drags first (Konva's hasDraggingChild guard), so member
+ *   drags behave exactly like top-level drags.
+ * - Membership rule MUST match `frameMembers` in utils/shapes.js (first
+ *   containing frame wins, frames never nest, previews excluded).
+ */
+function FrameGroupNode({
+  frame,
+  members,
+  selectedId,
+  textMode,
+  selectMode,
+  shapeNodesRef,
+  onShapeClick,
+  onSelect,
+  onDragEnd,
+  onDragStart,
+  onDragMove,
+  onTransformEnd,
+  onTextDoubleClick,
+}) {
+  const fx = safeX(frame.x);
+  const fy = safeX(frame.y);
+  const w = safeSize(frame.width);
+  const h = safeSize(frame.height);
+  const borderRef = useMemo(() => {
+    if (!shapeNodesRef || frame.remotePreview) return undefined;
+    const frameId = frame.id;
+    return (node) => {
+      if (node) shapeNodesRef.current.set(frameId, node);
+      else shapeNodesRef.current.delete(frameId);
+    };
+  }, [shapeNodesRef, frame.id, frame.remotePreview]);
+  const childProps = {
+    selectedId,
+    textMode,
+    selectMode,
+    shapeNodesRef,
+    onShapeClick,
+    onSelect,
+    onDragEnd,
+    onDragStart,
+    onDragMove,
+    onTransformEnd,
+    onTextDoubleClick,
+  };
+  // Dedicated draggable title tab (Figma-style grab handle): a listening
+  // pill above the top edge that ALWAYS belongs to the frame. Presses
+  // bubble past it into the frame group's drag starter (no cancelBubble on
+  // press paths — same rule as the border), so grabbing the tab moves the
+  // whole block; clicking it selects the frame.
+  const frameTitle = frame.title ?? 'Frame';
+  const tabW = Math.max(72, frameTitle.length * 7 + 28);
+  const tabSelected = selectedId === frame.id;
+  return (
+    <Group
+      key={frame.id}
+      id={`${frame.id}__group`}
+      x={fx}
+      y={fy}
+      draggable={selectMode}
+      listening={!textMode}
+      onDragStart={(e) => {
+        e.cancelBubble = true;
+        onDragStart?.(frame.id, e);
+      }}
+      onDragMove={(e) => {
+        e.cancelBubble = true;
+        // currentTarget is always this group (draggable children own their
+        // own drags and cancel bubbling, so they never reach this handler).
+        const g = e.currentTarget;
+        if (g && typeof g.x === 'function') {
+          onDragMove?.(frame.id, g.x(), g.y(), e);
+        }
+      }}
+      onDragEnd={(e) => {
+        e.cancelBubble = true;
+        const g = e.currentTarget;
+        if (g && typeof g.x === 'function') {
+          onDragEnd?.(frame.id, g.x(), g.y());
+        }
+      }}
+    >
+      <Rect
+        key={`${frame.id}-border`}
+        id={frame.id}
+        ref={borderRef}
+        x={0}
+        y={0}
+        width={w}
+        height={h}
+        // Full-area hit target: the border always carries an effective
+        // fill so pressing ANYWHERE inside the frame grabs the whole
+        // block. An explicit 'transparent'/empty fill swaps to a
+        // near-invisible white (alpha 0.01) — visually identical, but
+        // Konva hit-tests it as solid, so interior presses never fall
+        // through to the canvas behind (which would start a marquee
+        // select instead of the frame drag).
+        fill={
+          frame.fill === 'transparent' || frame.fill === ''
+            ? 'rgba(255,255,255,0.01)'
+            : (frame.fill ?? 'rgba(241, 245, 249, 0.35)')
+        }
+        stroke={frame.stroke ?? '#94a3b8'}
+        strokeWidth={isFiniteNum(frame.strokeWidth) ? frame.strokeWidth : 2}
+        dash={frame.dash ?? [6, 6]}
+        cornerRadius={6}
+        strokeScaleEnabled={false}
+        opacity={konvaOpacity(frame.opacity)}
+        rotation={isFiniteNum(frame.rotation) ? frame.rotation : 0}
+        listening={!textMode}
+        onPointerDown={(e) => {
+          if (!selectMode) return;
+          // NOTE: deliberately NO e.cancelBubble here (nor in onMouseDown
+          // below). Konva arms the frame-group drag from a `mousedown`
+          // listener ON THE GROUP, which only fires if the press bubbles up
+          // from this border. Cancelling at the target phase silently kills
+          // group-drag initiation (mouse; touch uses touchstart and was
+          // unaffected). The stage handlers ignore non-stage targets, so
+          // bubbling is safe: no marquee starts, no deselect fires.
+          if (frame.id !== selectedId) onSelect?.(frame.id);
+          onShapeClick?.(e, frame.id);
+        }}
+        onMouseDown={(e) => {
+          if (!selectMode) return;
+          // See above: never cancel mousedown bubbling on frame parts —
+          // the draggable ancestor needs it to start the drag.
+          if (frame.id !== selectedId) onSelect?.(frame.id);
+        }}
+        onClick={(e) => {
+          e.cancelBubble = true;
+          onShapeClick?.(e, frame.id);
+        }}
+        onTap={(e) => {
+          e.cancelBubble = true;
+          onShapeClick?.(e, frame.id);
+        }}
+        onTransformEnd={() => onTransformEnd?.(frame.id)}
+      />
+      <Group
+        x={0}
+        y={-30}
+        listening={!textMode}
+        onClick={(e) => {
+          e.cancelBubble = true;
+          onShapeClick?.(e, frame.id);
+        }}
+        onTap={(e) => {
+          e.cancelBubble = true;
+          onShapeClick?.(e, frame.id);
+        }}
+      >
+        <Rect
+          width={tabW}
+          height={24}
+          fill={tabSelected ? '#3b82f6' : '#e2e8f0'}
+          cornerRadius={[6, 6, 0, 0]}
+        />
+        <Text
+          x={10}
+          y={5}
+          text={frameTitle}
+          fontSize={13}
+          fontFamily="sans-serif"
+          fontStyle="bold"
+          fill={tabSelected ? '#ffffff' : '#475569'}
+        />
+      </Group>
+      {members.map((m) => (
+        <Group key={`${m.id}__wrap`} x={-fx} y={-fy}>
+          <ShapeNode shape={m} {...childProps} />
+        </Group>
+      ))}
     </Group>
   );
 }
@@ -718,6 +915,13 @@ export default function ShapeRenderer({
   onDragMove,
   onTransformEnd,
   onTextDoubleClick,
+  // Hierarchical frame groups (FrameGroupNode): frames render with their
+  // geometric children nested in ONE draggable Konva Group, so frame drags
+  // move the block natively with zero React state mid-gesture. Disabled
+  // for the in-flight overlay (draft/peer-preview frames must stay flat —
+  // grouping committed shapes under an uncommitted frame would desync the
+  // two layers and jump on commit).
+  enableFrameGroups = true,
 }) {
   // Text-tool priority: while the text tool is active, existing shapes
   // neither intercept clicks (listening off → events reach the Stage,
@@ -730,21 +934,59 @@ export default function ShapeRenderer({
   // 'selection' is accepted as an alias of 'select' (spec + legacy callers).
   const selectMode = tool === 'select' || tool === 'selection';
 
-  return shapes.map((shape) => (
-    <ShapeNode
-      key={shape.id}
-      shape={shape}
-      selectedId={selectedId}
-      textMode={textMode}
-      selectMode={selectMode}
-      shapeNodesRef={shapeNodesRef}
-      onShapeClick={onShapeClick}
-      onSelect={onSelect}
-      onDragEnd={onDragEnd}
-      onDragStart={onDragStart}
-      onDragMove={onDragMove}
-      onTransformEnd={onTransformEnd}
-      onTextDoubleClick={onTextDoubleClick}
-    />
-  ));
+  const nodeProps = {
+    selectedId,
+    textMode,
+    selectMode,
+    shapeNodesRef,
+    onShapeClick,
+    onSelect,
+    onDragEnd,
+    onDragStart,
+    onDragMove,
+    onTransformEnd,
+    onTextDoubleClick,
+  };
+
+  if (!enableFrameGroups) {
+    return shapes.map((shape) => (
+      <ShapeNode key={shape.id} shape={shape} {...nodeProps} />
+    ));
+  }
+
+  // Partition into top-level nodes + frame members (same rule as
+  // `frameMembers` in utils/shapes.js: first containing frame wins).
+  // Members render inside their host's FrameGroupNode; the offset wrapper
+  // keeps their NODES in world coordinates, so every drag/commit path
+  // reads positions exactly as before.
+  const claimed = new Set();
+  const byFrame = new Map();
+  const frames = (shapes ?? []).filter((s) => s && s.type === 'frame' && !s.remotePreview);
+  for (const s of shapes ?? []) {
+    if (!s || s.remotePreview || s.type === 'frame') continue;
+    const host = frames.find((f) => {
+      if (claimed.has(s.id)) return false;
+      return frameMembers([s], f).length > 0;
+    });
+    if (host) {
+      claimed.add(s.id);
+      if (!byFrame.has(host.id)) byFrame.set(host.id, []);
+      byFrame.get(host.id).push(s);
+    }
+  }
+  return (shapes ?? []).map((shape) => {
+    if (!shape) return null;
+    if (shape.type === 'frame' && !shape.remotePreview) {
+      return (
+        <FrameGroupNode
+          key={shape.id}
+          frame={shape}
+          members={byFrame.get(shape.id) ?? []}
+          {...nodeProps}
+        />
+      );
+    }
+    if (claimed.has(shape.id)) return null; // rendered inside its host frame
+    return <ShapeNode key={shape.id} shape={shape} {...nodeProps} />;
+  });
 }

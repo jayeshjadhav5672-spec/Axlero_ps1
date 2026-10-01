@@ -10,7 +10,7 @@ export default function MermaidModal({ open, onClose, onCompile, styleDefaults }
   const [source, setSource] = useState(MERMAID_PLACEHOLDER);
   const [error, setError] = useState('');
 
-  // Escape closes the dialog (global tool shortcuts ignore keystrokes
+  // Escape closes the dialog (global canvas hotkeys ignore keystrokes
   // from TEXTAREA, so no conflict with canvas shortcuts).
   useEffect(() => {
     if (!open) return undefined;
