@@ -18,7 +18,24 @@
 
 import { isValidShape, serializeShapes } from '../components/canvas/utils/shapes.js';
 
-export const WHITEBOARD_OPS = ['create', 'update', 'delete', 'clear', 'reorder'];
+export const WHITEBOARD_OPS = ['create', 'update', 'update-many', 'delete', 'clear', 'reorder'];
+
+// Cap mirrors the server's MAX_BATCH_SHAPES so a batch the client sends
+// is one the server will relay and snapshot.
+export const MAX_BATCH_UPDATES = 500;
+
+/**
+ * Adapt a flat store batch ([{ id, ...changes }], as produced by
+ * `commitUpdates`) to the nested shell op form ([{ id, changes }]).
+ * This translation is load-bearing: the shell and `update-many`
+ * validation read `entry.changes`, so passing flat entries through
+ * silently drops the entire batch (peers observe nothing).
+ */
+export function toBatchUpdates(flatBatch) {
+  return (Array.isArray(flatBatch) ? flatBatch : [])
+    .filter((u) => u && typeof u.id === 'string')
+    .map(({ id, ...changes }) => ({ id, changes }));
+}
 
 /** Structural validation for an inbound whiteboard op. */
 export function isValidWhiteboardOp(op) {
@@ -38,6 +55,25 @@ export function isValidWhiteboardOp(op) {
       );
     case 'delete':
       return typeof op.shapeId === 'string' && op.shapeId.length > 0;
+    case 'update-many': {
+      // Atomic multi-shape update (frame drags: frame + translated
+      // children + arrow follows in ONE op). Receivers apply every entry
+      // in a single pass so peers never observe a half-moved block.
+      if (!Array.isArray(op.updates) || op.updates.length === 0) return false;
+      if (op.updates.length > MAX_BATCH_UPDATES) return false;
+      return op.updates.every(
+        (u) =>
+          u &&
+          typeof u === 'object' &&
+          !Array.isArray(u) &&
+          typeof u.shapeId === 'string' &&
+          u.shapeId.length > 0 &&
+          !!u.changes &&
+          typeof u.changes === 'object' &&
+          !Array.isArray(u.changes) &&
+          Object.keys(u.changes).length > 0,
+      );
+    }
     case 'clear':
       return true;
     case 'reorder':
@@ -74,6 +110,15 @@ export function applyWhiteboardOp(shapes, op, selfId) {
     case 'delete':
       if (!list.some((s) => s && s.id === op.shapeId)) return { shapes: list, applied: false };
       return { shapes: list.filter((s) => !s || s.id !== op.shapeId), applied: true };
+    case 'update-many': {
+      const ids = new Set(op.updates.map((u) => u.shapeId));
+      if (!list.some((s) => s && ids.has(s.id))) return { shapes: list, applied: false };
+      const byId = new Map(op.updates.map((u) => [u.shapeId, u.changes]));
+      return {
+        shapes: list.map((s) => (s && byId.has(s.id) ? { ...s, ...byId.get(s.id) } : s)),
+        applied: true,
+      };
+    }
     case 'clear':
       return list.length === 0 ? { shapes: list, applied: false } : { shapes: [], applied: true };
     case 'reorder':

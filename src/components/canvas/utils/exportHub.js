@@ -169,16 +169,44 @@ export function exportJSON(shapes, filename = 'syncspace-board.json') {
   return clean.length;
 }
 
-function stageDataURL(stage, { mimeType, pixelRatio = 2, bounds } = {}) {
+/**
+ * Cropped stage capture. Exported for unit tests (stub-stage friendly:
+ * pure Konva surface, no DOM). `bounds` are WORLD coords and are mapped
+ * through the live pan/zoom into Konva's viewport-pixel crop frame.
+ */
+export function stageDataURL(stage, { mimeType, pixelRatio = 2, bounds } = {}) {
   if (!stage || typeof stage.toDataURL !== 'function') {
     throw new Error('Canvas not ready');
   }
   const opts = { pixelRatio, mimeType };
   if (bounds && Number.isFinite(bounds.x)) {
-    opts.x = bounds.x;
-    opts.y = bounds.y;
-    opts.width = Math.max(1, Math.ceil(bounds.width));
-    opts.height = Math.max(1, Math.ceil(bounds.height));
+    // World -> viewport mapping: Konva's toDataURL crop frame ({x, y,
+    // width, height}) lives in STAGE PIXEL space — the context is
+    // translated by (-x, -y) and then the stage draws WITH its own
+    // pan/zoom transform applied (see Konva's _toKonvaCanvas). Passing
+    // world-space content bounds straight through is only correct at
+    // scale 1 + zero pan; any zoom or pan shifts the crop and slices
+    // shapes in half. Map through the live viewport first so the export
+    // captures every drawing in full regardless of pan or zoom.
+    let sx = 1;
+    let sy = 1;
+    let px = 0;
+    let py = 0;
+    try {
+      const kx = stage.scaleX?.();
+      const ky = stage.scaleY?.();
+      const pos = stage.position?.();
+      if (Number.isFinite(kx) && kx !== 0) sx = kx;
+      if (Number.isFinite(ky) && ky !== 0) sy = ky;
+      if (Number.isFinite(pos?.x)) px = pos.x;
+      if (Number.isFinite(pos?.y)) py = pos.y;
+    } catch {
+      // best-effort; raw-bounds fallback below still exports something
+    }
+    opts.x = bounds.x * sx + px;
+    opts.y = bounds.y * sy + py;
+    opts.width = Math.max(1, Math.ceil(bounds.width * sx));
+    opts.height = Math.max(1, Math.ceil(bounds.height * sy));
   }
   let url;
   try {
@@ -228,8 +256,10 @@ async function flattenOverBackground(pngDataUrl, background = '#ffffff', mime = 
  * viewers render as solid black.
  *
  * When `bounds` (world coords) is provided, the stage capture is cropped
- * via `stage.toDataURL({ x, y, width, height, pixelRatio: 2 })` so the
- * export is auto-cropped to content instead of the raw infinite viewport.
+ * via `stage.toDataURL({ x, y, width, height, pixelRatio: 2 })` after
+ * mapping world -> viewport through the live pan/zoom (see stageDataURL),
+ * so the export is auto-cropped to content instead of the raw infinite
+ * viewport — at any pan or zoom.
  */
 async function whitePngDataURL({ stage, domCanvas }, pixelRatio = 2, bounds = null) {
   if (stage) {
@@ -296,8 +326,9 @@ function assertExportable(resolved) {
  * PNG: white-composited, auto-cropped capture from a React ref, a raw
  * Konva Stage, the stage registries, or the DOM canvas — in that order.
  * Content bounds come from `exportBounds(shapes)` with a 32px padding
- * margin and are passed into
- * `stage.toDataURL({ x, y, width, height, pixelRatio: 2 })`.
+ * margin and are mapped world -> viewport inside
+ * `stage.toDataURL({ x, y, width, height, pixelRatio: 2 })`, so pan/zoom
+ * never clips content.
  * Pass `selectedShapes` to export only the current selection
  * (`getSelectionBounds(selectedShapes, 20)`); falls back to the full
  * auto-cropped board when the selection is empty. Async (decodes the
@@ -525,9 +556,9 @@ export async function exportPDF(stageOrRef, shapes, filename = 'syncspace-board.
       Array.isArray(selectedShapes) ? serializeShapes(selectedShapes) : null,
       20,
     ) ?? exportBounds(clean, 32);
-    // Auto-cropped capture: bounds flow directly into
-    // stage.toDataURL({ x, y, width, height, pixelRatio: 2 }) via
-    // whitePngDataURL — no full-viewport capture + manual crop.
+    // Auto-cropped capture: world bounds are mapped through the live
+    // pan/zoom into stage.toDataURL({ x, y, width, height, pixelRatio: 2 })
+    // via whitePngDataURL — no full-viewport capture + manual crop.
     png = await whitePngDataURL(resolved, 2, bounds);
     pageW = bounds.width;
     pageH = bounds.height;
