@@ -41,6 +41,8 @@ export default function Workspace({
   onRetryEditor,
   onLeaveRoom,
   onShareRoom,
+  onRunCode = null,
+  isExecuting = false,
   className = '',
 }) {
   return (
@@ -85,6 +87,8 @@ export default function Workspace({
               isLoading={isEditorLoading}
               error={editorError}
               onRetry={onRetryEditor}
+              onRunCode={onRunCode}
+              isExecuting={isExecuting}
             >
               {editor}
             </CodeEditorPanel>
