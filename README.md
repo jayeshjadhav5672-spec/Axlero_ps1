@@ -32,7 +32,7 @@ Axlero SyncSpace is a multi-user room-based workspace. Each room pairs:
 - a **code editor pane** - a controlled editor surface synchronized across clients with revision reconciliation and room isolation;
 - **presence awareness** - live cursors, peer selection highlights, and a people panel, all transport-isolated per room.
 
-Synchronization runs over **two Socket.IO pipelines**: an *ephemeral* stream (cursor moves, in-progress stroke/drag previews, viewport mirrors — never persisted, never in history) and a *committed* mutation channel (creates, updates, deletes, multi-shape batch commits, clears, history syncs - applied to the in-memory room snapshot and recorded in local undo/redo).
+Synchronization runs over **two Socket.IO pipelines**: an *ephemeral* stream (cursor moves, in-progress stroke/drag previews, viewport mirrors - never persisted, never in history) and a *committed* mutation channel (creates, updates, deletes, multi-shape batch commits, clears, history syncs - applied to the in-memory room snapshot and recorded in local undo/redo).
 
 ---
 
