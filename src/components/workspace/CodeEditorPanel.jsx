@@ -352,6 +352,10 @@ export default function CodeEditorPanel({
   // clearCreateError }. Null only when the provider is absent (defensive
   // fallback renders the shared doc shell with creation disabled).
   project = null,
+  // Yjs collaboration from useCollaborativeYjs: { ready, texts, editFile,
+  // setCursor }. When ready, editor text comes from the shared Y.Text
+  // documents (CRDT-merged); otherwise the project fileTexts are used.
+  yjs = null,
   isLoading = false,
   error = null,
   onRetry,
@@ -449,11 +453,20 @@ export default function CodeEditorPanel({
   }, []);
 
   const handleCursorChange = useCallback((position) => {
-    setCursor({
+    const cursor = {
       lineNumber: Number(position?.lineNumber) || 1,
       column: Number(position?.column) || 1,
-    });
-  }, []);
+    };
+    setCursor(cursor);
+    // Yjs awareness (best-effort): room peers see which file/cursor this
+    // browser holds. Independent of the socket presence roster, which
+    // remains the membership/connection source of truth.
+    try {
+      yjs?.setCursor?.(cursor, activeId ?? null);
+    } catch {
+      // cursor broadcast - never throw into the editor
+    }
+  }, [yjs, activeId]);
 
   const handleEditorMount = useCallback((editor) => {
     editorInstanceRef.current = editor ?? null;
@@ -602,15 +615,22 @@ export default function CodeEditorPanel({
     setExpandedIds([]);
   }, []);
 
-  // Shared content edits (EVERY file, including the shared doc): local
-  // rev-bump + broadcast via the project hook. Never touches tree.
+  // Shared content edits (EVERY file, including the shared doc): the text
+  // enters the shared Y.Text as a character delta (CRDT merge, no
+  // overwrite) AND flows through the project hook (rev-bump + broadcast
+  // keeps server snapshots and legacy peers fresh). Never touches tree.
   const handleFileChange = useCallback((fileId, next) => {
+    try {
+      yjs?.editFile?.(fileId, next);
+    } catch {
+      // Yjs path - never throw into Monaco
+    }
     try {
       project?.onFileChange?.(fileId, next);
     } catch {
       // emit path - never throw into Monaco
     }
-  }, [project]);
+  }, [project, yjs]);
 
   // Creation target: selected folder, a file's parent, or the root.
   const creationParentId = useCallback(() => {
@@ -880,10 +900,15 @@ export default function CodeEditorPanel({
   // open file's SHARED text and change handler are injected on the SAME
   // element type at the SAME position, so Monaco is never recreated when
   // switching files.
+  // Editor text prefers the CRDT-merged Y.Text documents when ready;
+  // project fileTexts remain the fallback (join bootstrap, Yjs detached).
+  const yjsTexts = yjs && yjs.ready && yjs.texts && typeof yjs.texts === 'object' ? yjs.texts : null;
   let editorChild = null;
   if (activeFile) {
     const fileOverrides = {
-      value: project?.fileTexts?.[activeFile.id] ?? '',
+      value: (yjsTexts !== null && yjsTexts[activeFile.id] !== undefined
+        ? yjsTexts[activeFile.id]
+        : project?.fileTexts?.[activeFile.id]) ?? '',
       onChange: (next) => handleFileChange(activeFile.id, next),
       language: activeFile.id === SHARED_FILE_ID ? language : languageForFileName(activeFile.name),
     };
@@ -904,12 +929,12 @@ export default function CodeEditorPanel({
   // whenever the query, options, tree, or shared contents change, so peer
   // creates/edits/renames/deletes are reflected automatically.
   const searchResult = React.useMemo(
-    () => searchSharedProject(nodes, project?.fileTexts, debouncedQuery, {
+    () => searchSharedProject(nodes, { ...project?.fileTexts, ...yjsTexts }, debouncedQuery, {
       caseSensitive,
       wholeWord,
       useRegex,
     }),
-    [nodes, project?.fileTexts, debouncedQuery, caseSensitive, wholeWord, useRegex],
+    [nodes, project?.fileTexts, yjsTexts, debouncedQuery, caseSensitive, wholeWord, useRegex],
   );
   const searchStatusText = searchResult.error
     ? searchResult.error

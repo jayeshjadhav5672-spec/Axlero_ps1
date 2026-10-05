@@ -32,6 +32,10 @@ export default function Workspace({
   whiteboard,
   editor,
   project = null,
+  // Yjs collaboration state from useCollaborativeYjs (texts, edit entry
+  // point, awareness setters). Optional: CodeEditorPanel falls back to the
+  // project prop when Yjs is not ready.
+  yjs = null,
   editorLanguage,
   isWhiteboardLoading = false,
   isEditorLoading = false,
@@ -82,6 +86,7 @@ export default function Workspace({
               connectionStatus={connectionStatus}
               roomJoined={roomJoined}
               project={project}
+              yjs={yjs}
               isLoading={isEditorLoading}
               error={editorError}
               onRetry={onRetryEditor}

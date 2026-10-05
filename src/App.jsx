@@ -30,8 +30,8 @@ import ProfilePage from './components/auth/ProfilePage';
 import { Whiteboard } from './components/canvas';
 import CodeEditor from './components/editor/CodeEditor';
 import useRoomConnection from './hooks/useRoomConnection';
-import useCollaborativeWhiteboard from './hooks/useCollaborativeWhiteboard';
 import useCollaborativeProject from './hooks/useCollaborativeProject';
+import useCollaborativeYjs from './hooks/useCollaborativeYjs';
 import {
   buildRoomUrl,
   getOrCreateIdentity,
@@ -130,12 +130,28 @@ export default function App() {
   // Room-join confirmation (server ack), NOT transport state: shared-project
   // writes are only servable after the server ran socket.join(roomId).
   const roomJoined = joinedRoom === roomId;
-  const whiteboardSync = useCollaborativeWhiteboard({ socket, roomId, enabled: live });
-  // Shared room project: server-authoritative file tree + one LWW document
-  // per file (generalizes the legacy single-document transport; legacy
-  // clients without fileId still land on the shared document).
-  // useCollaborativeCode.js is intentionally left untouched (see report).
+  // Shared room project: server-authoritative file tree + snapshots for
+  // late joiners + legacy wire compat (generalizes the legacy
+  // single-document transport; legacy clients without fileId still land on
+  // the shared document). useCollaborativeCode.js is intentionally left
+  // untouched (see report).
   const projectSync = useCollaborativeProject({ socket, roomId, enabled: live, joined: roomJoined });
+  // Yjs CRDT collaboration (text convergence + whiteboard convergence +
+  // awareness) on top of the same socket. File ids come from the
+  // authoritative project tree; texts seed from its fileTexts.
+  const yjsFileIds = useMemo(
+    () => (Array.isArray(projectSync.nodes) ? projectSync.nodes.map((n) => n && n.id).filter(Boolean) : []),
+    [projectSync.nodes],
+  );
+  const yjsSync = useCollaborativeYjs({
+    socket,
+    roomId,
+    identity,
+    enabled: live,
+    joined: roomJoined,
+    fileIds: yjsFileIds,
+    fileTexts: projectSync.fileTexts,
+  });
 
   const users = useMemo(() => presenceToUsers(presence), [presence]);
 
@@ -326,17 +342,23 @@ export default function App() {
               currentUserId={identity.userId}
               whiteboard={
                 <Whiteboard
-                  shapes={whiteboardSync.shapes}
+                  shapes={yjsSync.yjsShapes}
                   roomId={roomId}
-                  onShapeCreate={whiteboardSync.onShapeCreate}
-                  onShapeUpdate={whiteboardSync.onShapeUpdate}
-                  onShapeDelete={whiteboardSync.onShapeDelete}
-                  onCanvasClear={whiteboardSync.onCanvasClear}
-                  onShapesReorder={whiteboardSync.onShapesReorder}
+                  onShapeCreate={yjsSync.onShapeCreate}
+                  onShapeUpdate={yjsSync.onShapeUpdate}
+                  onShapeDelete={yjsSync.onShapeDelete}
+                  onCanvasClear={yjsSync.onCanvasClear}
+                  onShapesReorder={yjsSync.onShapesReorder}
                 />
               }
               editor={<CodeEditor />}
               project={projectSync}
+              yjs={{
+                ready: yjsSync.yjsReady,
+                texts: yjsSync.yjsFileTexts,
+                editFile: yjsSync.editYjsFile,
+                setCursor: yjsSync.setCursor,
+              }}
               onLeaveRoom={leaveRoom}
               onShareRoom={handleShareRoom}
             />

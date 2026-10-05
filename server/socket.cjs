@@ -754,6 +754,12 @@ function createSocketServer(httpServer, options = {}) {
     if (roomPresence.get(roomId).length === 0) roomPresence.delete(roomId);
     delete socket.data.roomId;
     broadcastPresence(roomId);
+    // Yjs awareness removal is best-effort and never breaks cleanup.
+    try {
+      broadcastAwarenessRemoval(socket, roomId);
+    } catch {
+      // ignore — presence cleanup already completed
+    }
   }
 
   function addToPresence(socket, roomId, payload) {
@@ -766,6 +772,199 @@ function createSocketServer(httpServer, options = {}) {
       roomId,
     });
     roomPresence.set(roomId, users);
+  }
+
+  // ---- Shared Yjs CRDT transport (room-scoped, opaque relay) ----
+  // Yjs doc updates + awareness travel as base64-in-JSON envelopes so the
+  // existing JSON size checks and room routing apply unchanged. The server
+  // NEVER parses CRDT content: it validates envelope shape/protocol,
+  // membership, and size, tracks awareness clocks for disconnect removal,
+  // and relays peer-to-peer (sender excluded). Unknown/invalid traffic is
+  // dropped or rejected loudly, never rebroadcast. No MongoDB: Yjs state
+  // is ephemeral and in-memory like every other realtime channel.
+  const YJS_PROTOCOL = "syncspace-yjs-1";
+  const YJS_UPDATE_EVENT = "yjs:update";
+  const YJS_AWARENESS_EVENT = "yjs:awareness";
+  const YJS_HELLO_EVENT = "yjs:hello";
+  const YJS_KINDS = new Set(["update", "sync-request", "sync-state", "awareness"]);
+  const MAX_AWARENESS_CLIENTS = 1000;
+  // Last-seen awareness clock per room per Yjs clientID, snooped from
+  // relayed yjs:awareness payloads. Needed so a server-generated removal
+  // update carries a clock peers accept (removals with a stale clock are
+  // ignored by Yjs). roomId -> Map(clientId -> clock).
+  const awarenessClocks = new Map();
+
+  // --- Minimal y-protocols awareness framing ---
+  // The server never parses awareness state content - it only tracks
+  // (clientId -> clock) from relayed payloads and hand-encodes removal
+  // updates, so abrupt disconnects don't leave stale "online" users.
+  // Wire format per client entry: varUint clientId, varUint clock,
+  // varString JSON state (null state = removal).
+  function readVarUint(bytes, pos) {
+    let value = 0;
+    let shift = 0;
+    while (pos < bytes.length) {
+      const byte = bytes[pos];
+      pos += 1;
+      value |= (byte & 0x7f) << shift;
+      if ((byte & 0x80) === 0) return [value >>> 0, pos];
+      shift += 7;
+      if (shift > 35) throw new Error("varUint overflow");
+    }
+    throw new Error("truncated varUint");
+  }
+
+  function readVarBuffer(bytes, pos) {
+    const [length, next] = readVarUint(bytes, pos);
+    pos = next;
+    if (length > bytes.length - pos) throw new Error("truncated buffer");
+    return [bytes.slice(pos, pos + length), pos + length];
+  }
+
+  function writeVarUint(value) {
+    const out = [];
+    let rest = value >>> 0;
+    while (rest > 0x7f) {
+      out.push(0x80 | (rest & 0x7f));
+      rest >>>= 7;
+    }
+    out.push(rest);
+    return out;
+  }
+
+  /** Extract [clientId, clock] pairs from a base64 awareness update. Never throws. */
+  function snoopAwarenessClocks(updateB64) {
+    try {
+      if (typeof updateB64 !== "string" || updateB64.length === 0) return [];
+      const bytes = Buffer.from(updateB64, "base64");
+      if (bytes.length === 0 || bytes.length > MAX_PAYLOAD_BYTES) return [];
+      let pos = 0;
+      const [count, afterCount] = readVarUint(bytes, 0);
+      pos = afterCount;
+      if (count > 10000) return [];
+      const pairs = [];
+      for (let i = 0; i < count; i += 1) {
+        const [clientId, afterId] = readVarUint(bytes, pos);
+        const [clock, afterClock] = readVarUint(bytes, afterId);
+        const [, afterState] = readVarBuffer(bytes, afterClock);
+        pos = afterState;
+        pairs.push([clientId, clock]);
+      }
+      return pairs;
+    } catch {
+      return [];
+    }
+  }
+
+  /** Encode a removal update (null state) for one client at the given clock. */
+  function encodeAwarenessRemoval(clientId, clock) {
+    const nullBytes = Buffer.from("null", "utf8");
+    const bytes = [
+      ...writeVarUint(1),
+      ...writeVarUint(clientId),
+      ...writeVarUint(clock),
+      ...writeVarUint(nullBytes.length),
+      ...nullBytes,
+    ];
+    return Buffer.from(bytes).toString("base64");
+  }
+
+  /** Record last-seen awareness clocks so removals use an accepted clock. */
+  function trackAwarenessClocks(socket, roomId, updateB64) {
+    const pairs = snoopAwarenessClocks(updateB64);
+    if (pairs.length === 0) return;
+    let roomClocks = awarenessClocks.get(roomId);
+    if (!roomClocks) {
+      roomClocks = new Map();
+      awarenessClocks.set(roomId, roomClocks);
+    }
+    // Authorship binding (anti-spoof): only clientIDs this socket actually
+    // authored through this server may later be removed on its behalf.
+    // A hello-claimed ID the socket never wrote can never evict anyone.
+    let authored = socket.data.yjsAuthored;
+    if (!(authored instanceof Set)) {
+      authored = new Set();
+      socket.data.yjsAuthored = authored;
+    }
+    for (const [clientId, clock] of pairs) {
+      const prev = roomClocks.get(clientId) || 0;
+      if (clock > prev) roomClocks.set(clientId, clock);
+      authored.add(clientId);
+      // Bound per-room clock state: rooms with pathological client counts
+      // evict the oldest entry instead of growing without limit. (Eviction
+      // only affects never-hello'd authors, which get no removal anyway.)
+      if (roomClocks.size > MAX_AWARENESS_CLIENTS) {
+        const oldest = roomClocks.keys().next();
+        if (!oldest.done) roomClocks.delete(oldest.value);
+      }
+    }
+  }
+
+  // If the socket registered a Yjs awareness clientID for this room
+  // (via yjs:hello), broadcast a removal update so remaining clients stop
+  // listing it - this covers explicit leave, room switch AND abrupt
+  // disconnect (removeFromPresence runs on all three paths). The removal
+  // clock is last-seen + 1 so peers accept it; state itself is never read.
+  // The mapping must ALSO be socket-authored (seen in this socket's own
+  // relayed updates): a hello-claimed ID the socket never wrote cannot
+  // evict the real owner.
+    function broadcastAwarenessRemoval(socket, roomId) {
+      const clientId = socket.data.yjsClientId;
+    delete socket.data.yjsClientId;
+    if (!Number.isInteger(clientId) || clientId < 0) return;
+    const authored = socket.data.yjsAuthored;
+    if (!(authored instanceof Set) || !authored.has(clientId)) return;
+    const roomClocks = awarenessClocks.get(roomId);
+    const lastClock = roomClocks ? roomClocks.get(clientId) || 0 : 0;
+    if (roomClocks) {
+      roomClocks.delete(clientId);
+      if (roomClocks.size === 0) awarenessClocks.delete(roomId);
+    }
+    try {
+      // to() excludes the leaving socket itself (matches relay
+      // semantics; avoids recreating a just-destroyed local Awareness).
+      socket.to(roomId).emit(YJS_AWARENESS_EVENT, {
+        roomId,
+        data: { protocol: YJS_PROTOCOL, kind: "awareness", update: encodeAwarenessRemoval(clientId, lastClock + 1) },
+      });
+    } catch {
+      // never break presence cleanup because of an encode/emit failure
+    }
+  }
+
+  /**
+   * Structural validation for an inbound Yjs envelope (doc or awareness).
+   * Mirrors the client-side isValidYjsEnvelope: protocol tag, known kind,
+   * and the required payload string for that kind. Returns true/false,
+   * never throws - callers reject invalid envelopes loudly.
+   */
+  function isValidYjsEnvelope(data) {
+    try {
+      if (!isPlainObject(data)) return false;
+      if (data.protocol !== YJS_PROTOCOL) return false;
+      if (typeof data.kind !== "string" || !YJS_KINDS.has(data.kind)) return false;
+      if (data.kind === "sync-request") {
+        return typeof data.stateVector === "string" && data.stateVector.length > 0;
+      }
+      return typeof data.update === "string" && data.update.length > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  function isYjsRoomMember(socket, roomId) {
+    try {
+      if (socket.rooms && typeof socket.rooms.has === "function") {
+        return socket.rooms.has(roomId);
+      }
+    } catch {
+      // fall through to the app-level tracker
+    }
+    try {
+      return socket.data.roomId === roomId;
+    } catch {
+      return false;
+    }
   }
 
   io.on("connection", (socket) => {
@@ -1011,6 +1210,60 @@ function createSocketServer(httpServer, options = {}) {
           }
           socket.to(socket.data.roomId).emit(event, {
             roomId: socket.data.roomId,
+            data: payload.data,
+            socketId: socket.id,
+          });
+        } catch (error) {
+          sendError(socket, event, error.message, error.code ?? "INVALID_PAYLOAD");
+        }
+      });
+    }
+
+
+    socket.on(YJS_HELLO_EVENT, (payload) => {
+      try {
+        if (!isPlainObject(payload) || !isValidRoomId(payload.roomId)) {
+          throw new Error("payload must include a valid roomId");
+        }
+        if (!isYjsRoomMember(socket, payload.roomId)) {
+          throw new Error("socket does not belong to this room");
+        }
+        const data = payload.data;
+        if (!isPlainObject(data) || data.protocol !== YJS_PROTOCOL || data.kind !== "hello") {
+          throw new Error("payload must be a Yjs hello envelope");
+        }
+        if (!Number.isInteger(data.clientId) || data.clientId < 0 || data.clientId > 4294967295) {
+          throw new Error("clientId must be a 32-bit unsigned integer");
+        }
+        // Mapping only - no broadcast. Peers learn this client through its
+        // regular awareness updates; the mapping lets the server broadcast
+        // a removal when this socket leaves or disconnects abruptly.
+        socket.data.yjsClientId = data.clientId;
+      } catch (error) {
+        sendError(socket, YJS_HELLO_EVENT, error.message, error.code ?? "INVALID_PAYLOAD");
+      }
+    });
+
+    for (const event of [YJS_UPDATE_EVENT, YJS_AWARENESS_EVENT]) {
+      socket.on(event, (payload) => {
+        try {
+          if (!isPlainObject(payload) || !isValidRoomId(payload.roomId)) {
+            throw new Error("payload must include a valid roomId");
+          }
+          if (!isYjsRoomMember(socket, payload.roomId)) {
+            throw new Error("socket does not belong to this room");
+          }
+          if (!isPlainObject(payload.data) || !hasAcceptableSize(payload.data)) {
+            throw new Error("payload must include acceptable data");
+          }
+          if (!isValidYjsEnvelope(payload.data)) {
+            throw new Error("payload must be a valid Yjs envelope");
+          }
+          if (event === YJS_AWARENESS_EVENT) {
+            trackAwarenessClocks(socket, payload.roomId, payload.data.update);
+          }
+          socket.to(payload.roomId).emit(event, {
+            roomId: payload.roomId,
             data: payload.data,
             socketId: socket.id,
           });
