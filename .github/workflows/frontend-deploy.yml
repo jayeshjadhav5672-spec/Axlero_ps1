@@ -64,9 +64,11 @@ jobs:
   deploy-production:
     name: Deploy to Production (main)
     needs: build
-    # Same credential guard as the backend workflow + preview job: without
-    # Cloudflare credentials the run skips instead of failing red on main.
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && secrets.CLOUDFLARE_API_TOKEN != ''
+    # Production deploy ONLY on merges to main. Credential presence is
+    # gated at the deploy STEP below: the `secrets` context is unavailable
+    # in job-level `if` expressions, so it must not appear here. Without
+    # Cloudflare credentials the step skips instead of failing red on main.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:
@@ -81,6 +83,9 @@ jobs:
           path: dist
 
       - name: Deploy to Cloudflare Pages (production)
+        # Fail-closed: both Cloudflare values are required; the step skips
+        # when either is absent. Secrets are only compared, never printed.
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -89,7 +94,10 @@ jobs:
   deploy-preview:
     name: Deploy Preview (PR)
     needs: build
-    if: github.event_name == 'pull_request' && secrets.CLOUDFLARE_API_TOKEN != ''
+    # Preview deploys run for PRs only. Credential presence is gated at
+    # the deploy STEP below: the `secrets` context is unavailable in
+    # job-level `if` expressions, so it must not appear here.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -102,6 +110,9 @@ jobs:
           path: dist
 
       - name: Deploy to Cloudflare Pages (preview)
+        # Fail-closed: both Cloudflare values are required; the step skips
+        # when either is absent. Secrets are only compared, never printed.
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

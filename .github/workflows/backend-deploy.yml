@@ -46,9 +46,11 @@ jobs:
   deploy:
     name: Deploy to Railway
     needs: test
-    # Production deploy ONLY on merge to main with secrets present — PRs
-    # run the checks above without deploying.
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && secrets.RAILWAY_TOKEN != ''
+    # Production deploy ONLY on merges to main — PRs and manual dispatches
+    # run the checks above without deploying. Credential presence is gated
+    # at the deploy STEP below: the `secrets` context is unavailable in
+    # job-level `if` expressions, so it must not appear here.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -67,6 +69,9 @@ jobs:
         run: npm install -g @railway/cli
 
       - name: Deploy to Railway
+        # Fail-closed: without Railway credentials this step skips and
+        # nothing is deployed. Secrets are only compared, never printed.
+        if: env.RAILWAY_TOKEN != ''
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_SERVICE_NAME: ${{ secrets.RAILWAY_SERVICE_NAME }}
