@@ -46,9 +46,9 @@ jobs:
   deploy:
     name: Deploy to Railway
     needs: test
-    # Production deploy ONLY on push to main — PRs run checks above
-    # without deploying.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Production deploy ONLY on merge to main with secrets present — PRs
+    # run the checks above without deploying.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && secrets.RAILWAY_TOKEN != ''
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
