@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import useWhiteboardState from './hooks/useWhiteboardState.js';
+import { isEditableTarget } from './hooks/useCanvasHotkeys.js';
 import { autoStraightenStroke } from './utils/shapeRecognition.js';
 import { snapMovingShape } from './utils/snapping.js';
 import {
@@ -2173,8 +2174,7 @@ export default function useCanvasDrawing({
   useEffect(() => {
     const onKeyDown = (event) => {
       if (textEditor) return; // overlay handles its own keys
-      const tag = document.activeElement?.tagName;
-      if (tag === 'TEXTAREA' || tag === 'INPUT') return;
+      if (isEditableTarget(event)) return; // Monaco/inputs keep Backspace/Escape/brackets
       const currentSelection = selectedIdRef.current;
       if ((event.key === 'Backspace' || event.key === 'Delete') && currentSelection) {
         event.preventDefault();
@@ -2204,8 +2204,7 @@ export default function useCanvasDrawing({
       if (!event.metaKey && !event.ctrlKey) return;
       if (event.altKey) return;
       if (textEditor) return;
-      const tag = document.activeElement?.tagName;
-      if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT') return;
+      if (isEditableTarget(event)) return; // Monaco keeps its own undo/redo
       const k = event.key.toLowerCase();
       if (k === 'z' && !event.shiftKey) {
         event.preventDefault();
