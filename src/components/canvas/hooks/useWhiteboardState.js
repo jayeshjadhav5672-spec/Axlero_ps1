@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { applyBatchUpdates, isValidShape, normalizeShape, serializeShape, serializeShapes } from '../utils/shapes.js';
-import { toBatchUpdates } from '../../../lib/collabOps.js';
 import useCanvasHistory, { HISTORY_LIMIT } from './useCanvasHistory.js';
 
 /**

@@ -132,7 +132,7 @@ export function exportBounds(shapes, padding = 32) {
     // Frames are layout guides, not content — exclude them from the
     // exported bounds so empty frames don't inflate the document.
     if (s?.type === 'frame') continue;
-    if (!Number.isFinite(b.x) || !Number.isFinite(b.y)) continue;
+    if (!Number.isFinite(b.x) || !Number.isFinite(b.y) || !Number.isFinite(b.width) || !Number.isFinite(b.height)) continue;
     minX = Math.min(minX, b.x);
     minY = Math.min(minY, b.y);
     maxX = Math.max(maxX, b.x + b.width);

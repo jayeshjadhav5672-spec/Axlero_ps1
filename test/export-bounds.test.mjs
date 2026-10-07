@@ -98,4 +98,17 @@ describe('export content bounds', () => {
   it('stageDataURL throws readably with no stage', () => {
     assert.throws(() => stageDataURL(null, {}), /Canvas not ready/);
   });
+
+  it('exportBounds skips shapes with non-finite dimensions', () => {
+    const bounds = exportBounds([
+      RECT,
+      { id: 'shape-nan', type: 'rectangle', x: 0, y: 0, width: NaN, height: 50 },
+      { id: 'shape-nan2', type: 'rectangle', x: 0, y: 0, width: 10, height: Infinity },
+    ]);
+    // Only RECT contributes: x 10..110, y 20..70, padding 32.
+    assert.equal(bounds.x, 10 - 32);
+    assert.equal(bounds.y, 20 - 32);
+    assert.equal(bounds.width, 100 + 64);
+    assert.equal(bounds.height, 50 + 64);
+  });
 });

@@ -49,7 +49,6 @@ jobs:
       - name: Verify production build
         env:
           VITE_BACKEND_URL: ${{ secrets.VITE_BACKEND_URL }}
-          VITE_SOCKET_URL: ${{ secrets.VITE_SOCKET_URL }}
           # Legacy alias honored by src/lib/socket.js + src/lib/auth.js.
           VITE_SYNCSPACE_SERVER_URL: ${{ secrets.VITE_BACKEND_URL }}
         run: npm run build
@@ -65,7 +64,9 @@ jobs:
   deploy-production:
     name: Deploy to Production (main)
     needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # Same credential guard as the backend workflow + preview job: without
+    # Cloudflare credentials the run skips instead of failing red on main.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && secrets.CLOUDFLARE_API_TOKEN != ''
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:
