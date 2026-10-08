@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { isValidShape, normalizeShape, serializeShape, serializeShapes } from '../utils/shapes.js';
+import { applyBatchUpdates, isValidShape, normalizeShape, serializeShape, serializeShapes } from '../utils/shapes.js';
 import useCanvasHistory, { HISTORY_LIMIT } from './useCanvasHistory.js';
 
 /**
@@ -59,6 +59,11 @@ export default function useWhiteboardState({
   selectedShapeId: controlledSelection,
   onShapeCreate,
   onShapeUpdate,
+  // Atomic batch channel for multi-shape commits (frame drags). When the
+  // shell provides it, `commitUpdates` propagates the whole batch in ONE
+  // call instead of N per-shape `onShapeUpdate` calls, so peers apply the
+  // block in a single pass and never observe a half-moved frame.
+  onShapesBatchUpdate,
   onShapeDelete,
   onCanvasClear,
   onSelectionChange,
@@ -156,6 +161,50 @@ export default function useWhiteboardState({
       if (!fromRemote) emitUnified('shapes:update-batch', { shapes: [{ id: shapeId, ...clean }] });
     },
     [isControlled, onShapeUpdate, recordHistory, shapes, emitUnified],
+  );
+
+  /**
+   * Batched multi-shape commit: one coherent snapshot for N dependent
+   * updates (e.g. frame drops, group drags, bound-arrow follows). Every
+   * entry derives from the SAME base array via applyBatchUpdates, so
+   * updates can never clobber one another the way sequential per-shape
+   * commits against a stale closure can. Exactly one history entry covers
+   * the whole batch; in controlled mode the shell receives ONE
+   * `onShapesBatchUpdate` call (peers apply it in a single pass — a frame
+   * and its children are never observed half-moved), with per-shape
+   * `onShapeUpdate` fallback; uncontrolled mode emits one
+   * `shapes:update-batch` broadcast. Same socket protocol as commitUpdate —
+   * receivers merge the entry list identically.
+   */
+  const commitUpdates = useCallback(
+    (updates, { fromRemote = false } = {}) => {
+      if (!Array.isArray(updates) || updates.length === 0) return;
+      const clean = [];
+      for (const u of updates) {
+        if (!u || typeof u.id !== 'string' || !u.id) continue;
+        if (!u.changes || typeof u.changes !== 'object' || Object.keys(u.changes).length === 0) continue;
+        const ser = serializeShape(withNormalizedOpacity(u.changes));
+        if (!ser) continue;
+        clean.push({ id: u.id, changes: ser });
+      }
+      if (clean.length === 0) return;
+
+      const next = applyBatchUpdates(shapes ?? [], clean);
+      if (!isControlled) setInternalShapes(next);
+      recordHistory(next);
+
+      if (typeof onShapesBatchUpdate === 'function') {
+        onShapesBatchUpdate(clean);
+      } else {
+        for (const { id, changes } of clean) onShapeUpdate?.(id, changes);
+      }
+
+      if (!fromRemote) {
+        const batch = clean.map(({ id, changes }) => ({ id, ...changes }));
+        emitUnified('shapes:update-batch', { shapes: batch });
+      }
+    },
+    [isControlled, onShapeUpdate, onShapesBatchUpdate, recordHistory, shapes, emitUnified],
   );
 
   const commitDelete = useCallback(
@@ -457,6 +506,7 @@ export default function useWhiteboardState({
     isControlled,
     commitCreate,
     commitUpdate,
+    commitUpdates,
     commitDelete,
     deleteShape,
     selectShape,

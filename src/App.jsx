@@ -330,6 +330,7 @@ export default function App() {
                   roomId={roomId}
                   onShapeCreate={whiteboardSync.onShapeCreate}
                   onShapeUpdate={whiteboardSync.onShapeUpdate}
+                  onShapesBatchUpdate={whiteboardSync.onShapesBatchUpdate}
                   onShapeDelete={whiteboardSync.onShapeDelete}
                   onCanvasClear={whiteboardSync.onCanvasClear}
                   onShapesReorder={whiteboardSync.onShapesReorder}

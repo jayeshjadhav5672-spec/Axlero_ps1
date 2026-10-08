@@ -50,12 +50,13 @@ function parseAllowedOrigins(raw) {
 }
 
 /**
- * True when running in a production deployment. Checks BOTH signals
- * because Render.com does not guarantee NODE_ENV=production on every
- * service, but it always sets RENDER=true on hosted services:
+ * True when running in a production deployment. Checks ALL signals
+ * because hosts do not guarantee NODE_ENV=production on every service:
  *
  * - NODE_ENV === "production" → production (explicit).
  * - RENDER === "true"         → production (Render-hosted service).
+ * - RAILWAY_ENVIRONMENT set   → production (Railway-hosted service sets
+ *   RAILWAY_ENVIRONMENT / RAILWAY_ENVIRONMENT_NAME, never RENDER).
  * - anything else             → development (local dev, CI, tests).
  *
  * Exported for tests. Accepts an env-like object for hermetic testing.
@@ -64,6 +65,7 @@ function isProductionEnv(env = process.env) {
   if (!env || typeof env !== "object") return false;
   if (env.NODE_ENV === "production") return true;
   if (env.RENDER === "true") return true;
+  if (env.RAILWAY_ENVIRONMENT || env.RAILWAY_ENVIRONMENT_NAME) return true;
   return false;
 }
 

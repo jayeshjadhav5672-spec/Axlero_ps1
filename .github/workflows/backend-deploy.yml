@@ -1,0 +1,78 @@
+name: Backend — Test & Deploy to Railway
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - 'package.json'
+      - '.github/workflows/backend-deploy.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - 'package.json'
+      - '.github/workflows/backend-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test & Validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run server tests
+        run: npm test
+
+  deploy:
+    name: Deploy to Railway
+    needs: test
+    # Production deploy ONLY on merges to main — PRs and manual dispatches
+    # run the checks above without deploying. Credential presence is gated
+    # at the deploy STEP below: the `secrets` context is unavailable in
+    # job-level `if` expressions, so it must not appear here.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_ENV: production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy to Railway
+        # Fail-closed: without Railway credentials this step skips and
+        # nothing is deployed. Secrets are only compared, never printed.
+        if: env.RAILWAY_TOKEN != ''
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_SERVICE_NAME: ${{ secrets.RAILWAY_SERVICE_NAME }}
+        run: railway up --service "${RAILWAY_SERVICE_NAME:-backend}" --detach
