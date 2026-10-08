@@ -266,7 +266,7 @@ const CAPABILITIES = [
 
 const HOW_IT_WORKS = [
   { title: 'Create or join a room', body: 'Pick a room ID and open your workspace.' },
-  { title: 'Invite your team', body: 'Share the room link with collaborators.' },
+  { title: 'Invite your team', body: 'Share the room ID with collaborators.' },
   { title: 'Whiteboard and code together', body: 'Sketch and implement in real time.' },
 ];
 

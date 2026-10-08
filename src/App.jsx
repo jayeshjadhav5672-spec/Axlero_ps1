@@ -140,18 +140,19 @@ export default function App() {
   const users = useMemo(() => presenceToUsers(presence), [presence]);
 
   const handleShareRoom = () => {
-    const url = buildRoomUrl(roomId);
+    // Share copies ONLY the room ID (users join by pasting it into the
+    // dashboard Join input). buildRoomUrl stays for navigation/joining.
     try {
       if (navigator.clipboard?.writeText) {
         navigator.clipboard
-          .writeText(url)
-          .then(() => setShareNote('Invite link copied'))
-          .catch(() => setShareNote(url));
+          .writeText(roomId)
+          .then(() => setShareNote('Room ID copied'))
+          .catch(() => setShareNote(roomId));
       } else {
-        setShareNote(url);
+        setShareNote(roomId);
       }
     } catch {
-      setShareNote(url);
+      setShareNote(roomId);
     }
   };
 

@@ -118,7 +118,7 @@ export function presenceToUsers(presence) {
   });
 }
 
-/** Shareable URL for a room (used by the invite/copy-link button). */
+/** Shareable URL for a room (used for navigation/joining, not for sharing — the Share button copies the room ID). */
 export function buildRoomUrl(roomId) {
   try {
     const url = new URL(window.location.href);
