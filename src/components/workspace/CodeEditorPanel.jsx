@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Play, Loader2, Trash2, X } from 'lucide-react';
 import { ensureSharedNode } from '../../lib/projectSync.js';
 import {
   SHARED_FILE_ID,
@@ -357,14 +356,6 @@ export default function CodeEditorPanel({
   error = null,
   onRetry,
   className = '',
-  // VS Code-style "Run Code" editor action (top-right of the tab bar).
-  // Click-only: no keyboard shortcuts are bound. When provided, the button
-  // calls onRunCode(activeFile); otherwise it is a presentational affordance
-  // that stays disabled-safe. isExecuting (alias: isRunning) drives the
-  // spinner/disabled state while code runs.
-  onRunCode = null,
-  isExecuting = false,
-  isRunning: isRunningProp = false,
 }) {
   const sectionRef = useRef(null);
   const slotRef = useRef(null);
@@ -605,102 +596,6 @@ export default function CodeEditorPanel({
   const toggleFolder = useCallback((id) => {
     setExpandedIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
   }, []);
-
-  // Code-runner affordance: click-only (no keyboard shortcuts). Opens the
-  // output console, captures console.log output via a sandboxed runner, and
-  // populates `output`. Also forwards to the optional host `onRunCode`
-  // handler. Never touches tabs, Monaco sync, or collab hooks.
-  const [output, setOutput] = useState('');
-  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
-  const [isRunning, setIsRunning] = useState(false);
-  const isCodeRunning = Boolean(isExecuting || isRunningProp || isRunning);
-  const handleRunCode = useCallback(async () => {
-    if (isCodeRunning) return;
-    setIsTerminalOpen(true);
-    setIsRunning(true);
-    setOutput('');
-
-    const activeCode = project?.fileTexts?.[activeId] ?? '';
-    const activeLanguage = activeId ? languageForFileName(nodeById(activeId)?.name ?? '') : language;
-
-    const formatArg = (a) => {
-      if (typeof a === 'string') return a;
-      try {
-        return typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a);
-      } catch {
-        return String(a);
-      }
-    };
-
-    try {
-      // If a host execution handler is provided, give it first chance. When
-      // it returns a string (or { output, error }) use it directly.
-      if (onRunCode) {
-        try {
-          const hostResult = await onRunCode(activeId ? nodeById(activeId) : null);
-          if (typeof hostResult === 'string' && hostResult !== '') {
-            setOutput(hostResult);
-            return;
-          }
-          if (hostResult && typeof hostResult === 'object') {
-            const hostOutput = hostResult.output ?? hostResult.error ?? hostResult.stdout ?? hostResult.stderr;
-            if (typeof hostOutput === 'string' && hostOutput !== '') {
-              setOutput(hostOutput);
-              return;
-            }
-          }
-          // Host handler without a usable return value: fall through to the
-          // client-side runner below unless it already handled output via
-          // side effects. Only fall through when there is code to run.
-          if (hostResult !== undefined && hostResult !== null) return;
-        } catch (err) {
-          setOutput(`Error: ${err?.message ?? String(err)}`);
-          return;
-        }
-      }
-
-      // If connected to a backend execution route:
-      // const res = await fetch('/api/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: activeCode, language: activeLanguage }) });
-      // const data = await res.json();
-      // setOutput(data.output || data.error || 'Program finished with no output.');
-      // return;
-
-      // Client-side quick runner fallback (for JS/TS). Other languages need
-      // a backend runner service.
-      const lang = String(activeLanguage ?? '').toLowerCase();
-      if (lang && !['javascript', 'typescript'].includes(lang)) {
-        setOutput(`Execution for "${activeLanguage}" requires a backend runner service. Client-side runner supports JavaScript/TypeScript only.`);
-        return;
-      }
-
-      const logs = [];
-      const originalLog = console.log;
-      const originalError = console.error;
-      const originalWarn = console.warn;
-      console.log = (...args) => { logs.push(args.map(formatArg).join(' ')); };
-      console.error = (...args) => { logs.push(`[ERROR] ${args.map(formatArg).join(' ')}`); };
-      console.warn = (...args) => { logs.push(`[WARN] ${args.map(formatArg).join(' ')}`); };
-
-      try {
-        const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
-        const runFn = new AsyncFunction(activeCode);
-        const returned = await runFn();
-        if (returned !== undefined && logs.length === 0) {
-          logs.push(formatArg(returned));
-        }
-        setOutput(logs.join('\n') || 'Program executed successfully (no output).');
-      } catch (err) {
-        const trailing = logs.length > 0 ? `${logs.join('\n')}\n` : '';
-        setOutput(`${trailing}Error: ${err?.message ?? String(err)}`);
-      } finally {
-        console.log = originalLog;
-        console.error = originalError;
-        console.warn = originalWarn;
-      }
-    } finally {
-      setIsRunning(false);
-    }
-  }, [isCodeRunning, onRunCode, activeId, nodeById, project?.fileTexts, language]);
 
   const collapseAll = useCallback(() => {
     setSyncspaceExpanded(false);
@@ -1561,70 +1456,50 @@ export default function CodeEditorPanel({
 
         {/* Editor column: tabs + editor. No breadcrumbs - no hierarchy. */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[#1e1e1e]">
-          {/* File header bar: tabs (left) + VS Code-style Run Code action (far right). */}
-          <div className="flex h-9 shrink-0 items-stretch bg-[#252526]">
-            <div role="tablist" aria-label="Open documents" className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
-              {openFiles.map((file) => {
-                const isActive = file.id === activeId;
-                const isShared = file.id === SHARED_FILE_ID;
-                return (
-                  <div
-                    key={file.id}
-                    role="tab"
-                    aria-selected={isActive}
+          <div role="tablist" aria-label="Open documents" className="flex h-9 shrink-0 items-stretch overflow-x-auto bg-[#252526]">
+            {openFiles.map((file) => {
+              const isActive = file.id === activeId;
+              const isShared = file.id === SHARED_FILE_ID;
+              return (
+                <div
+                  key={file.id}
+                  role="tab"
+                  aria-selected={isActive}
+                  title={file.name}
+                  className={`relative flex min-w-0 max-w-52 shrink-0 items-center gap-2 px-3 text-[12px] ${
+                    isActive ? 'bg-[#1e1e1e] text-white' : 'text-[#858585] hover:text-white'
+                  }`}
+                >
+                  {isActive && (
+                    <span aria-hidden="true" className="absolute inset-x-0 top-0 h-px bg-teal-400" />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => activateFile(file.id)}
+                    aria-label={`Open ${file.name}`}
                     title={file.name}
-                    className={`relative flex min-w-0 max-w-52 shrink-0 items-center gap-2 px-3 text-[12px] ${
-                      isActive ? 'bg-[#1e1e1e] text-white' : 'text-[#858585] hover:text-white'
-                    }`}
+                    className="flex min-w-0 flex-1 items-center gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
                   >
-                    {isActive && (
-                      <span aria-hidden="true" className="absolute inset-x-0 top-0 h-px bg-teal-400" />
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => activateFile(file.id)}
-                      aria-label={`Open ${file.name}`}
-                      title={file.name}
-                      className="flex min-w-0 flex-1 items-center gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
-                    >
-                      <FileIcon color={isShared ? '#8db9e2' : colorForFileName(file.name)} />
-                      <span className="min-w-0 flex-1 truncate text-left">{file.name}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        closeTab(file.id);
-                      }}
-                      aria-label={`Close ${file.name}`}
-                      title={`Close ${file.name}`}
-                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[#858585] transition-colors hover:bg-[#2a2d2e] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
-                    >
-                      <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 6l12 12M18 6L6 18" />
-                      </svg>
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="ml-auto flex shrink-0 items-center pr-3">
-              <button
-                type="button"
-                onClick={handleRunCode}
-                disabled={isCodeRunning || !activeFile || isLoading}
-                title="Run Code"
-                aria-label={isCodeRunning ? 'Running code…' : activeFile ? `Run ${activeFile.name}` : 'Run Code'}
-                aria-disabled={isCodeRunning || !activeFile || isLoading || undefined}
-                className="rounded p-1.5 text-zinc-400 transition-colors hover:bg-zinc-800/80 hover:text-green-400 active:bg-zinc-700/80 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-zinc-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
-              >
-                {isCodeRunning ? (
-                  <Loader2 size={15} className="animate-spin" aria-hidden="true" />
-                ) : (
-                  <Play size={15} aria-hidden="true" />
-                )}
-              </button>
-            </div>
+                    <FileIcon color={isShared ? '#8db9e2' : colorForFileName(file.name)} />
+                    <span className="min-w-0 flex-1 truncate text-left">{file.name}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      closeTab(file.id);
+                    }}
+                    aria-label={`Close ${file.name}`}
+                    title={`Close ${file.name}`}
+                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[#858585] transition-colors hover:bg-[#2a2d2e] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
+                  >
+                    <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                  </button>
+                </div>
+              );
+            })}
           </div>
 
           <div ref={slotRef} className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden">
@@ -1673,56 +1548,7 @@ export default function CodeEditorPanel({
                 </p>
               </div>
             )}
-            {editorChild && (
-              <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
-                <div className="min-h-0 w-full flex-1">{editorChild}</div>
-                {isTerminalOpen && (
-                  <div
-                    aria-label="Output console"
-                    className="flex max-h-64 shrink-0 flex-col overflow-hidden border-t border-zinc-800 bg-zinc-950"
-                  >
-                    <div className="flex shrink-0 items-center justify-between px-3 py-1.5">
-                      <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
-                        Output{isRunning ? ' — Running…' : ''}
-                      </span>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => setOutput('')}
-                          title="Clear output"
-                          aria-label="Clear output"
-                          className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
-                        >
-                          <Trash2 size={14} aria-hidden="true" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setIsTerminalOpen(false)}
-                          title="Close panel"
-                          aria-label="Close output panel"
-                          className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
-                        >
-                          <X size={14} aria-hidden="true" />
-                        </button>
-                      </div>
-                    </div>
-                    <div
-                      role="log"
-                      aria-live="polite"
-                      className="max-h-48 min-h-20 overflow-y-auto whitespace-pre-wrap bg-[#1e1e1e] p-3 font-mono text-xs text-zinc-300"
-                    >
-                      {isRunning && !output ? (
-                        <span className="text-zinc-500">Running script...</span>
-                      ) : output !== '' ? (
-                        output
-                      ) : (
-                        <span className="text-zinc-600">No output yet. Click Run to execute the active file.</span>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+            {editorChild}
           </div>
         </div>
       </div>

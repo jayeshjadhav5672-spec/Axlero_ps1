@@ -60,34 +60,6 @@ describe("applyRoomMutation (room snapshot reducer)", () => {
     assert.deepEqual(state.map((s) => s.id), ["b", "a"]);
   });
 
-  test("canvas:update update-many folds into the snapshot (frame drops persist)", () => {
-    const prev = [
-      { id: "frame-1", type: "frame", x: 0, y: 0 },
-      { id: "child-1", type: "rectangle", x: 10, y: 10 },
-      { id: "other", type: "rectangle", x: 500, y: 500 },
-    ];
-    const next = applyRoomMutation(prev, "canvas:update", {
-      op: "update-many",
-      updates: [
-        { shapeId: "frame-1", changes: { x: 100, y: 100 } },
-        { shapeId: "child-1", changes: { x: 110, y: 110 } },
-      ],
-    });
-    assert.equal(next.find((s) => s.id === "frame-1").x, 100);
-    assert.equal(next.find((s) => s.id === "child-1").y, 110);
-    assert.equal(next.find((s) => s.id === "other").x, 500);
-    // Entries for unknown ids are skipped; no known ids -> same ref.
-    assert.equal(
-      applyRoomMutation(prev, "canvas:update", {
-        op: "update-many",
-        updates: [{ shapeId: "ghost", changes: { x: 1 } }],
-      }),
-      prev
-    );
-    assert.equal(applyRoomMutation(prev, "canvas:update", { op: "update-many", updates: [] }), prev);
-    assert.equal(applyRoomMutation(prev, "canvas:update", { op: "update-many" }), prev);
-  });
-
   test("unknown events and garbage never mutate (same ref)", () => {
     const prev = [{ id: "a" }];
     assert.equal(applyRoomMutation(prev, "cursor:move", { x: 1, y: 2 }), prev);

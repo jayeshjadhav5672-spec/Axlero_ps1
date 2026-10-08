@@ -243,19 +243,6 @@ function applyRoomMutation(prevShapes, event, data) {
         if (!prev.some((s) => s.id === data.shapeId)) return prev;
         return prev.map((s) => (s.id === data.shapeId ? { ...s, ...data.changes } : s));
       }
-      if (data.op === "update-many" && isPlainObject(data) && Array.isArray(data.updates)) {
-        // Atomic multi-shape commit (frame drags). Entries referencing
-        // unknown ids are skipped; an op with no known ids changes nothing
-        // (same no-op contract as single-shape update above).
-        const byId = new Map();
-        for (const u of data.updates) {
-          if (isPlainObject(u) && typeof u.shapeId === "string" && isPlainObject(u.changes)) {
-            byId.set(u.shapeId, u.changes);
-          }
-        }
-        if (byId.size === 0 || !prev.some((s) => s && byId.has(s.id))) return prev;
-        return prev.map((s) => (s && byId.has(s.id) ? { ...s, ...byId.get(s.id) } : s));
-      }
       if (data.op === "delete" && typeof data.shapeId === "string") {
         const next = prev.filter((s) => s.id !== data.shapeId);
         return next.length === prev.length ? prev : next;

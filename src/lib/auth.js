@@ -7,18 +7,11 @@
  * resolution mirrors src/lib/socket.js so both point at the same host.
  */
 
-const API_BASE = (() => {
-  try {
-    const env = (typeof import.meta !== 'undefined' && import.meta.env) || {};
-    return (
-      env.VITE_BACKEND_URL ||
-      env.VITE_SYNCSPACE_SERVER_URL ||
-      'http://localhost:3000'
-    );
-  } catch {
-    return 'http://localhost:3000';
-  }
-})();
+const API_BASE =
+  (typeof import.meta !== 'undefined' &&
+    import.meta.env &&
+    import.meta.env.VITE_SYNCSPACE_SERVER_URL) ||
+  'http://localhost:3000';
 
 const SESSION_KEY = 'syncspace:auth';
 
