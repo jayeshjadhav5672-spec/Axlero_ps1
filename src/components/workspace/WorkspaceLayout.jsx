@@ -33,7 +33,7 @@ function SyncIndicator({ connectionStatus, syncState }) {
   const label = connectionStatus === 'connected' ? (syncState === 'saving' ? 'Syncing…' : 'Synced') : 'Offline';
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-semibold text-[#1e293b]"
+      className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-semibold text-[#0f172a]"
       role="status"
       aria-live="polite"
       title={label}
@@ -163,8 +163,7 @@ export default function WorkspaceLayout({
       >
         <span className="flex min-w-0 flex-1 items-center gap-2.5">
           <svg
-            className="h-5 w-5 shrink-0"
-            style={{ color: 'var(--accent-primary)' }}
+            className="h-5 w-5 shrink-0 text-[#0f172a]"
             fill="currentColor"
             viewBox="0 0 24 24"
             aria-hidden="true"
@@ -189,8 +188,7 @@ export default function WorkspaceLayout({
               aria-haspopup="dialog"
               aria-expanded={peopleOpen}
               aria-label={`People in this room, ${users.length} participant${users.length === 1 ? '' : 's'}`}
-              className="flex items-center rounded-full p-0.5 transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2"
-              style={{ ['--tw-ring-color']: 'var(--accent-primary)' }}
+              className="flex items-center rounded-full p-0.5 transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#111827]"
             >
               <PresenceList users={users} maxVisible={4} />
             </button>
@@ -209,10 +207,10 @@ export default function WorkspaceLayout({
               onClick={handleToggleSide}
               aria-expanded={sideOpen}
               aria-label={sideOpen ? `Hide ${sidePanelTitle}` : `Show ${sidePanelTitle}`}
-              className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4f46e5] ${
+              className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#111827] ${
                 sideOpen
-                  ? 'border-transparent bg-[#4f46e5] text-white hover:bg-[#4338ca]'
-                  : 'border-slate-200 bg-slate-100/80 text-slate-700 hover:bg-slate-200'
+                  ? 'border-transparent bg-[#111827] text-white hover:bg-[#374151]'
+                  : 'border-slate-200 bg-slate-100/80 text-[#0f172a] hover:bg-slate-200'
               }`}
             >
               {sidePanelTitle}

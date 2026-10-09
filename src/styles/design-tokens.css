@@ -40,7 +40,10 @@
   --accent-secondary: #6366f1;
   --accent-on-accent: #ffffff;
 
-  /* ---- Header actions (professional palette) ---- */
+  /* ---- Header actions (professional monochrome) ---- */
+  --action-ink: #111827;
+  --action-ink-hover: #374151;
+  --action-ink-text: #ffffff;
   --action-primary: #4f46e5;
   --action-primary-hover: #4338ca;
   --action-primary-tint: #eef2ff;
@@ -156,15 +159,15 @@
   border-radius: var(--radius-card);
 }
 
-/* Top header menu bar: frosted white glass. Translucent white blur over
-   whatever scrolls beneath, with dark high-contrast text (#0f172a /
-   #1e293b) for room IDs, status labels, and the title. */
+/* Top header menu bar: clean white glass. Bright translucent background
+   with dark high-contrast content (#0f172a) for room IDs, status labels,
+   title text, and icons. */
 .workspace-header-capsule {
-  background: rgba(255, 255, 255, 0.75);
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  background: rgba(255, 255, 255, 0.85);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
   border-radius: var(--radius-pill);
   color: #0f172a;
 }

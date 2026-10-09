@@ -13,11 +13,11 @@ import React from 'react';
 export default function RoomInfo({ roomId = 'demo-room', roomName, onLeave, onShare, className = '' }) {
   return (
     <div className={`flex min-w-0 items-center gap-2 ${className}`}>
-      <svg className="h-5 w-5 shrink-0 text-[#111111]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+      <svg className="h-5 w-5 shrink-0 text-[#0f172a]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
       </svg>
       <div className="min-w-0 leading-tight">
-        <p className="truncate text-[15px] font-semibold text-slate-800">{roomName || roomId}</p>
+        <p className="truncate text-[15px] font-semibold text-slate-900">{roomName || roomId}</p>
         {roomName ? (
           <p className="truncate font-mono text-xs text-slate-400">{roomId}</p>
         ) : (
@@ -30,7 +30,7 @@ export default function RoomInfo({ roomId = 'demo-room', roomName, onLeave, onSh
             <button
               type="button"
               onClick={onShare}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-transparent bg-[#eef2ff] px-3 py-2 text-sm font-semibold text-[#4f46e5] transition-colors hover:bg-[#4f46e5] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4f46e5] focus-visible:ring-offset-1"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-100/80 px-3 py-2 text-sm font-semibold text-[#0f172a] transition-colors hover:border-transparent hover:bg-[#111827] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#111827] focus-visible:ring-offset-1"
               aria-label="Copy room ID"
               title="Copy room ID"
             >
@@ -46,7 +46,7 @@ export default function RoomInfo({ roomId = 'demo-room', roomName, onLeave, onSh
               onClick={onLeave}
               aria-label="Leave room"
               title="Leave room"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#fecaca] bg-[#fee2e2] px-3.5 py-2 text-sm font-semibold text-[#991b1b] transition-colors hover:bg-[#fecaca] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#991b1b] focus-visible:ring-offset-1"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-transparent bg-[#111827] px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#374151] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#111827] focus-visible:ring-offset-1"
             >
               <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
