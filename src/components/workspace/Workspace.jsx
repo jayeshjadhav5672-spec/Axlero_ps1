@@ -6,10 +6,11 @@ import CodeEditorPanel from './CodeEditorPanel';
 /**
  * Workspace — Avantee (React UI / Frontend Engineer)
  *
- * Day 1: recomposed onto the floating WorkspaceLayout architecture. The
- * Konva canvas fills a full-screen viewport (`inset: 0`); the header is a
- * floating glass capsule; the code editor docks as a collapsible floating
- * panel; the right inspector drawer is reserved for shape selection.
+ * Day 1: recomposed onto the floating WorkspaceLayout architecture — a
+ * plain in-flow flex column (header capsule + canvas/code split row).
+ * Glassmorphism is scoped to the floating header capsule, bottom toolbar
+ * dock, and inspector drawer (all inside the canvas pane); the code editor
+ * stays a real side-by-side split pane and is never overlapped.
  *
  * Integration contract (unchanged):
  * - Sayon: pass <Whiteboard /> as `whiteboard` (owns its Toolbar +
@@ -55,7 +56,7 @@ export default function Workspace({
   syncState,
   sidePanelOpen,
   onToggleSidePanel,
-  defaultSidePanelOpen = false,
+  defaultSidePanelOpen = true,
   className = '',
 }) {
   return (
@@ -84,7 +85,6 @@ export default function Workspace({
           isLoading={isWhiteboardLoading}
           error={whiteboardError}
           onRetry={onRetryWhiteboard}
-          className="bg-transparent p-0 pl-0"
         >
           {whiteboard}
         </WhiteboardPanel>

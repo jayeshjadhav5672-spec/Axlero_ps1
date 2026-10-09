@@ -172,14 +172,19 @@
   border-radius: var(--radius-card);
 }
 
-/* Full-screen immersive canvas viewport (Konva stage mounts here). */
+/* Canvas pane: in-flow flex child of the workspace split row (NOT a
+   full-screen overlay). It fills its pane; floating chrome (toolbar dock,
+   inspector) positions itself inside this pane only. */
 .workspace-canvas-viewport {
-  position: absolute;
-  inset: 0;
+  position: relative;
+  display: flex;
+  flex: 1 1 0%;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
   overflow: hidden;
   background: var(--bg-canvas);
   overscroll-behavior: none;
-  touch-action: none;
 }
 
 /* Right contextual inspector: slides in when a shape is selected. */

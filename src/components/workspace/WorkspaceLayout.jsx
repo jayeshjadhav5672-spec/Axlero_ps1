@@ -2,26 +2,27 @@ import React, { useState } from 'react';
 import { ConnectionStatus } from '../connection';
 import { PeoplePanel, PresenceList } from '../presence';
 import { RoomInfo } from '../room';
+import WorkspaceSplitLayout from '../layout/WorkspaceSplitLayout';
 
 /**
  * WorkspaceLayout — Day 1 floating workspace architecture
- * (FigJam / Excalidraw-grade glassmorphism).
+ * (FigJam / Excalidraw-grade glassmorphism, scoped).
  *
- * Replaces the rigid sidebar/split-bar shell with floating layers over a
- * full-screen canvas viewport:
+ * Structure is a plain in-flow flex column — NEVER an absolute full-screen
+ * `inset: 0` root — so panels sit side-by-side instead of stacking:
  *
- * - Canvas viewport: absolute `inset: 0` — the Konva stage spans the whole
- *   window with no scrollbars (`workspace-canvas-viewport` token class).
- * - Top header capsule: floating pill with project title, room connection
- *   status, sync indicator, and presence avatars (`glass-dock`).
- * - Bottom toolbar dock: centered pill hovering over the canvas
- *   (`glass-dock`). Renders the `toolbarDock` slot when provided — the
- *   Whiteboard owns its own internal toolbar, so this is a reserved mount
- *   point, not a duplicate toolbar.
- * - Right inspector dock: collapsible glass drawer (`glass-card`) that
- *   slides in when a shape is selected (`workspace-inspector`).
- * - Optional `sidePanel` (e.g. code editor): collapsible floating card
- *   docked to the left so the canvas never reflows.
+ *   header capsule (in flow)
+ *   main split row: [ canvas pane (left/center, flex-1) | code pane (right) ]
+ *
+ * Glassmorphism tokens are scoped ONLY to floating chrome:
+ * - Top header capsule (`glass-dock` pill, in normal flow, centered).
+ * - Bottom toolbar dock (`glass-dock` pill, absolute *inside the canvas
+ *   pane only* — it can never cover the code editor panel).
+ * - Right inspector drawer (`glass-card`, absolute *inside the canvas
+ *   pane only*, slides in on selection and overlays just canvas pixels).
+ *
+ * The Whiteboard owns its internal Toolbar + PropertySidebar; the dock /
+ * inspector slots are reserved mount points, not duplicate chrome.
  *
  * All live data arrives via props — no Socket.io / Yjs / Konva logic here.
  */
@@ -66,22 +67,22 @@ export default function WorkspaceLayout({
   currentUserId = null,
   onLeaveRoom,
   onShareRoom,
-  /** Canvas content (Konva <Whiteboard />). Fills the viewport inset:0. */
+  /** Canvas content (Konva <Whiteboard />). Fills the canvas pane. */
   whiteboard = null,
-  /** Optional node mounted inside the floating bottom pill dock. */
+  /** Optional node mounted in the floating bottom pill dock (canvas pane). */
   toolbarDock = null,
-  /** Optional node mounted inside the right inspector drawer. */
+  /** Optional node mounted in the canvas-pane inspector drawer. */
   inspector = null,
   /** Selection-driven visibility for the inspector drawer. */
   hasSelection = false,
   inspectorOpen,
   onCloseInspector,
-  /** Optional collapsible floating panel (e.g. code editor). */
+  /** Code editor panel node (e.g. <CodeEditorPanel />). Right split pane. */
   sidePanel = null,
-  sidePanelTitle = 'Panel',
+  sidePanelTitle = 'Code Editor',
   sidePanelOpen: controlledSidePanelOpen,
   onToggleSidePanel,
-  defaultSidePanelOpen = false,
+  defaultSidePanelOpen = true,
   className = '',
 }) {
   const [peopleOpen, setPeopleOpen] = useState(false);
@@ -95,22 +96,74 @@ export default function WorkspaceLayout({
   const drawerOpen = inspectorOpen ?? hasSelection;
 
   const title = projectTitle ?? roomName ?? (roomId ? `Room ${roomId}` : 'Untitled board');
+  const showCodePane = Boolean(sidePanel) && sideOpen;
+
+  // Canvas pane: in-flow flex child. The toolbar dock + inspector are
+  // absolutely positioned *within this pane*, so they overlay only canvas
+  // pixels and can never hide the code editor or header.
+  const canvasPane = (
+    <div className="workspace-canvas-viewport" data-testid="workspace-canvas-viewport">
+      {whiteboard}
+
+      {toolbarDock && (
+        <div
+          className="glass-dock absolute bottom-4 left-1/2 z-20 max-w-[calc(100%-2rem)] -translate-x-1/2 px-3 py-2"
+          role="toolbar"
+          aria-label="Canvas tools"
+          data-testid="workspace-toolbar-dock"
+        >
+          {toolbarDock}
+        </div>
+      )}
+
+      <aside
+        aria-label="Shape properties"
+        data-open={drawerOpen}
+        className="workspace-inspector glass-card absolute bottom-4 right-3 top-3 z-10 flex w-[var(--inspector-w)] max-w-[calc(100%-1.5rem)] flex-col overflow-hidden"
+        style={{ borderRadius: 'var(--radius-panel)' }}
+        data-testid="workspace-inspector"
+        aria-hidden={!drawerOpen}
+      >
+        <div
+          className="flex items-center justify-between border-b px-4 py-2.5"
+          style={{ borderColor: 'var(--border-subtle)' }}
+        >
+          <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
+            Properties
+          </span>
+          {onCloseInspector && (
+            <button
+              type="button"
+              onClick={onCloseInspector}
+              aria-label="Close properties panel"
+              className="rounded-full px-2 py-1 text-xs transition-colors hover:opacity-80 focus-visible:outline-none focus-visible:ring-2"
+              style={{ color: 'var(--text-muted)', ['--tw-ring-color']: 'var(--accent-primary)' }}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-3">
+          {inspector ?? (
+            <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
+              Select a shape on the canvas to edit its properties.
+            </p>
+          )}
+        </div>
+      </aside>
+    </div>
+  );
 
   return (
     <div
-      className={`relative h-dvh max-h-dvh w-screen select-none overflow-hidden ${className}`}
+      className={`flex h-dvh max-h-dvh w-screen select-none flex-col overflow-hidden ${className}`}
       style={{ background: 'var(--bg-canvas)', color: 'var(--text-main)' }}
       data-testid="workspace-layout"
     >
-      {/* ---- Canvas viewport: full-screen absolute, no scrollbars ---- */}
-      <div className="workspace-canvas-viewport" data-testid="workspace-canvas-viewport">
-        {whiteboard}
-      </div>
-
-      {/* ---- Top floating header capsule ---- */}
+      {/* ---- Top floating header capsule (in flow — reserves its own row) ---- */}
       <header
         role="banner"
-        className="glass-dock absolute left-1/2 top-4 z-20 flex w-[calc(100%-2rem)] max-w-3xl -translate-x-1/2 flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5 sm:px-5"
+        className="glass-dock mx-auto mt-3 flex w-[calc(100%-2rem)] max-w-3xl shrink-0 flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5 sm:px-5"
         data-testid="workspace-header-capsule"
       >
         <span className="flex min-w-0 flex-1 items-center gap-2.5">
@@ -175,64 +228,14 @@ export default function WorkspaceLayout({
         </span>
       </header>
 
-      {/* ---- Optional floating side panel (code editor) ---- */}
-      {sidePanel && (
-        <aside
-          aria-label={sidePanelTitle}
-          data-open={sideOpen}
-          className="workspace-inspector glass-card absolute bottom-24 left-4 top-24 z-10 flex w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden"
-          style={{ borderRadius: 'var(--radius-panel)', transform: sideOpen ? undefined : 'translateX(calc(-100% - 24px))' }}
-          data-testid="workspace-side-panel"
-        >
-          {sidePanel}
-        </aside>
-      )}
-
-      {/* ---- Right contextual property inspector dock ---- */}
-      <aside
-        aria-label="Shape properties"
-        data-open={drawerOpen}
-        className="workspace-inspector glass-card absolute bottom-24 right-4 top-24 z-10 flex w-[var(--inspector-w)] max-w-[calc(100vw-2rem)] flex-col overflow-hidden"
-        style={{ borderRadius: 'var(--radius-panel)' }}
-        data-testid="workspace-inspector"
-        aria-hidden={!drawerOpen}
-      >
-        <div className="flex items-center justify-between border-b px-4 py-2.5" style={{ borderColor: 'var(--border-subtle)' }}>
-          <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
-            Properties
-          </span>
-          {onCloseInspector && (
-            <button
-              type="button"
-              onClick={onCloseInspector}
-              aria-label="Close properties panel"
-              className="rounded-full px-2 py-1 text-xs transition-colors hover:opacity-80 focus-visible:outline-none focus-visible:ring-2"
-              style={{ color: 'var(--text-muted)', ['--tw-ring-color']: 'var(--accent-primary)' }}
-            >
-              ✕
-            </button>
-          )}
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-3">
-          {inspector ?? (
-            <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
-              Select a shape on the canvas to edit its properties.
-            </p>
-          )}
-        </div>
-      </aside>
-
-      {/* ---- Floating bottom toolbar dock ---- */}
-      {toolbarDock && (
-        <div
-          className="glass-dock absolute bottom-5 left-1/2 z-20 max-w-[calc(100vw-2rem)] -translate-x-1/2 px-3 py-2"
-          role="toolbar"
-          aria-label="Canvas tools"
-          data-testid="workspace-toolbar-dock"
-        >
-          {toolbarDock}
-        </div>
-      )}
+      {/* ---- Main split: canvas (left/center) + code editor (right) ---- */}
+      <main id="workspace-content" className="flex min-h-0 w-full flex-1 flex-col overflow-hidden p-3">
+        {showCodePane ? (
+          <WorkspaceSplitLayout whiteboardComponent={canvasPane} codeEditorComponent={sidePanel} />
+        ) : (
+          <div className="flex min-h-0 w-full flex-1 flex-row overflow-hidden">{canvasPane}</div>
+        )}
+      </main>
     </div>
   );
 }
