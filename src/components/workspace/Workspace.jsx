@@ -1,18 +1,19 @@
 import React from 'react';
-import WorkspaceHeader from '../layout/WorkspaceHeader';
-import WorkspaceSplitLayout from '../layout/WorkspaceSplitLayout';
+import WorkspaceLayout from './WorkspaceLayout';
 import WhiteboardPanel from './WhiteboardPanel';
 import CodeEditorPanel from './CodeEditorPanel';
 
 /**
  * Workspace — Avantee (React UI / Frontend Engineer)
  *
- * Composes the collaborative workspace: header + whiteboard panel +
- * code editor panel. Pure UI composition — no Socket.io, Yjs, Konva
- * drawing, Monaco, or backend logic.
+ * Day 1: recomposed onto the floating WorkspaceLayout architecture. The
+ * Konva canvas fills a full-screen viewport (`inset: 0`); the header is a
+ * floating glass capsule; the code editor docks as a collapsible floating
+ * panel; the right inspector drawer is reserved for shape selection.
  *
- * Integration contract:
- * - Sayon: pass <Whiteboard /> as `whiteboard`
+ * Integration contract (unchanged):
+ * - Sayon: pass <Whiteboard /> as `whiteboard` (owns its Toolbar +
+ *   PropertySidebar internally; layout docks stay reserved, not duplicated)
  * - Kishan: pass <CodeEditor /> as `editor` (panel injects value/onChange)
  * - Shree: pass awareness users as `users`
  * - Arun: pass socket state as `connectionStatus`
@@ -43,58 +44,67 @@ export default function Workspace({
   onShareRoom,
   onRunCode = null,
   isExecuting = false,
+  // Reserved floating-dock slots. The Whiteboard renders its own toolbar +
+  // property sidebar, so these default to null (docks stay hidden) — pass
+  // explicit nodes to mount external chrome in the floating shells.
+  toolbarDock = null,
+  inspector = null,
+  hasSelection = false,
+  inspectorOpen,
+  onCloseInspector,
+  syncState,
+  sidePanelOpen,
+  onToggleSidePanel,
+  defaultSidePanelOpen = false,
   className = '',
 }) {
   return (
-    <div className={`h-dvh max-h-dvh w-screen flex flex-col overflow-hidden bg-white select-none ${className}`}>
-      {/* Top Navbar stays fixed at its natural height */}
-      <header className="shrink-0 border-b border-slate-200 bg-white z-20">
-        <WorkspaceHeader
-          roomId={roomId}
-          roomName={roomName}
+    <WorkspaceLayout
+      roomId={roomId}
+      roomName={roomName}
+      connectionStatus={connectionStatus}
+      syncState={syncState}
+      users={users}
+      currentUserId={currentUserId}
+      onLeaveRoom={onLeaveRoom}
+      onShareRoom={onShareRoom}
+      toolbarDock={toolbarDock}
+      inspector={inspector}
+      hasSelection={hasSelection}
+      inspectorOpen={inspectorOpen}
+      onCloseInspector={onCloseInspector}
+      sidePanelTitle="Code Editor"
+      sidePanelOpen={sidePanelOpen}
+      onToggleSidePanel={onToggleSidePanel}
+      defaultSidePanelOpen={defaultSidePanelOpen}
+      className={className}
+      whiteboard={
+        <WhiteboardPanel
+          title="Whiteboard"
+          isLoading={isWhiteboardLoading}
+          error={whiteboardError}
+          onRetry={onRetryWhiteboard}
+          className="bg-transparent p-0 pl-0"
+        >
+          {whiteboard}
+        </WhiteboardPanel>
+      }
+      sidePanel={
+        <CodeEditorPanel
+          title="Code Editor"
+          language={editorLanguage}
           connectionStatus={connectionStatus}
-          users={users}
-          currentUserId={currentUserId}
-          onLeaveRoom={onLeaveRoom}
-          onShareRoom={onShareRoom}
-        />
-      </header>
-
-      {/* Main split area occupies remaining vertical space with zero overflow.
-      Scoped split-pane: toolbar lives inside the whiteboard column
-      (Whiteboard owns its Toolbar), so it stretches/shrinks/follows its
-      parent pane on resize or swap. Layout is strictly local — no socket
-      emits, persisted per-browser via localStorage. */}
-      <main id="workspace-content" className="flex-1 min-h-0 w-full overflow-hidden flex flex-col">
-        <WorkspaceSplitLayout
-          whiteboardComponent={
-            <WhiteboardPanel
-              title="Whiteboard"
-              isLoading={isWhiteboardLoading}
-              error={whiteboardError}
-              onRetry={onRetryWhiteboard}
-            >
-              {whiteboard}
-            </WhiteboardPanel>
-          }
-          codeEditorComponent={
-            <CodeEditorPanel
-              title="Code Editor"
-              language={editorLanguage}
-              connectionStatus={connectionStatus}
-              roomJoined={roomJoined}
-              project={project}
-              isLoading={isEditorLoading}
-              error={editorError}
-              onRetry={onRetryEditor}
-              onRunCode={onRunCode}
-              isExecuting={isExecuting}
-            >
-              {editor}
-            </CodeEditorPanel>
-          }
-        />
-      </main>
-    </div>
+          roomJoined={roomJoined}
+          project={project}
+          isLoading={isEditorLoading}
+          error={editorError}
+          onRetry={onRetryEditor}
+          onRunCode={onRunCode}
+          isExecuting={isExecuting}
+        >
+          {editor}
+        </CodeEditorPanel>
+      }
+    />
   );
 }

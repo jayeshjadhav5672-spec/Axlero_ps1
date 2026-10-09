@@ -1,0 +1,207 @@
+/**
+ * SyncSpace / Axlero — Design Tokens (Day 1: glassmorphism foundation)
+ *
+ * Single source of truth for the floating workspace aesthetic. Light theme
+ * is the default (`:root`); dark theme activates via
+ * `[data-theme="dark"]` on <html> (with a `prefers-color-scheme` fallback
+ * for users who never toggle).
+ *
+ * Usage:
+ *   background: var(--bg-surface);
+ *   backdrop-filter: var(--glass-blur-value);
+ *   box-shadow: var(--shadow-floating);
+ *   border-radius: var(--radius-pill);
+ *
+ * NOTE: `--glass-blur` ships as a full `backdrop-filter` declaration for
+ * drop-in use (`backdrop-filter: var(--glass-blur, blur(12px))` is NOT
+ * needed — just write `backdrop-filter: var(--glass-blur-value)` or use
+ * the `.glass-panel` / `.glass-dock` helpers below). Both the shorthand
+ * (`--glass-blur: blur(12px)`) and the `-value` alias are provided so
+ * call sites from the spec (`var(--glass-blur)`) keep working.
+ */
+
+:root {
+  /* ---- Canvas ---- */
+  --bg-canvas: #f8f9fa;
+  --bg-canvas-grid: rgba(15, 23, 42, 0.06);
+
+  /* ---- Floating surfaces (glass) ---- */
+  --bg-surface: rgba(255, 255, 255, 0.75);
+  --bg-surface-solid: #ffffff;
+  --bg-surface-raised: rgba(255, 255, 255, 0.9);
+  --bg-sunken: rgba(15, 23, 42, 0.04);
+
+  /* ---- Borders ---- */
+  --border-subtle: rgba(15, 23, 42, 0.08);
+  --border-strong: rgba(15, 23, 42, 0.14);
+
+  /* ---- Accent ---- */
+  --accent-primary: #3b82f6;
+  --accent-primary-hover: #2563eb;
+  --accent-secondary: #6366f1;
+  --accent-on-accent: #ffffff;
+
+  /* ---- Text ---- */
+  --text-main: #0f172a;
+  --text-muted: #64748b;
+  --text-faint: #94a3b8;
+
+  /* ---- Status ---- */
+  --status-live: #16a34a;
+  --status-reconnecting: #d97706;
+  --status-offline: #64748b;
+  --status-error: #e11d48;
+
+  /* ---- Effects ---- */
+  --glass-blur: blur(12px);
+  --glass-blur-value: blur(12px) saturate(1.4);
+  --glass-tint: rgba(255, 255, 255, 0.55);
+  --shadow-floating:
+    0 10px 25px -5px rgba(0, 0, 0, 0.18),
+    0 8px 10px -6px rgba(0, 0, 0, 0.12);
+  --shadow-dock:
+    0 18px 40px -12px rgba(15, 23, 42, 0.28),
+    0 8px 16px -8px rgba(15, 23, 42, 0.18);
+  --radius-pill: 9999px;
+  --radius-card: 12px;
+  --radius-panel: 16px;
+
+  /* ---- Motion ---- */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 160ms;
+  --duration-panel: 280ms;
+
+  /* ---- Layout ---- */
+  --workspace-header-h: 56px;
+  --workspace-dock-h: 60px;
+  --workspace-inset: 16px;
+  --inspector-w: 288px;
+
+  color-scheme: light;
+}
+
+/* Explicit dark theme toggle: <html data-theme="dark"> */
+[data-theme='dark'] {
+  --bg-canvas: #0f1117;
+  --bg-canvas-grid: rgba(255, 255, 255, 0.05);
+
+  --bg-surface: rgba(15, 23, 42, 0.75);
+  --bg-surface-solid: #151d2e;
+  --bg-surface-raised: rgba(30, 41, 59, 0.9);
+  --bg-sunken: rgba(255, 255, 255, 0.04);
+
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
+
+  --accent-primary: #6366f1;
+  --accent-primary-hover: #818cf8;
+  --accent-secondary: #3b82f6;
+  --accent-on-accent: #ffffff;
+
+  --text-main: #f1f5f9;
+  --text-muted: #94a3b8;
+  --text-faint: #64748b;
+
+  --glass-tint: rgba(15, 23, 42, 0.45);
+  --shadow-floating:
+    0 10px 25px -5px rgba(0, 0, 0, 0.3),
+    0 8px 10px -6px rgba(0, 0, 0, 0.3);
+  --shadow-dock:
+    0 18px 44px -12px rgba(0, 0, 0, 0.55),
+    0 8px 18px -8px rgba(0, 0, 0, 0.45);
+
+  color-scheme: dark;
+}
+
+/* OS-level dark default for users who never toggle. An explicit
+   [data-theme="light"] always wins over this media query. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg-canvas: #0f1117;
+    --bg-canvas-grid: rgba(255, 255, 255, 0.05);
+    --bg-surface: rgba(15, 23, 42, 0.75);
+    --bg-surface-solid: #151d2e;
+    --bg-surface-raised: rgba(30, 41, 59, 0.9);
+    --bg-sunken: rgba(255, 255, 255, 0.04);
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.14);
+    --accent-primary: #6366f1;
+    --accent-primary-hover: #818cf8;
+    --accent-secondary: #3b82f6;
+    --text-main: #f1f5f9;
+    --text-muted: #94a3b8;
+    --text-faint: #64748b;
+    --glass-tint: rgba(15, 23, 42, 0.45);
+    --shadow-floating:
+      0 10px 25px -5px rgba(0, 0, 0, 0.3),
+      0 8px 10px -6px rgba(0, 0, 0, 0.3);
+    --shadow-dock:
+      0 18px 44px -12px rgba(0, 0, 0, 0.55),
+      0 8px 18px -8px rgba(0, 0, 0, 0.45);
+    color-scheme: dark;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Glassmorphism helpers — prefer these over hand-rolled blur/shadow.  */
+/* ------------------------------------------------------------------ */
+
+.glass-panel {
+  background: var(--bg-surface);
+  -webkit-backdrop-filter: var(--glass-blur-value);
+  backdrop-filter: var(--glass-blur-value);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-floating);
+}
+
+.glass-dock {
+  background: var(--bg-surface);
+  -webkit-backdrop-filter: var(--glass-blur-value);
+  backdrop-filter: var(--glass-blur-value);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-dock);
+  border-radius: var(--radius-pill);
+}
+
+.glass-card {
+  background: var(--bg-surface);
+  -webkit-backdrop-filter: var(--glass-blur-value);
+  backdrop-filter: var(--glass-blur-value);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-floating);
+  border-radius: var(--radius-card);
+}
+
+/* Full-screen immersive canvas viewport (Konva stage mounts here). */
+.workspace-canvas-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--bg-canvas);
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+/* Right contextual inspector: slides in when a shape is selected. */
+.workspace-inspector {
+  transition:
+    transform var(--duration-panel) var(--ease-out-expo),
+    opacity var(--duration-panel) var(--ease-out-expo);
+}
+
+.workspace-inspector[data-open='false'] {
+  transform: translateX(calc(100% + 24px));
+  opacity: 0;
+  pointer-events: none;
+}
+
+.workspace-inspector[data-open='true'] {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-inspector {
+    transition: none;
+  }
+}
