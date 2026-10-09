@@ -2,9 +2,8 @@
  * SyncSpace / Axlero — Design Tokens (Day 1: glassmorphism foundation)
  *
  * Single source of truth for the floating workspace aesthetic. Light theme
- * is the default (`:root`); dark theme activates via
- * `[data-theme="dark"]` on <html> (with a `prefers-color-scheme` fallback
- * for users who never toggle).
+ * is the default (`:root`, clean white); dark theme is strictly opt-in via
+ * `[data-theme="dark"]` on <html> — never auto-applied from the OS.
  *
  * Usage:
  *   background: var(--bg-surface);
@@ -22,7 +21,7 @@
 
 :root {
   /* ---- Canvas ---- */
-  --bg-canvas: #f8f9fa;
+  --bg-canvas: #ffffff;
   --bg-canvas-grid: rgba(15, 23, 42, 0.06);
 
   /* ---- Floating surfaces (glass) ---- */
@@ -41,10 +40,10 @@
   --accent-secondary: #6366f1;
   --accent-on-accent: #ffffff;
 
-  /* ---- Text ---- */
+  /* ---- Text (high-contrast on white glass) ---- */
   --text-main: #0f172a;
-  --text-muted: #64748b;
-  --text-faint: #94a3b8;
+  --text-muted: #475569;
+  --text-faint: #64748b;
 
   /* ---- Status ---- */
   --status-live: #16a34a;
@@ -113,34 +112,10 @@
   color-scheme: dark;
 }
 
-/* OS-level dark default for users who never toggle. An explicit
-   [data-theme="light"] always wins over this media query. */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
-    --bg-canvas: #0f1117;
-    --bg-canvas-grid: rgba(255, 255, 255, 0.05);
-    --bg-surface: rgba(15, 23, 42, 0.75);
-    --bg-surface-solid: #151d2e;
-    --bg-surface-raised: rgba(30, 41, 59, 0.9);
-    --bg-sunken: rgba(255, 255, 255, 0.04);
-    --border-subtle: rgba(255, 255, 255, 0.08);
-    --border-strong: rgba(255, 255, 255, 0.14);
-    --accent-primary: #6366f1;
-    --accent-primary-hover: #818cf8;
-    --accent-secondary: #3b82f6;
-    --text-main: #f1f5f9;
-    --text-muted: #94a3b8;
-    --text-faint: #64748b;
-    --glass-tint: rgba(15, 23, 42, 0.45);
-    --shadow-floating:
-      0 10px 25px -5px rgba(0, 0, 0, 0.3),
-      0 8px 10px -6px rgba(0, 0, 0, 0.3);
-    --shadow-dock:
-      0 18px 44px -12px rgba(0, 0, 0, 0.55),
-      0 8px 18px -8px rgba(0, 0, 0, 0.45);
-    color-scheme: dark;
-  }
-}
+/* Dark theme is strictly opt-in via <html data-theme="dark">. There is
+   intentionally NO `prefers-color-scheme` auto-override: the workspace
+   defaults to a clean white background with dark high-contrast text so
+   the header capsule and panels stay readable on every OS setting. */
 
 /* ------------------------------------------------------------------ */
 /* Glassmorphism helpers — prefer these over hand-rolled blur/shadow.  */
@@ -170,6 +145,32 @@
   border: 1px solid var(--border-subtle);
   box-shadow: var(--shadow-floating);
   border-radius: var(--radius-card);
+}
+
+/* Top header menu bar: white glassmorphism. Explicit white glass (not the
+   generic surface token) so room IDs, status labels, and title text always
+   sit on a bright background with dark high-contrast text (#0f172a /
+   #475569), regardless of what scrolls beneath the capsule. */
+.workspace-header-capsule {
+  background: rgba(255, 255, 255, 0.85);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-dock);
+  border-radius: var(--radius-pill);
+  color: #0f172a;
+}
+
+/* Muted slate utilities inside the capsule render one step darker so room
+   IDs and counts keep ≥ 4.5:1 contrast on the translucent white glass. */
+.workspace-header-capsule .text-slate-400 {
+  color: #475569;
+}
+.workspace-header-capsule .text-slate-500 {
+  color: #334155;
+}
+.workspace-header-capsule .text-slate-600 {
+  color: #1e293b;
 }
 
 /* Canvas pane: in-flow flex child of the workspace split row (NOT a
