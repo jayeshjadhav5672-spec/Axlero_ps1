@@ -40,6 +40,15 @@
   --accent-secondary: #6366f1;
   --accent-on-accent: #ffffff;
 
+  /* ---- Header actions (professional palette) ---- */
+  --action-primary: #4f46e5;
+  --action-primary-hover: #4338ca;
+  --action-primary-tint: #eef2ff;
+  --action-danger-bg: #fee2e2;
+  --action-danger-bg-hover: #fecaca;
+  --action-danger-text: #991b1b;
+  --action-danger-border: #fecaca;
+
   /* ---- Text (high-contrast on white glass) ---- */
   --text-main: #0f172a;
   --text-muted: #475569;
@@ -147,16 +156,15 @@
   border-radius: var(--radius-card);
 }
 
-/* Top header menu bar: white glassmorphism. Explicit white glass (not the
-   generic surface token) so room IDs, status labels, and title text always
-   sit on a bright background with dark high-contrast text (#0f172a /
-   #475569), regardless of what scrolls beneath the capsule. */
+/* Top header menu bar: frosted white glass. Translucent white blur over
+   whatever scrolls beneath, with dark high-contrast text (#0f172a /
+   #1e293b) for room IDs, status labels, and the title. */
 .workspace-header-capsule {
-  background: rgba(255, 255, 255, 0.85);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
-  border: 1px solid var(--border-subtle);
-  box-shadow: var(--shadow-dock);
+  background: rgba(255, 255, 255, 0.75);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
   border-radius: var(--radius-pill);
   color: #0f172a;
 }

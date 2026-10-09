@@ -30,13 +30,14 @@ export default function RoomInfo({ roomId = 'demo-room', roomName, onLeave, onSh
             <button
               type="button"
               onClick={onShare}
-              className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-teal-50 hover:text-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-transparent bg-[#eef2ff] px-3 py-2 text-sm font-semibold text-[#4f46e5] transition-colors hover:bg-[#4f46e5] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4f46e5] focus-visible:ring-offset-1"
               aria-label="Copy room ID"
               title="Copy room ID"
             >
               <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
               </svg>
+              Share
             </button>
           )}
           {onLeave && (
@@ -45,7 +46,7 @@ export default function RoomInfo({ roomId = 'demo-room', roomName, onLeave, onSh
               onClick={onLeave}
               aria-label="Leave room"
               title="Leave room"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-3.5 py-2 text-sm font-semibold text-rose-700 transition-colors hover:bg-rose-100 hover:text-rose-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-1"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#fecaca] bg-[#fee2e2] px-3.5 py-2 text-sm font-semibold text-[#991b1b] transition-colors hover:bg-[#fecaca] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#991b1b] focus-visible:ring-offset-1"
             >
               <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />

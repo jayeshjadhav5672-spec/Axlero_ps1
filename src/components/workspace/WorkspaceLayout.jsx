@@ -33,12 +33,7 @@ function SyncIndicator({ connectionStatus, syncState }) {
   const label = connectionStatus === 'connected' ? (syncState === 'saving' ? 'Syncing…' : 'Synced') : 'Offline';
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium"
-      style={{
-        border: '1px solid var(--border-subtle)',
-        background: 'var(--bg-sunken)',
-        color: 'var(--text-muted)',
-      }}
+      className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-semibold text-[#1e293b]"
       role="status"
       aria-live="polite"
       title={label}
@@ -214,13 +209,11 @@ export default function WorkspaceLayout({
               onClick={handleToggleSide}
               aria-expanded={sideOpen}
               aria-label={sideOpen ? `Hide ${sidePanelTitle}` : `Show ${sidePanelTitle}`}
-              className="rounded-full px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2"
-              style={{
-                background: sideOpen ? 'var(--accent-primary)' : 'var(--bg-sunken)',
-                color: sideOpen ? 'var(--accent-on-accent)' : 'var(--text-muted)',
-                border: '1px solid var(--border-subtle)',
-                ['--tw-ring-color']: 'var(--accent-primary)',
-              }}
+              className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4f46e5] ${
+                sideOpen
+                  ? 'border-transparent bg-[#4f46e5] text-white hover:bg-[#4338ca]'
+                  : 'border-slate-200 bg-slate-100/80 text-slate-700 hover:bg-slate-200'
+              }`}
             >
               {sidePanelTitle}
             </button>
