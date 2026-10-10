@@ -135,6 +135,7 @@ export function Whiteboard({
   onCanvasClear,
   onShapesReorder,
   onSelectionChange,
+  onSelectedIdsChange,
 } = {}) {
   const [internalTool, setInternalTool] = useState('select');
   const [internalColor, setInternalColor] = useState('#1e1e1e');
@@ -417,6 +418,20 @@ export function Whiteboard({
   });
 
   const selectedShape = visibleShapes.find((s) => s.id === selectedId) ?? null;
+
+  // Day 2 PropertyInspector bridge: mirror the live multi-selection to the
+  // workspace shell (App.jsx -> <Workspace inspector>). Selection itself
+  // stays internal/uncontrolled here; this effect is notify-only so the
+  // drawer can follow selection without taking control of it. Stable
+  // parent callbacks (useCallback) keep this loop-free.
+  useEffect(() => {
+    if (typeof onSelectedIdsChange !== 'function') return;
+    try {
+      onSelectedIdsChange(Array.isArray(selectedIds) ? [...selectedIds] : []);
+    } catch {
+      // notify-only; never break canvas interaction
+    }
+  }, [selectedIds, onSelectedIdsChange]);
 
   // 3-dot popover availability mirrors the sidebar's own visibility gate.
   // The toggle only appears when there is something to customize.

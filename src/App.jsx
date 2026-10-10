@@ -28,6 +28,7 @@ import LoginPage from './components/auth/LoginPage';
 import SignupPage from './components/auth/SignupPage';
 import ProfilePage from './components/auth/ProfilePage';
 import { Whiteboard } from './components/canvas';
+import PropertyInspector from './components/workspace/PropertyInspector';
 import CodeEditor from './components/editor/CodeEditor';
 import useRoomConnection from './hooks/useRoomConnection';
 import useCollaborativeWhiteboard from './hooks/useCollaborativeWhiteboard';
@@ -131,6 +132,28 @@ export default function App() {
   // writes are only servable after the server ran socket.join(roomId).
   const roomJoined = joinedRoom === roomId;
   const whiteboardSync = useCollaborativeWhiteboard({ socket, roomId, enabled: live });
+  // Day 2 PropertyInspector: mirror the canvas selection (notify-only —
+  // <Whiteboard /> keeps owning it uncontrolled). Single id via
+  // onSelectionChange, full multi-select array via onSelectedIdsChange.
+  // Stable callbacks keep the Whiteboard mirror effect loop-free.
+  const [selectedShapeId, setSelectedShapeId] = useState(null);
+  const [selectedShapeIds, setSelectedShapeIds] = useState([]);
+  const handleWhiteboardSelection = useCallback((id) => {
+    setSelectedShapeId(id ?? null);
+  }, []);
+  const handleWhiteboardMultiSelection = useCallback((ids) => {
+    const clean = Array.isArray(ids) ? ids.filter(Boolean) : [];
+    setSelectedShapeIds((prev) => {
+      if (prev.length === clean.length && prev.every((v, i) => v === clean[i])) return prev;
+      return clean;
+    });
+    // Keep the single mirror consistent when the multi channel is the
+    // only one that fired (e.g. programmatic multi-select).
+    if (clean.length > 0) {
+      setSelectedShapeId((prev) => (prev === clean[0] ? prev : clean[0]));
+    }
+  }, []);
+  const hasInspectorSelection = selectedShapeIds.length > 0 || Boolean(selectedShapeId);
   // Shared room project: server-authoritative file tree + one LWW document
   // per file (generalizes the legacy single-document transport; legacy
   // clients without fileId still land on the shared document).
@@ -335,12 +358,26 @@ export default function App() {
                   onShapeDelete={whiteboardSync.onShapeDelete}
                   onCanvasClear={whiteboardSync.onCanvasClear}
                   onShapesReorder={whiteboardSync.onShapesReorder}
+                  onSelectionChange={handleWhiteboardSelection}
+                  onSelectedIdsChange={handleWhiteboardMultiSelection}
                 />
               }
               editor={<CodeEditor />}
               project={projectSync}
               onLeaveRoom={leaveRoom}
               onShareRoom={handleShareRoom}
+              hasSelection={hasInspectorSelection}
+              inspector={
+                <PropertyInspector
+                  bare
+                  shapes={whiteboardSync.shapes}
+                  selectedId={selectedShapeId}
+                  selectedIds={selectedShapeIds}
+                  onShapeUpdate={whiteboardSync.onShapeUpdate}
+                  onShapesBatchUpdate={whiteboardSync.onShapesBatchUpdate}
+                  onShapeDelete={whiteboardSync.onShapeDelete}
+                />
+              }
             />
           </div>
 
