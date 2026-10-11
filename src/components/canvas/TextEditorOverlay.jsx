@@ -82,6 +82,7 @@ export default function TextEditorOverlay({ editor, color, onCommit, onCancel, o
       onKeyDown={handleKeyDown}
       onPointerDown={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
       placeholder="Type text, Enter to commit"
       aria-label="Text shape editor"

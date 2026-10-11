@@ -42,6 +42,15 @@ export const FILL_SWATCHES = [
   { value: '#22c55e', label: 'Green' },
 ];
 
+export const STICKY_SWATCHES = [
+  { value: '#FEF08A', label: 'Yellow' },
+  { value: '#FBCFE8', label: 'Pink' },
+  { value: '#BBF7D0', label: 'Green' },
+  { value: '#BFDBFE', label: 'Blue' },
+  { value: '#FED7AA', label: 'Orange' },
+  { value: '#E9D5FF', label: 'Purple' },
+];
+
 export const STROKE_SWATCHES = [
   { value: '#1e1e1e', label: 'Black' },
   { value: '#475569', label: 'Slate' },
@@ -68,6 +77,7 @@ function normalizeType(raw) {
   if (t === 'ellipse') return 'circle';
   if (t === 'pen' || t === 'draw' || t === 'freedraw') return 'freehand';
   if (t === 'rhombus') return 'diamond';
+  if (t === 'note' || t === 'stickynote' || t === 'sticky-note') return 'sticky';
   return t;
 }
 
@@ -171,7 +181,7 @@ function NumberField({ label, value, onCommit, min, max, step = 1, suffix = '' }
 function deriveDimensions(shape) {
   if (!shape) return { width: 0, height: 0 };
   const t = normalizeType(shape.type);
-  if (t === 'rectangle' || t === 'diamond' || t === 'image' || t === 'frame') {
+  if (t === 'rectangle' || t === 'diamond' || t === 'image' || t === 'frame' || t === 'sticky') {
     return {
       width: Number(shape.width) || 0,
       height: Number(shape.height) || 0,
@@ -193,7 +203,7 @@ function deriveDimensions(shape) {
 
 /**
  * Commit width/height edits back into per-type geometry:
- * - rectangle/diamond/image/frame: direct width/height
+ * - rectangle/diamond/image/frame/sticky: direct width/height
  * - circle: width/height -> radiusX/radiusY (+ legacy radius mean)
  * - text: width is the alignment-box width (height is derived, read-only)
  * - line/arrow/freehand: no box geometry — caller hides these fields
@@ -203,7 +213,7 @@ function dimensionChangesFor(shape, next) {
   const out = {};
   const w = next.width !== undefined ? Math.max(1, Number(next.width) || 1) : undefined;
   const h = next.height !== undefined ? Math.max(1, Number(next.height) || 1) : undefined;
-  if (t === 'rectangle' || t === 'diamond' || t === 'image' || t === 'frame') {
+  if (t === 'rectangle' || t === 'diamond' || t === 'image' || t === 'frame' || t === 'sticky') {
     if (w !== undefined) out.width = w;
     if (h !== undefined) out.height = h;
     return out;
@@ -236,6 +246,7 @@ const TYPE_LABELS = {
   ellipse: 'Ellipse',
   diamond: 'Diamond',
   text: 'Text',
+  sticky: 'Sticky note',
   line: 'Line',
   arrow: 'Arrow',
   freehand: 'Pen',
@@ -245,12 +256,181 @@ const TYPE_LABELS = {
   group: 'Group',
 };
 
+function StickyNoteProperties({ shape, onUpdate }) {
+  const update = (changes) => onUpdate(shape.id, changes);
+
+  return (
+    <div className="flex flex-col gap-4 text-xs" data-testid="sticky-note-properties">
+      <ColorField
+        label="Background"
+        value={shape.fill ?? '#FEF08A'}
+        swatches={STICKY_SWATCHES}
+        onChange={(fill) => update({ fill })}
+      />
+      <div>
+        <SectionLabel>Note text</SectionLabel>
+        <textarea
+          value={shape.text ?? ''}
+          rows={4}
+          aria-label="Sticky note text"
+          placeholder="Type your note here..."
+          onChange={(event) => update({ text: event.target.value })}
+          className="mt-1.5 w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs leading-relaxed text-slate-800 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+        />
+      </div>
+      <div>
+        <SectionLabel>Font family</SectionLabel>
+        <select
+          value={shape.fontFamilyKey ?? 'hand'}
+          aria-label="Sticky note font family"
+          onChange={(event) => {
+            const key = event.target.value;
+            update({ fontFamilyKey: key, fontFamily: FONT_CSS_BY_KEY[key] ?? FONT_CSS_BY_KEY.hand });
+          }}
+          className="mt-1.5 h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-800"
+        >
+          {FONT_FAMILY_OPTIONS.map((font) => <option key={font.value} value={font.value}>{font.label}</option>)}
+        </select>
+      </div>
+      <div>
+        <SectionLabel>Font size</SectionLabel>
+        <label className="mt-1.5 flex items-center gap-2">
+          <input
+            type="number"
+            min={8}
+            max={96}
+            step={1}
+            value={Math.min(96, Math.max(8, Number(shape.fontSize) || 16))}
+            aria-label="Sticky note font size"
+            onChange={(event) => {
+              const size = Number(event.target.value);
+              if (Number.isFinite(size)) update({ fontSize: Math.min(96, Math.max(8, size)) });
+            }}
+            className="h-8 w-24 rounded-md border border-slate-200 bg-white px-2 text-xs tabular-nums text-slate-800"
+          />
+          <span className="text-[11px] text-slate-500">px</span>
+        </label>
+      </div>
+      <div>
+        <SectionLabel>Text align</SectionLabel>
+        <div className="mt-1.5 flex gap-1" role="group" aria-label="Sticky note text alignment">
+          {['left', 'center', 'right'].map((align) => (
+            <button
+              key={align}
+              type="button"
+              aria-label={`Align ${align}`}
+              aria-pressed={(shape.align ?? shape.textAlign ?? 'left') === align}
+              onClick={() => update({ textAlign: align, align })}
+              className="h-8 flex-1 rounded-md border border-slate-200 text-xs capitalize text-slate-600 hover:bg-slate-50"
+            >
+              {align}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <SectionLabel>Rotation</SectionLabel>
+        <label className="mt-1.5 flex items-center gap-2">
+          <input
+            type="number"
+            min={0}
+            max={360}
+            step={1}
+            value={Math.min(360, Math.max(0, Number(shape.rotation) || 0))}
+            aria-label="Sticky note rotation"
+            onChange={(event) => {
+              const rotation = Number(event.target.value);
+              if (Number.isFinite(rotation)) update({ rotation: Math.min(360, Math.max(0, rotation)) });
+            }}
+            className="h-8 w-24 rounded-md border border-slate-200 bg-white px-2 text-xs tabular-nums text-slate-800"
+          />
+          <span className="text-[11px] text-slate-500">°</span>
+        </label>
+        <input
+          type="range"
+          min={0}
+          max={360}
+          step={1}
+          value={Math.min(360, Math.max(0, Number(shape.rotation) || 0))}
+          aria-label="Sticky note rotation slider"
+          onChange={(event) => update({ rotation: Number(event.target.value) })}
+          className="mt-1.5 w-full accent-blue-600"
+        />
+      </div>
+      <div>
+        <div className="flex items-center justify-between">
+          <SectionLabel>Opacity</SectionLabel>
+          <span className="text-[11px] tabular-nums text-slate-500">{Math.round(Number(shape.opacity ?? 1) * 100)}%</span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={Math.round(Number(shape.opacity ?? 1) * 100)}
+          aria-label="Sticky note opacity"
+          onChange={(event) => update({ opacity: Number(event.target.value) / 100 })}
+          className="mt-1.5 w-full accent-blue-600"
+        />
+      </div>
+    </div>
+  );
+}
+
+function StandardShapeProperties({ shape, onUpdate, onDelete, onDuplicate }) {
+  const type = normalizeType(shape.type);
+  const dimensions = deriveDimensions(shape);
+  const update = (changes) => onUpdate(shape.id, changes);
+  const supportsFill = ['rectangle', 'circle', 'diamond'].includes(type);
+  const supportsSize = ['rectangle', 'circle', 'diamond', 'image', 'frame'].includes(type);
+
+  return (
+    <div className="flex flex-col gap-4 text-xs" data-testid="standard-shape-properties">
+      {supportsFill && <ColorField label="Fill" value={shape.fill ?? 'transparent'} swatches={FILL_SWATCHES} onChange={(fill) => update({ fill })} />}
+      <ColorField label="Stroke" value={shape.stroke ?? '#1e1e1e'} swatches={STROKE_SWATCHES} onChange={(stroke) => update({ stroke })} />
+      <div>
+        <div className="flex items-center justify-between"><SectionLabel>Stroke width</SectionLabel><span className="text-[11px] text-slate-500">{shape.strokeWidth ?? 4}px</span></div>
+        <input type="range" min={1} max={20} value={Math.min(20, Math.max(1, Number(shape.strokeWidth) || 4))} aria-label="Stroke width" onChange={(event) => update({ strokeWidth: Number(event.target.value) })} className="mt-1.5 w-full accent-blue-600" />
+      </div>
+      <div>
+        <SectionLabel>Position</SectionLabel>
+        <div className="mt-1.5 flex gap-2">
+          <NumberField label="X" value={shape.x ?? 0} onCommit={(x) => update({ x })} />
+          <NumberField label="Y" value={shape.y ?? 0} onCommit={(y) => update({ y })} />
+        </div>
+      </div>
+      {supportsSize && <div>
+        <SectionLabel>Size</SectionLabel>
+        <div className="mt-1.5 flex gap-2">
+          <NumberField label="W" value={dimensions.width} onCommit={(width) => update(dimensionChangesFor(shape, { width }))} min={1} />
+          <NumberField label="H" value={dimensions.height} onCommit={(height) => update(dimensionChangesFor(shape, { height }))} min={1} />
+        </div>
+      </div>}
+      <div>
+        <SectionLabel>Rotation</SectionLabel>
+        <div className="mt-1.5 flex gap-2">
+          <input type="range" min={-180} max={180} value={Number(shape.rotation) || 0} aria-label="Rotation" onChange={(event) => update({ rotation: Number(event.target.value) })} className="min-w-0 flex-1 accent-blue-600" />
+          <NumberField label="Degrees" value={shape.rotation ?? 0} onCommit={(rotation) => update({ rotation })} min={-180} max={180} suffix="°" />
+        </div>
+      </div>
+      <div>
+        <div className="flex items-center justify-between"><SectionLabel>Opacity</SectionLabel><span className="text-[11px] text-slate-500">{Math.round(Number(shape.opacity ?? 1) * 100)}%</span></div>
+        <input type="range" min={0} max={100} value={Math.round(Number(shape.opacity ?? 1) * 100)} aria-label="Opacity" onChange={(event) => update({ opacity: Number(event.target.value) / 100 })} className="mt-1.5 w-full accent-blue-600" />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" disabled={!onDuplicate} onClick={() => onDuplicate?.(shape)} className="h-8 rounded-md border border-slate-200 text-xs font-medium text-slate-700 disabled:opacity-40">Duplicate</button>
+        <button type="button" disabled={!onDelete} onClick={() => onDelete?.(shape.id)} className="h-8 rounded-md border border-rose-200 text-xs font-medium text-rose-600 disabled:opacity-40">Delete</button>
+      </div>
+    </div>
+  );
+}
+
 export default function PropertyInspector({
   shapes = [],
   selectedId = null,
   selectedShapeId = null,
   selectedIds = null,
   onShapeUpdate = () => {},
+  onShapeDuplicate = null,
   onShapesBatchUpdate = null,
   onShapeDelete = null,
   onClose = null,
@@ -277,6 +457,7 @@ export default function PropertyInspector({
   const open = selectedShapes.length > 0;
   const multi = selectedShapes.length > 1;
   const shape = multi ? null : (selectedShapes[0] ?? null);
+  const selectedShape = shape;
   const shapeType = shape ? normalizeType(shape.type) : null;
 
   const handleClose = useCallback(() => {
@@ -306,15 +487,6 @@ export default function PropertyInspector({
     },
     [onShapesBatchUpdate, onShapeUpdate, selectedShapes],
   );
-
-  const dims = useMemo(() => (shape ? deriveDimensions(shape) : { width: 0, height: 0 }), [shape]);
-  const showFill = shape ? ['rectangle', 'circle', 'diamond', 'text'].includes(shapeType) : false;
-  // Lines carry no fill box; arrows use stroke-driven fill — keep the panel
-  // focused on stroke for open paths.
-  const showDimensions = shape
-    ? ['rectangle', 'circle', 'diamond', 'text', 'image', 'frame'].includes(shapeType)
-    : false;
-  const isText = shapeType === 'text';
 
   const body = (
     <>
@@ -396,287 +568,21 @@ export default function PropertyInspector({
               />
             </div>
           </div>
-        ) : (
-          <div className="flex flex-col gap-4 text-xs">
-            {/* ---- Fill ---- */}
-            {showFill && (
-              <ColorField
-                label={isText ? 'Text color' : 'Fill'}
-                value={shape.fill ?? (isText ? '#1e1e1e' : 'transparent')}
-                swatches={FILL_SWATCHES}
-                onChange={(v) => {
-                  if (isText) updateOne(shape.id, { fill: v });
-                  else updateOne(shape.id, { fill: v });
-                }}
-              />
-            )}
-
-            {/* ---- Stroke ---- */}
-            {!isText && (
-              <ColorField
-                label="Stroke"
-                value={shape.stroke ?? '#1e1e1e'}
-                swatches={STROKE_SWATCHES}
-                onChange={(v) => {
-                  const changes = { stroke: v };
-                  if (shapeType === 'arrow') changes.fill = v;
-                  updateOne(shape.id, changes);
-                }}
-              />
-            )}
-
-            {/* ---- Stroke width: 1px–20px range slider ---- */}
-            {shapeType !== 'text' && shapeType !== 'image' && (
-              <div>
-                <div className="flex items-center justify-between">
-                  <SectionLabel>Stroke width</SectionLabel>
-                  <span className="text-[11px] tabular-nums text-slate-500">
-                    {shape.strokeWidth ?? 4}px
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={1}
-                  max={20}
-                  step={1}
-                  value={Math.min(20, Math.max(1, Number(shape.strokeWidth) || 4))}
-                  aria-label="Stroke width"
-                  onChange={(e) => updateOne(shape.id, { strokeWidth: Number(e.target.value) })}
-                  className="mt-1.5 w-full accent-blue-600"
-                />
-                <div className="mt-1 flex justify-between text-[10px] tabular-nums text-slate-400">
-                  <span>1px</span>
-                  <span>20px</span>
-                </div>
-              </div>
-            )}
-
-            {/* ---- Typography (text only) ---- */}
-            {isText && (
-              <>
-                <div>
-                  <SectionLabel>Font family</SectionLabel>
-                  <select
-                    value={shape.fontFamilyKey ?? 'hand'}
-                    aria-label="Font family"
-                    onChange={(e) => {
-                      const key = e.target.value;
-                      updateOne(shape.id, {
-                        fontFamilyKey: key,
-                        fontFamily: FONT_CSS_BY_KEY[key] ?? FONT_CSS_BY_KEY.hand,
-                      });
-                    }}
-                    className="mt-1.5 h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-800 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                  >
-                    {FONT_FAMILY_OPTIONS.map((f) => (
-                      <option key={f.value} value={f.value}>
-                        {f.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <SectionLabel>Font size</SectionLabel>
-                  <div className="mt-1.5 flex items-center gap-2">
-                    <input
-                      type="number"
-                      min={8}
-                      max={200}
-                      step={1}
-                      value={Number(shape.fontSize) || 20}
-                      aria-label="Font size"
-                      onChange={(e) => {
-                        const n = Number(e.target.value);
-                        if (Number.isFinite(n)) {
-                          updateOne(shape.id, { fontSize: Math.min(200, Math.max(8, n)) });
-                        }
-                      }}
-                      className="h-8 w-20 rounded-md border border-slate-200 bg-white px-2 text-xs tabular-nums text-slate-800 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                    />
-                    <span className="text-[11px] text-slate-400">px</span>
-                    <input
-                      type="range"
-                      min={8}
-                      max={96}
-                      step={1}
-                      value={Math.min(96, Math.max(8, Number(shape.fontSize) || 20))}
-                      aria-label="Font size slider"
-                      onChange={(e) => updateOne(shape.id, { fontSize: Number(e.target.value) })}
-                      className="min-w-0 flex-1 accent-blue-600"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <SectionLabel>Text align</SectionLabel>
-                  <div className="mt-1.5 flex items-center gap-1" role="group" aria-label="Text alignment">
-                    {[
-                      { value: 'left', label: 'Align left' },
-                      { value: 'center', label: 'Align center' },
-                      { value: 'right', label: 'Align right' },
-                    ].map((a) => {
-                      const active = (shape.textAlign ?? shape.align ?? 'left') === a.value;
-                      return (
-                        <button
-                          key={a.value}
-                          type="button"
-                          title={a.label}
-                          aria-label={a.label}
-                          aria-pressed={active}
-                          onClick={() => updateOne(shape.id, { textAlign: a.value, align: a.value })}
-                          className={`flex h-8 flex-1 items-center justify-center rounded-md border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
-                            active
-                              ? 'border-blue-200 bg-blue-100 text-blue-700'
-                              : 'border-slate-200 text-slate-600 hover:bg-slate-100'
-                          }`}
-                        >
-                          <svg
-                            width="15"
-                            height="15"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            aria-hidden="true"
-                          >
-                            {a.value === 'left' && (
-                              <>
-                                <line x1="4" y1="6" x2="20" y2="6" />
-                                <line x1="4" y1="12" x2="14" y2="12" />
-                                <line x1="4" y1="18" x2="17" y2="18" />
-                              </>
-                            )}
-                            {a.value === 'center' && (
-                              <>
-                                <line x1="4" y1="6" x2="20" y2="6" />
-                                <line x1="7" y1="12" x2="17" y2="12" />
-                                <line x1="5.5" y1="18" x2="18.5" y2="18" />
-                              </>
-                            )}
-                            {a.value === 'right' && (
-                              <>
-                                <line x1="4" y1="6" x2="20" y2="6" />
-                                <line x1="10" y1="12" x2="20" y2="12" />
-                                <line x1="7" y1="18" x2="20" y2="18" />
-                              </>
-                            )}
-                          </svg>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </>
-            )}
-
-            {/* ---- Transform / dimensions ---- */}
-            <div>
-              <SectionLabel>Position</SectionLabel>
-              <div className="mt-1.5 flex gap-2">
-                <NumberField
-                  label="X"
-                  value={shape.x ?? 0}
-                  onCommit={(n) => updateOne(shape.id, { x: n })}
-                />
-                <NumberField
-                  label="Y"
-                  value={shape.y ?? 0}
-                  onCommit={(n) => updateOne(shape.id, { y: n })}
-                />
-              </div>
-            </div>
-
-            {showDimensions && (
-              <div>
-                <SectionLabel>Size</SectionLabel>
-                <div className="mt-1.5 flex gap-2">
-                  <NumberField
-                    label="W"
-                    value={dims.width}
-                    onCommit={(n) =>
-                      updateOne(shape.id, dimensionChangesFor(shape, { width: n }))
-                    }
-                    min={1}
-                  />
-                  <NumberField
-                    label="H"
-                    value={isText ? dims.height : dims.height}
-                    onCommit={(n) => {
-                      if (isText) return;
-                      updateOne(shape.id, dimensionChangesFor(shape, { height: n }));
-                    }}
-                    min={1}
-                  />
-                </div>
-                {isText && (
-                  <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
-                    Height follows font size × lines.
-                  </p>
-                )}
-              </div>
-            )}
-
-            <div>
-              <SectionLabel>Rotation</SectionLabel>
-              <div className="mt-1.5 flex items-center gap-2">
-                <input
-                  type="range"
-                  min={-180}
-                  max={180}
-                  step={1}
-                  value={Number(shape.rotation) || 0}
-                  aria-label="Rotation"
-                  onChange={(e) => updateOne(shape.id, { rotation: Number(e.target.value) })}
-                  className="min-w-0 flex-1 accent-blue-600"
-                />
-                <input
-                  type="number"
-                  min={-180}
-                  max={180}
-                  step={1}
-                  value={Math.round((Number(shape.rotation) || 0) * 100) / 100}
-                  aria-label="Rotation angle"
-                  onChange={(e) => {
-                    const n = Number(e.target.value);
-                    if (Number.isFinite(n)) updateOne(shape.id, { rotation: n });
-                  }}
-                  className="h-8 w-16 shrink-0 rounded-md border border-slate-200 bg-white px-2 text-xs tabular-nums text-slate-800 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                />
-                <span className="text-[11px] text-slate-400">°</span>
-              </div>
-            </div>
-
-            {/* ---- Opacity ---- */}
-            <div>
-              <div className="flex items-center justify-between">
-                <SectionLabel>Opacity</SectionLabel>
-                <span className="text-[11px] tabular-nums text-slate-500">
-                  {Math.round((Number(shape.opacity ?? 1)) * 100)}%
-                </span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={1}
-                value={Math.round((Number(shape.opacity ?? 1)) * 100)}
-                aria-label="Opacity"
-                onChange={(e) => updateOne(shape.id, { opacity: Number(e.target.value) / 100 })}
-                className="mt-1.5 w-full accent-blue-600"
-              />
-            </div>
-
-            {typeof onShapeDelete === 'function' && (
-              <button
-                type="button"
-                onClick={() => onShapeDelete(shape.id)}
-                className="mt-1 flex h-8 w-full items-center justify-center gap-1.5 rounded-md border border-rose-200 text-xs font-medium text-rose-600 transition-colors hover:bg-rose-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
-              >
-                Delete shape
-              </button>
-            )}
-          </div>
-        )}
+        ) : selectedShape ? (
+          selectedShape.type === 'sticky' ? (
+            <StickyNoteProperties
+              shape={selectedShape}
+              onUpdate={updateOne}
+            />
+          ) : (
+            <StandardShapeProperties
+              shape={selectedShape}
+              onUpdate={updateOne}
+              onDelete={onShapeDelete}
+              onDuplicate={onShapeDuplicate}
+            />
+          )
+        ) : null}
     </>
   );
 

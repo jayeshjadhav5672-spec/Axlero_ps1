@@ -486,6 +486,23 @@ export function exportSVG(shapes, filename = 'syncspace-board.svg') {
       parts.push(
         `<polyline points="${pairs.join(' ')}" fill="none" stroke="${stroke}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"${dashAttr(s)}${opacityAttr(s)}${endHead ? ' marker-end="url(#sync-arrow)"' : ''}/>`,
       );
+    } else if (s.type === 'sticky') {
+      const sfill = s.fill && s.fill !== 'transparent' ? s.fill : '#FEF08A';
+      const sw = Number.isFinite(s.width) ? s.width : 200;
+      const sh = Number.isFinite(s.height) ? s.height : 200;
+      const fs = s.fontSize ?? 16;
+      parts.push(
+        `<rect x="${s.x}" y="${s.y}" width="${sw}" height="${sh}" rx="6" fill="${sfill}" stroke="rgba(0,0,0,0.12)" stroke-width="1"${opacityAttr(s)}/>`,
+      );
+      parts.push(
+        `<rect x="${s.x}" y="${s.y}" width="${sw}" height="26" rx="6" fill="#000000" opacity="0.06"/>`,
+      );
+      const lines = String(s.text ?? '').split('\\n');
+      lines.forEach((line, i) => {
+        parts.push(
+          `<text x="${s.x + 10}" y="${s.y + 26 + 8 + fs * (i + 1)}" font-size="${fs}" font-family="${esc(s.fontFamily ?? 'Inter, sans-serif')}" fill="#1e293b"${opacityAttr(s)}>${esc(line)}</text>`,
+        );
+      });
     } else if (s.type === 'text') {
       const anchor = s.align === 'center' || s.textAlign === 'center' ? 'middle' : s.align === 'right' || s.textAlign === 'right' ? 'end' : 'start';
       const lines = String(s.text ?? '').split('\n');

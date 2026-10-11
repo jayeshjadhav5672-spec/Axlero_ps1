@@ -6,6 +6,8 @@ import {
   FONT_SIZE_CHOICES,
   ROUGHNESS_CHOICES,
   ROUNDNESS_CHOICES,
+  STICKY_COLORS,
+  STICKY_DEFAULTS,
   TEXT_ALIGN_CHOICES,
   getShapeBounds,
 } from './utils/shapes.js';
@@ -555,6 +557,25 @@ function FontSizeSection({ fontSize, onFontSizeChange }) {
   );
 }
 
+function StickyFontSizeSection({ fontSize, onFontSizeChange }) {
+  return (
+    <div className="property-group">
+      <label className="text-xs font-semibold text-gray-500 uppercase">Font Size</label>
+      <div className="flex items-center gap-2 mt-1">
+        <input
+          type="number"
+          min="8"
+          max="120"
+          value={fontSize || 16}
+          onChange={(e) => onFontSizeChange(Number(e.target.value))}
+          className="w-full px-2 py-1 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-purple-500"
+        />
+        <span className="text-xs text-gray-400">px</span>
+      </div>
+    </div>
+  );
+}
+
 function TextAlignSection({ textAlign, onTextAlignChange }) {
   const icons = {
     left: (
@@ -715,6 +736,7 @@ const SELECTION_TYPE_LABELS = {
   freehand: 'Pen',
   pen: 'Pen',
   text: 'Text',
+  sticky: 'Sticky note',
   image: 'Image',
   frame: 'Frame',
 };
@@ -842,6 +864,7 @@ export function shouldShowPropertiesPanel({ activeTool, selectedShape, hasSelect
     'line',
     'pen', 'freehand', 'draw', 'freedraw',
     'text',
+    'sticky',
   ].includes(toolKey);
   const showSelectionActions =
     isSelectTool && (Boolean(selectedShape) || Boolean(hasSelection));
@@ -892,6 +915,9 @@ export default function PropertySidebar({
   tool: toolAlias,
   hasSelection = false,
   selectedShape = null,
+  showSelectedShapeProperties = false,
+  onStickyTextChange = () => {},
+  onRotationChange = () => {},
   onColorChange = () => {},
   onFillChange = () => {},
   onStrokeWidthChange = () => {},
@@ -941,6 +967,9 @@ export default function PropertySidebar({
     : _ctx === 'pen' || _ctx === 'draw' || _ctx === 'freedraw' ? 'freehand'
     : _ctx;
   const isText = _ctxNorm === 'text';
+  // Day 4 sticky: selection/tool context gets its own inspector branch
+  // (Background palette of note colors + font size + opacity + layers).
+  const isSticky = _ctxNorm === 'sticky';
   // Arrow controls render ONLY for arrows: the active Arrow tool with no
   // selection, or a selected arrow shape. Equivalent to
   // `activeTool === 'arrow' || selectedShape?.type === 'arrow'` when no
@@ -984,7 +1013,7 @@ export default function PropertySidebar({
   const toolKey = typeof activeToolName === 'string' ? activeToolName.toLowerCase() : '';
   const isSelectTool = toolKey === 'select' || toolKey === 'selection';
   const showSelectionActions =
-    isSelectTool && (Boolean(selectedShape) || Boolean(hasSelection));
+    isSelectTool && (Boolean(selectedShape) || Boolean(hasSelection)) && !showSelectedShapeProperties;
   const shouldShowSidebar = shouldShowPropertiesPanel({
     activeTool: activeToolName,
     selectedShape,
@@ -1053,6 +1082,43 @@ export default function PropertySidebar({
             onBringForward={onBringForward}
             onSendBackward={onSendBackward}
           />
+        </>
+      ) : isSticky ? (
+        <>
+          {/* Sticky menu action opens this dedicated style view, bypassing
+              the select-mode actions-only card above. */}
+          <BackgroundSection fill={fill} onFillChange={safeFill} swatches={STICKY_COLORS} label="Note color" />
+          {selectedShape && (
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-gray-500">Note text</span>
+              <textarea
+                rows={4}
+                value={selectedShape.text ?? ''}
+                aria-label="Sticky note text"
+                placeholder="Type your note here..."
+                onChange={(event) => onStickyTextChange(event.target.value)}
+                className="w-full resize-y rounded-md border border-gray-200 px-2 py-1.5 text-xs leading-relaxed text-gray-700 focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-100"
+              />
+            </label>
+          )}
+          <FontFamilySection fontFamilyKey={fontFamilyKey} onFontFamilyChange={safeFont} />
+          <StickyFontSizeSection fontSize={selectedShape?.fontSize ?? fontSize} onFontSizeChange={safeSize} />
+          <TextAlignSection textAlign={effectiveAlign} onTextAlignChange={safeAlign} />
+          <OpacitySection opacity={opacity} onOpacityChange={safeOpacity} />
+          <div className="property-group mt-3">
+            <div className="flex justify-between items-center text-xs font-semibold text-gray-500 uppercase">
+              <label>Rotation</label>
+              <span>{Math.round(selectedShape?.rotation || 0)}°</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="360"
+              value={Math.round(selectedShape?.rotation || 0)}
+              onChange={(e) => onRotationChange(Number(e.target.value))}
+              className="w-full mt-1 accent-purple-600"
+            />
+          </div>
         </>
       ) : isArrow ? (
         <>

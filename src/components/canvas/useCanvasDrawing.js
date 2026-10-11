@@ -26,6 +26,7 @@ import {
   createFrameShape,
   createGroupShape,
   createShape,
+  createStickyShape,
   DEFAULTS,
   duplicateShape,
   estimateTextWidth,
@@ -39,6 +40,7 @@ import {
   normalizeRect,
   normalizeSelectBox,
   sanitizePoints,
+  STICKY_DEFAULTS,
   toggleSelectionId,
   ungroupShape,
 } from './utils/shapes.js';
@@ -46,6 +48,7 @@ import {
 const MIN_FREEHAND_STEP = 2; // px in world coords — draft optimization
 const MIN_ZOOM = 0.25; // 25% minimum (zoom out allowed)
 const MAX_ZOOM = 1.0; // 100% maximum — users can never zoom in past 100%
+const MIN_STICKY_SIZE = 200; // Day 4 spec: sticky notes are 200x200 by default
 
 /**
  * useCanvasDrawing — Sayon (Whiteboard / Konva.js Engineer)
@@ -882,7 +885,22 @@ export default function useCanvasDrawing({
         return;
       }
       const drawTool = tool === 'pen' ? 'freehand' : tool;
-      const seed = createShape(drawTool, world, {
+      // Day 4 sticky: zero-size factory seed gains bounds via mouse-move
+      // (same normalizeRect path as rectangle/diamond) and commits on mouse-up.
+      const seed =
+        drawTool === 'sticky'
+          ? createStickyShape({
+              x: world.x,
+              y: world.y,
+              width: 0,
+              height: 0,
+              fill: typeof fill === 'string' && fill !== 'transparent' ? fill : STICKY_DEFAULTS.fill,
+              text: STICKY_DEFAULTS.text,
+              fontSize: STICKY_DEFAULTS.fontSize,
+              fontFamily: STICKY_DEFAULTS.fontFamily,
+              opacity,
+            })
+          : createShape(drawTool, world, {
         color,
         strokeWidth,
         fill,
@@ -975,6 +993,7 @@ export default function useCanvasDrawing({
         }
         case 'rectangle':
         case 'diamond':
+        case 'sticky':
         case 'frame': {
           const norm = normalizeRect(start.x, start.y, world.x, world.y);
           setDraftShape((d) => (d ? { ...d, ...norm } : d));
@@ -1103,6 +1122,30 @@ export default function useCanvasDrawing({
       if (!isFiniteNum(w) || !isFiniteNum(h)) return (endStream(null), endPreview());
       if (!isFiniteNum(finished.x) || !isFiniteNum(finished.y)) return (endStream(null), endPreview());
       if (Math.abs(w) < 2 || Math.abs(h) < 2) return (endStream(null), endPreview());
+    } else if (finished.type === 'sticky') {
+      // Day 4: pure click (no drag) still commits a spec-sized note at the
+      // press point instead of discarding the draft.
+      if (!isFiniteNum(finished.x) || !isFiniteNum(finished.y)) return (endStream(null), endPreview());
+      const w = isFiniteNum(finished.width) ? finished.width : 0;
+      const h = isFiniteNum(finished.height) ? finished.height : 0;
+      if (Math.abs(w) < 2 || Math.abs(h) < 2) {
+        const clickNote = {
+          ...finished,
+          ...normalizeRect(finished.x, finished.y, finished.x + MIN_STICKY_SIZE, finished.y + MIN_STICKY_SIZE),
+        };
+        commitCreate(clickNote);
+        selectShape(clickNote.id);
+        onDrawingCommitted?.('sticky');
+        endStream(clickNote);
+        endPreview();
+        return;
+      }
+      commitCreate(finished);
+      selectShape(finished.id);
+      onDrawingCommitted?.('sticky');
+      endStream(finished);
+      endPreview();
+      return;
     } else if (finished.type === 'circle') {
       if (!isFiniteNum(finished.x) || !isFiniteNum(finished.y)) return (endStream(null), endPreview());
       const radii = [finished.radius, finished.radiusX, finished.radiusY].filter((v) => v !== undefined);
@@ -2067,14 +2110,22 @@ export default function useCanvasDrawing({
           setTextEditor(null);
         }
       } else if (textEditor.shapeId) {
+        const existing = shapes.find((s) => s.id === textEditor.shapeId);
         if (trimmed) {
-          const existing = shapes.find((s) => s.id === textEditor.shapeId);
-          const width = Math.max(
-            estimateTextWidth(trimmed, existing?.fontSize ?? fontSize),
-            isFiniteNum(measuredWorld) ? measuredWorld : 0,
-            isFiniteNum(existing?.width) ? existing.width : 0,
-          );
-          commitUpdate(textEditor.shapeId, { text: trimmed, width });
+          // Day 4 sticky: keep the note's box — only the text changes (empty
+          // edits on stickies restore the placeholder text instead of delete).
+          if (existing?.type === 'sticky') {
+            commitUpdate(textEditor.shapeId, { text: trimmed });
+          } else {
+            const width = Math.max(
+              estimateTextWidth(trimmed, existing?.fontSize ?? fontSize),
+              isFiniteNum(measuredWorld) ? measuredWorld : 0,
+              isFiniteNum(existing?.width) ? existing.width : 0,
+            );
+            commitUpdate(textEditor.shapeId, { text: trimmed, width });
+          }
+        } else if (existing?.type === 'sticky') {
+          commitUpdate(textEditor.shapeId, { text: STICKY_DEFAULTS.text });
         } else commitDelete(textEditor.shapeId); // empty edit deletes
         setTextEditor(null);
         // No tool change here: re-edits originate from other tools

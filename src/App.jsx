@@ -29,6 +29,7 @@ import SignupPage from './components/auth/SignupPage';
 import ProfilePage from './components/auth/ProfilePage';
 import { Whiteboard } from './components/canvas';
 import PropertyInspector from './components/workspace/PropertyInspector';
+import { duplicateShape } from './components/canvas/utils/shapes.js';
 import CodeEditor from './components/editor/CodeEditor';
 import useRoomConnection from './hooks/useRoomConnection';
 import useCollaborativeWhiteboard from './hooks/useCollaborativeWhiteboard';
@@ -153,6 +154,13 @@ export default function App() {
       setSelectedShapeId((prev) => (prev === clean[0] ? prev : clean[0]));
     }
   }, []);
+  const handleInspectorDuplicate = useCallback((shape) => {
+    const clone = duplicateShape(shape, 15);
+    if (!clone) return;
+    whiteboardSync.onShapeCreate(clone);
+    setSelectedShapeId(clone.id);
+    setSelectedShapeIds([clone.id]);
+  }, [whiteboardSync.onShapeCreate]);
   const hasInspectorSelection = selectedShapeIds.length > 0 || Boolean(selectedShapeId);
   // Shared room project: server-authoritative file tree + one LWW document
   // per file (generalizes the legacy single-document transport; legacy
@@ -376,6 +384,7 @@ export default function App() {
                   onShapeUpdate={whiteboardSync.onShapeUpdate}
                   onShapesBatchUpdate={whiteboardSync.onShapesBatchUpdate}
                   onShapeDelete={whiteboardSync.onShapeDelete}
+                  onShapeDuplicate={handleInspectorDuplicate}
                 />
               }
             />

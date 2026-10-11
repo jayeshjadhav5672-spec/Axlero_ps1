@@ -82,13 +82,17 @@ export default function WorkspaceLayout({
 }) {
   const [peopleOpen, setPeopleOpen] = useState(false);
   const [internalSideOpen, setInternalSideOpen] = useState(defaultSidePanelOpen);
+  // Kept as a public layout prop for parent compatibility; selection no
+  // longer controls inspector visibility.
+  void hasSelection;
 
   const sideOpen = controlledSidePanelOpen ?? internalSideOpen;
   const handleToggleSide = onToggleSidePanel ?? (() => setInternalSideOpen((v) => !v));
 
-  // Uncontrolled by default: drawer follows selection unless the parent
-  // takes control via `inspectorOpen`.
-  const drawerOpen = inspectorOpen ?? hasSelection;
+  // Selection and panel visibility are independent. A newly created shape
+  // is selected automatically, but the inspector stays closed unless the
+  // parent explicitly opens it through `inspectorOpen`.
+  const drawerOpen = inspectorOpen ?? false;
 
   const title = projectTitle ?? roomName ?? (roomId ? `Room ${roomId}` : 'Untitled board');
   const showCodePane = Boolean(sidePanel) && sideOpen;
