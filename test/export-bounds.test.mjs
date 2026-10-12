@@ -112,3 +112,101 @@ describe('export content bounds', () => {
     assert.equal(bounds.height, 50 + 64);
   });
 });
+
+describe('rotated export bounds (visible-geometry-wins)', () => {
+  const approx = (actual, expected, label) => {
+    assert.ok(
+      Math.abs(actual - expected) < 1e-6,
+      `${label}: expected ${expected}, got ${actual}`,
+    );
+  };
+
+  it('90° rectangle: bounds match the visible box, not the at-rest box', () => {
+    // (100,100,100x50) rotated 90° clockwise about top-left (100,100):
+    // corners -> (100,100),(100,200),(50,200),(50,100): AABB x50..100, y100..200.
+    const bounds = exportBounds(
+      [{ id: 'shape-rr', type: 'rectangle', x: 100, y: 100, width: 100, height: 50, rotation: 90 }],
+      0,
+    );
+    approx(bounds.x, 50, 'x');
+    approx(bounds.y, 100, 'y');
+    approx(bounds.width, 50, 'width');
+    approx(bounds.height, 100, 'height');
+    // Visible extents strictly exceed the unrotated box (x100..200, y100..150).
+    assert.ok(bounds.x < 100, 'minX exceeds unrotated left');
+    assert.ok(bounds.y + bounds.height > 150, 'maxY exceeds unrotated bottom');
+  });
+
+  it('45° rectangle/diamond/image extents exceed the unrotated box', () => {
+    const mk = (type) => ({ id: `shape-${type}`, type, x: 0, y: 0, width: 100, height: 50, rotation: 45 });
+    for (const type of ['rectangle', 'diamond', 'image']) {
+      const b = exportBounds([mk(type)], 0);
+      // Rotated corners: minX = -50*sin45 ≈ -35.36 < 0;
+      // maxY = 100*sin45 + 50*cos45 ≈ 106.07 > 50.
+      assert.ok(b.x < 0, `${type} minX exceeds unrotated left`);
+      assert.ok(b.y + b.height > 50, `${type} maxY exceeds unrotated bottom`);
+    }
+    // Exact rotated AABB of the 45° rectangle (unrotated box: x0..100, y0..50).
+    const b = exportBounds([mk('rectangle')], 0);
+    approx(b.x, -50 * Math.SQRT1_2, 'minX');
+    approx(b.x + b.width, 100 * Math.SQRT1_2, 'maxX');
+    approx(b.y, 0, 'minY');
+    approx(b.y + b.height, 150 * Math.SQRT1_2, 'maxY');
+  });
+
+  it('rotated selection exports the visible box (selection-only preserved)', () => {
+    const rot = { id: 'shape-rs', type: 'rectangle', x: 100, y: 100, width: 100, height: 50, rotation: 90 };
+    const sel = getSelectionBounds([rot], 0);
+    approx(sel.x, 50, 'sel x');
+    approx(sel.y, 100, 'sel y');
+    approx(sel.width, 50, 'sel width');
+    approx(sel.height, 100, 'sel height');
+    const res = resolveExportBounds([RECT, rot], [rot]);
+    assert.equal(res.selectionOnly, true);
+    approx(res.bounds.x, 50 - 20, 'selection padding applies to rotated bounds');
+  });
+
+  it('stageDataURL maps rotated bounds through pan/zoom (two viewports)', () => {
+    const bounds = exportBounds(
+      [{ id: 'shape-rr', type: 'rectangle', x: 100, y: 100, width: 100, height: 50, rotation: 90 }],
+      0,
+    );
+    // Viewport 1: identity scale/pan — screen frame equals world bounds.
+    const seen1 = {};
+    stageDataURL(stubStage({}, seen1), { mimeType: 'image/png', pixelRatio: 2, bounds });
+    approx(seen1.x, 50, 'identity x');
+    approx(seen1.y, 100, 'identity y');
+    // Viewport 2: zoom 2 + pan (-20,+30): screen = world*2 + pan.
+    const seen2 = {};
+    stageDataURL(stubStage({ scale: 2, x: -20, y: 30 }, seen2), {
+      mimeType: 'image/png',
+      pixelRatio: 2,
+      bounds,
+    });
+    approx(seen2.x, 50 * 2 - 20, 'zoomed x');
+    approx(seen2.y, 100 * 2 + 30, 'zoomed y');
+    // Width/height go through Math.ceil (float dust tolerated): ≈100x200.
+    assert.ok(Math.abs(seen2.width - 100) <= 1, `zoomed width ≈ 100, got ${seen2.width}`);
+    assert.ok(Math.abs(seen2.height - 200) <= 1, `zoomed height ≈ 200, got ${seen2.height}`);
+  });
+
+  it('non-finite rotated shapes are still skipped (guard intact)', () => {
+    const rot = { id: 'shape-rr', type: 'rectangle', x: 100, y: 100, width: 100, height: 50, rotation: 90 };
+    const clean = exportBounds([rot], 0);
+    const withBad = exportBounds(
+      [
+        rot,
+        { id: 'shape-nan', type: 'rectangle', x: 0, y: 0, width: NaN, height: 50, rotation: 45 },
+        { id: 'shape-inf', type: 'image', x: 0, y: 0, width: 10, height: Infinity, rotation: 30 },
+      ],
+      0,
+    );
+    assert.deepEqual(withBad, clean);
+  });
+
+  it('frames stay excluded when rotated content is present', () => {
+    const rot = { id: 'shape-rr', type: 'rectangle', x: 100, y: 100, width: 100, height: 50, rotation: 90 };
+    const frame = { id: 'frame-1', type: 'frame', x: 0, y: 0, width: 5000, height: 5000 };
+    assert.deepEqual(exportBounds([frame, rot], 0), exportBounds([rot], 0));
+  });
+});
