@@ -587,6 +587,57 @@ export function rotatePoint(px, py, pivotX, pivotY, degrees) {
 }
 
 /**
+ * Axis-aligned bounds of a box rotated about its Konva node pivot.
+ *
+ * ShapeRenderer sets `rotation` (degrees, clockwise) on every node with NO
+ * offset (see ShapeNode `common` — no offsetX/offsetY anywhere in the
+ * canvas tree), so positioned nodes (rectangle/diamond/image/text/frame/
+ * group) rotate about their position — top-left (x, y). The visible box is
+ * the AABB of the 4 rotated corners. For diamonds this is conservative
+ * (the inscribed diamond never exceeds its box) — exports never crop.
+ *
+ * `pivotX/pivotY` default to the box corner (top-left pivot); the group
+ * union fallback passes the group origin instead. Returns null on
+ * non-finite input (callers fall back to the raw box so the exportHub
+ * non-finite guard keeps working); rotation 0 / non-finite returns the
+ * at-rest box unchanged. No stroke padding is added here — point-path
+ * padding behavior is untouched.
+ */
+export function rotatedBoxBounds(x, y, width, height, rotation, pivotX = x, pivotY = y) {
+  if (
+    !isFiniteNum(x) ||
+    !isFiniteNum(y) ||
+    !isFiniteNum(width) ||
+    !isFiniteNum(height) ||
+    !isFiniteNum(pivotX) ||
+    !isFiniteNum(pivotY)
+  ) {
+    return null;
+  }
+  const deg = isFiniteNum(rotation) ? rotation : 0;
+  if (deg === 0) return { x, y, width, height };
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  const corners = [
+    [x, y],
+    [x + width, y],
+    [x + width, y + height],
+    [x, y + height],
+  ];
+  for (const [cx, cy] of corners) {
+    const p = rotatePoint(cx, cy, pivotX, pivotY, deg);
+    if (!p) return null;
+    if (p.x < minX) minX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y > maxY) maxY = p.y;
+  }
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
+/**
  * Candidate connection anchors of a shape in WORLD coordinates.
  * Edge midpoints (+ center) for box-like shapes; the four vertices (+
  * center) for diamonds; the cardinal perimeter points (+ center) for
@@ -830,8 +881,17 @@ export function getShapeBounds(shape) {
     case 'group': {
       // Composite group: prefer stored union bounds; fall back to the
       // union of children bounds (children stored relative to group origin).
+      // The GroupShape node pivots about the group origin (x, y), so either
+      // box rotates about that pivot (see rotatedBoxBounds).
       if (isFiniteNum(shape.width) && isFiniteNum(shape.height) && isFiniteNum(shape.x) && isFiniteNum(shape.y)) {
-        return { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
+        return (
+          rotatedBoxBounds(shape.x, shape.y, shape.width, shape.height, shape.rotation) ?? {
+            x: shape.x,
+            y: shape.y,
+            width: shape.width,
+            height: shape.height,
+          }
+        );
       }
       const kids = Array.isArray(shape.children) ? shape.children : [];
       let minX = Infinity;
@@ -849,16 +909,42 @@ export function getShapeBounds(shape) {
         maxY = Math.max(maxY, oy + b.y + b.height);
       }
       if (!Number.isFinite(minX)) return null;
-      return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+      const rest = { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+      // Union fallback rotates about the group origin, not the union corner.
+      return rotatedBoxBounds(rest.x, rest.y, rest.width, rest.height, shape.rotation, ox, oy) ?? rest;
     }
     case 'rectangle':
     case 'diamond':
     case 'image':
     case 'frame':
     case 'sticky':
-      return { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
+      // Rotation-aware: nodes pivot about top-left (x, y), so the visible
+      // box is the rotated-corners AABB (conservative for diamonds).
+      // Unrotated shapes take the fast path inside rotatedBoxBounds.
+      return (
+        rotatedBoxBounds(shape.x, shape.y, shape.width, shape.height, shape.rotation) ?? {
+          x: shape.x,
+          y: shape.y,
+          width: shape.width,
+          height: shape.height,
+        }
+      );
     case 'circle': {
       const { rx, ry } = circleRadii(shape);
+      // Pivot IS the center: uniform circles are rotation-invariant.
+      // Rotated ellipses use the exact axis-aligned extents of the rotated
+      // parametrization (hx/hy), matching the center-pivot Konva node.
+      const deg = isFiniteNum(shape.rotation) ? shape.rotation : 0;
+      if (deg !== 0 && (rx > 0 || ry > 0)) {
+        const theta = (deg * Math.PI) / 180;
+        const cos = Math.cos(theta);
+        const sin = Math.sin(theta);
+        const hx = Math.sqrt((rx * cos) ** 2 + (ry * sin) ** 2);
+        const hy = Math.sqrt((rx * sin) ** 2 + (ry * cos) ** 2);
+        if (Number.isFinite(hx) && Number.isFinite(hy)) {
+          return { x: shape.x - hx, y: shape.y - hy, width: hx * 2, height: hy * 2 };
+        }
+      }
       return { x: shape.x - rx, y: shape.y - ry, width: rx * 2, height: ry * 2 };
     }
     case 'freehand':
@@ -897,12 +983,16 @@ export function getShapeBounds(shape) {
         isFiniteNum(shape.width) && shape.width >= 1
           ? shape.width
           : estimateTextWidth(text, fs);
-      return {
+      const box = {
         x: shape.x,
         y: shape.y,
         width,
         height: Math.max(fs, lines * fs * 1.2),
       };
+      // Text nodes pivot about top-left (x, y) like boxes; the rotated
+      // box's AABB stays centered on the rotated center by symmetry, so
+      // text membership centers track the visible glyphs automatically.
+      return rotatedBoxBounds(box.x, box.y, box.width, box.height, shape.rotation) ?? box;
     }
     default:
       return null;
@@ -1403,8 +1493,17 @@ export function isValidShape(shape) {
 
 /**
  * Center point of a shape in WORLD coordinates (for frame containment).
- * Point-path shapes use their bounding-box center; positioned shapes use
- * their geometric center.
+ * Rotation-aware for positioned shapes: rectangle/diamond/image/frame/group
+ * nodes pivot about top-left (x, y) (ShapeRenderer sets `rotation` with no
+ * offset), so the at-rest center is rotated about that pivot via
+ * rotatePoint — the visible center exactly. Circles pivot about their own
+ * center (invariant — returned directly). Text centers flow from the
+ * rotation-aware getShapeBounds box (a rotated box's AABB stays centered on
+ * the rotated center by symmetry). Point-path shapes (freehand/line/arrow)
+ * keep their stored-points bbox center: their nodes are pinned at the stage
+ * origin, so a nonzero rotation would swing about (0,0) — degenerate state
+ * the transformer flow never commits for strokes; membership follows actual
+ * stored world geometry.
  */
 export function shapeCenter(shape) {
   if (!shape || typeof shape !== 'object') return null;
@@ -1435,10 +1534,13 @@ export function shapeCenter(shape) {
   }
   // rectangle / diamond / image / frame: x/y is top-left.
   if (!isFiniteNum(shape.x) || !isFiniteNum(shape.y)) return null;
-  return {
-    x: shape.x + (isFiniteNum(shape.width) ? shape.width : 0) / 2,
-    y: shape.y + (isFiniteNum(shape.height) ? shape.height : 0) / 2,
-  };
+  const cx = shape.x + (isFiniteNum(shape.width) ? shape.width : 0) / 2;
+  const cy = shape.y + (isFiniteNum(shape.height) ? shape.height : 0) / 2;
+  // Visible-geometry-wins: rotate the at-rest center about the node pivot
+  // (top-left). Rotation 0 / missing returns at-rest coords unchanged.
+  const deg = isFiniteNum(shape.rotation) ? shape.rotation : 0;
+  if (deg === 0) return { x: cx, y: cy };
+  return rotatePoint(cx, cy, shape.x, shape.y, deg) ?? { x: cx, y: cy };
 }
 
 /** True when a shape's center falls inside a frame's bounds. */
@@ -1457,11 +1559,14 @@ export function isShapeInsideFrame(shape, frame) {
 
 /**
  * Geometric members of a frame: non-frame, non-preview shapes whose
- * center falls inside the frame bounds. Frames never nest (a frame inside
- * another frame stays a top-level sibling, matching drag semantics).
- * Deterministic: first frame in shapes-array order wins ties. NOTE: keep
- * this rule identical in the renderer (FrameGroupNode) and the drop-batch
- * builder below, or children will visually jump on commit.
+ * ROTATED visible center falls inside the frame bounds. Frames never nest
+ * (a frame inside another frame stays a top-level sibling, matching drag
+ * semantics).
+ * Deterministic tie rule: first frame in shapes-array order wins ties —
+ * rotation never changes precedence, it only changes WHICH frames contain
+ * the visible center (visible-geometry-wins). NOTE: keep this rule
+ * identical in the renderer (FrameGroupNode) and the drop-batch builder
+ * below, or children will visually jump on commit.
  */
 export function frameMembers(shapes, frame) {
   if (!frame || frame.type !== 'frame') return [];
