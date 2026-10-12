@@ -18,11 +18,25 @@ const app = express();
 // production. Production (NODE_ENV=production) allows ONLY the explicit
 // FRONTEND_ORIGIN list.
 const { parseAllowedOrigins, createOriginChecker, createCorsDelegate } = require("./cors.cjs");
-const frontendOrigins = parseAllowedOrigins(process.env.FRONTEND_ORIGIN || "http://localhost:5173");
+const frontendOrigins = parseAllowedOrigins(
+  process.env.CORS_ORIGIN || process.env.FRONTEND_ORIGIN || "http://localhost:5173"
+);
 const isOriginAllowed = createOriginChecker(frontendOrigins);
 app.use(cors({ origin: createCorsDelegate(isOriginAllowed) }));
 
 const port = Number(process.env.PORT) || 3000;
+
+// Lightweight uptime endpoint. It intentionally does not depend on MongoDB
+// so platform health checks and external monitors can reach it during DB
+// outages or cold starts. Requests without an Origin (typical monitors) are
+// allowed by the CORS policy above.
+app.get("/health", (_request, response) => {
+  response.status(200).json({
+    status: "ok",
+    uptime: process.uptime(),
+    timestamp: Date.now(),
+  });
+});
 
 app.get("/", (_request, response) => {
   response.status(200).json({

@@ -4,7 +4,8 @@
  * Singleton socket.io client. Exactly one connection per page, shared by
  * every collaboration hook — hooks must never call io() themselves.
  *
- * URL resolution: VITE_BACKEND_URL when set (production / CI),
+ * URL resolution: VITE_WS_URL when set (production / CI), otherwise
+ * VITE_BACKEND_URL when set (production / CI),
  * then VITE_SYNCSPACE_SERVER_URL (legacy alias),
  * otherwise http://localhost:3000 (local `npm run dev:server`).
  */
@@ -15,6 +16,7 @@ function resolveServerUrl() {
   try {
     const env = (typeof import.meta !== 'undefined' && import.meta.env) || {};
     return (
+      env.VITE_WS_URL ||
       env.VITE_BACKEND_URL ||
       env.VITE_SYNCSPACE_SERVER_URL ||
       'http://localhost:3000'

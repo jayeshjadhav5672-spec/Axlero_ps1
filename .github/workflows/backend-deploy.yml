@@ -1,18 +1,20 @@
-name: Backend — Test & Deploy to Railway
+name: Backend — Test & Deploy to Render
 
 on:
   push:
     branches: [main]
     paths:
-      - 'server/**'
-      - 'package.json'
-      - '.github/workflows/backend-deploy.yml'
+      - "server/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/backend-deploy.yml"
   pull_request:
     branches: [main]
     paths:
-      - 'server/**'
-      - 'package.json'
-      - '.github/workflows/backend-deploy.yml'
+      - "server/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/backend-deploy.yml"
   workflow_dispatch:
 
 permissions:
@@ -31,20 +33,26 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js 20
+      - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
         run: npm ci
 
+      - name: Static analysis and lint
+        run: npm run lint --if-present
+
       - name: Run server tests
         run: npm test
 
+      - name: Verify production build
+        run: npm run build
+
   deploy:
-    name: Deploy to Railway
+    name: Deploy to Render
     needs: test
     # Production deploy ONLY on merges to main — PRs and manual dispatches
     # run the checks above without deploying. Credential presence is gated
@@ -55,24 +63,23 @@ jobs:
     timeout-minutes: 15
     env:
       NODE_ENV: production
+      RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
+      - name: Trigger Render Deploy Hook
+        if: env.RENDER_DEPLOY_HOOK_URL != ''
+        run: |
+          echo "Triggering Render deployment..."
+          response=$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" --request POST "$RENDER_DEPLOY_HOOK_URL")
+          if [ "$response" -eq 200 ] || [ "$response" -eq 201 ]; then
+            echo "Successfully triggered Render deploy hook."
+          else
+            echo "Failed to trigger Render deploy hook. HTTP status: $response"
+            exit 1
+          fi
 
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
-      - name: Deploy to Railway
-        # Fail-closed: without Railway credentials this step skips and
-        # nothing is deployed. Secrets are only compared, never printed.
-        if: env.RAILWAY_TOKEN != ''
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_SERVICE_NAME: ${{ secrets.RAILWAY_SERVICE_NAME }}
-        run: railway up --service "${RAILWAY_SERVICE_NAME:-backend}" --detach
+      - name: Skip Render deployment (missing credentials)
+        if: env.RENDER_DEPLOY_HOOK_URL == ''
+        run: echo "Skipping Render deployment because RENDER_DEPLOY_HOOK_URL is not configured. Validation checks completed successfully."
