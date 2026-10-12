@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Arrow, Circle, Ellipse, Group, Image as KonvaImage, Line, Rect, Text } from 'react-konva';
+import StickyNote from './shapes/StickyNote.jsx';
 import {
   circleRadii,
   dashForStyle,
@@ -832,7 +833,29 @@ const ShapeNode = React.memo(
       );
     }
 
-    if (shape.type === 'text') {
+    if (shape.type === 'sticky') {
+      return (
+        <StickyNote
+          key={shape.id}
+          ref={common.ref}
+          shape={shape}
+          draggable={common.draggable}
+          listening={common.listening}
+          opacity={common.opacity}
+          onSelect={common.onPointerDown}
+          onShapeClick={common.onClick}
+          onDragEnd={(e) => common.onDragEnd?.({ ...e, target: e.currentTarget })}
+          onDragStart={common.onDragStart}
+          onDragMove={(e) => common.onDragMove?.({ ...e, target: e.currentTarget })}
+          onTransformEnd={common.onTransformEnd}
+          onTextDoubleClick={(e) => {
+            if (!shape.remotePreview) onTextDoubleClick?.(shape);
+          }}
+        />
+      );
+    }
+
+  if (shape.type === 'text') {
       // `fontFamily` is the canonical CSS string; resolve legacy picker
       // keys (hand/normal/code/serif) and legacy stacks for back-compat.
       const rawFont = shape.fontFamily ?? DEFAULTS.fontFamily;

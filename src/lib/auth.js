@@ -11,6 +11,7 @@ const API_BASE = (() => {
   try {
     const env = (typeof import.meta !== 'undefined' && import.meta.env) || {};
     return (
+      env.VITE_API_URL ||
       env.VITE_BACKEND_URL ||
       env.VITE_SYNCSPACE_SERVER_URL ||
       'http://localhost:3000'

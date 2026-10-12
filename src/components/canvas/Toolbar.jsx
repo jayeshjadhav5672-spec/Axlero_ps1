@@ -89,6 +89,19 @@ const TOOLS = [
     ),
   },
   {
+    value: 'sticky',
+    label: 'Sticky note',
+    title: 'Sticky note — click to place, double-click to edit text',
+    icon: (
+      <>
+        <rect x="4" y="3" width="16" height="18" rx="2" />
+        <line x1="4" y1="8" x2="20" y2="8" />
+        <line x1="8" y1="12" x2="16" y2="12" />
+        <line x1="8" y1="16" x2="14" y2="16" />
+      </>
+    ),
+  },
+  {
     value: 'frame',
     label: 'Frame',
     title: 'Frame — drag to create a slide container; moving it carries children',
@@ -265,6 +278,8 @@ export default function Toolbar({
   showPropertiesToggle = false,
   isPropertiesOpen = false,
   onToggleProperties,
+  onStickyOptions,
+  onAllProperties,
   // Week-2 productivity toolset (all optional; sections hide when absent)
   onInsertImage,
   autoDetect = false,
@@ -276,6 +291,8 @@ export default function Toolbar({
   // fallback to the auto-cropped full canvas.
   selectedCount = 0,
   hasSelection = false,
+  selectedShapeType = null,
+  selectedShapeId = null,
 }) {
   void locked;
   void onLockedChange;
@@ -304,6 +321,13 @@ export default function Toolbar({
   // so it escapes the toolbar bounds — an `absolute` child here would be
   // cut off by the bar height and its items would never receive clicks.
   const [exportMenuPos, setExportMenuPos] = useState({ top: 0, left: 0 });
+  const [utilityOpen, setUtilityOpen] = useState(false);
+  // A menu opened for the previous selection/tool must not linger after a
+  // drawing gesture commits a new shape. Opening is reserved for the 3-dot
+  // button itself.
+  useEffect(() => {
+    setUtilityOpen(false);
+  }, [tool, selectedShapeId, selectedShapeType]);
   const openExportMenu = useCallback(() => {
     const rect = exportBtnRef.current?.getBoundingClientRect?.();
     if (rect) setExportMenuPos({ top: rect.bottom + 8, left: Math.max(8, rect.left) });
@@ -597,17 +621,16 @@ export default function Toolbar({
         <div className="relative h-9 w-9 shrink-0">
           <button
             type="button"
-            onClick={onToggleProperties}
-            disabled={!showPropertiesToggle}
+            onClick={() => setUtilityOpen((open) => !open)}
             className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition ${
-              isPropertiesOpen
+              utilityOpen || isPropertiesOpen
                 ? 'bg-indigo-50 text-indigo-600'
                 : 'text-gray-700 hover:bg-gray-100'
-            } disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent`}
-            title={showPropertiesToggle ? 'All Properties' : 'All Properties (select a shape or pick a drawing tool)'}
+            }`}
+            title="More tools and options"
             aria-label="Customize — more options"
-            aria-expanded={showPropertiesToggle ? isPropertiesOpen : undefined}
-            aria-pressed={showPropertiesToggle ? isPropertiesOpen : undefined}
+            aria-expanded={utilityOpen}
+            aria-haspopup="menu"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <circle cx="12" cy="5" r="1.8" />
@@ -615,6 +638,35 @@ export default function Toolbar({
               <circle cx="12" cy="19" r="1.8" />
             </svg>
           </button>
+          {utilityOpen && (
+            <div role="menu" aria-label="More tools and options" className="absolute right-0 top-full z-[100] mt-2 w-48 overflow-hidden rounded-xl border border-gray-200 bg-white py-1 shadow-xl">
+              {selectedShapeType === 'sticky' ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setUtilityOpen(false);
+                    (onStickyOptions ?? onToggleProperties)?.();
+                  }}
+                  className="block w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-violet-50 hover:text-violet-700"
+                >
+                  Sticky note options {isPropertiesOpen ? '✓' : ''}
+                </button>
+              ) : selectedShapeType && showPropertiesToggle ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setUtilityOpen(false);
+                    (onAllProperties ?? onToggleProperties)?.();
+                  }}
+                  className="block w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-violet-50 hover:text-violet-700"
+                >
+                  All Properties {isPropertiesOpen ? '✓' : ''}
+                </button>
+              ) : null}
+            </div>
+          )}
         </div>
       </div>
     </div>

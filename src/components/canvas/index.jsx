@@ -11,7 +11,7 @@ import { PresenceCursors, usePresenceCursors } from './presence/index.js';
 import useRemoteSelection from './presence/useRemoteSelection.js';
 import { getSocket } from '../../lib/socket.js';
 import { colorForId, getOrCreateIdentity, getRoomIdFromUrl } from '../../lib/room.js';
-import { DEFAULTS, FONT_FAMILIES, duplicateShape, elbowPoints, morphShape } from './utils/shapes.js';
+import { DEFAULTS, FONT_FAMILIES, STICKY_DEFAULTS, duplicateShape, elbowPoints, morphShape } from './utils/shapes.js';
 import {
   exportAVIF,
   exportJPEG,
@@ -135,6 +135,7 @@ export function Whiteboard({
   onCanvasClear,
   onShapesReorder,
   onSelectionChange,
+  onSelectedIdsChange,
 } = {}) {
   const [internalTool, setInternalTool] = useState('select');
   const [internalColor, setInternalColor] = useState('#1e1e1e');
@@ -155,6 +156,7 @@ export function Whiteboard({
   // mid-gesture; it closes via the backdrop, the X button, Escape, or when
   // the current tool/selection offers nothing to customize.
   const [isCustomizeOpen, setIsCustomizeOpen] = useState(false);
+  const [showSelectedShapeProperties, setShowSelectedShapeProperties] = useState(false);
   // Week-2 productivity toolset: auto-detect toggle, mermaid modal,
   // hidden image file input, export status toast.
   const [autoDetect, setAutoDetect] = useState(false);
@@ -320,18 +322,9 @@ export function Whiteboard({
     [controlledAlign, controlledTextAlign, onAlignChange, onTextAlignChange],
   );
 
-  // The active tool persists after every commit — including the text
-  // tool, which stays on 'text' after each placed block so users can
-  // keep clicking to add more text without re-picking the Text button.
-  // Tool changes happen only via explicit toolbar clicks.
-  // Kept as a stable no-op callback to preserve the `onDrawingCommitted`
-  // integration boundary with useCanvasDrawing.
-  const handleDrawingCommitted = useCallback(
-    (committedTool) => {
-      // Do not auto-switch to select; let the active tool persist
-    },
-    [],
-  );
+  // Drawing tools remain active after a commit so users can place multiple
+  // shapes consecutively. Tool changes happen through explicit tool picks.
+  const handleDrawingCommitted = useCallback(() => {}, []);
 
   // (Shared socket/room memos live above, next to the tool state, so
   // every handler can close over them without TDZ hazards.)
@@ -418,6 +411,20 @@ export function Whiteboard({
 
   const selectedShape = visibleShapes.find((s) => s.id === selectedId) ?? null;
 
+  // Day 2 PropertyInspector bridge: mirror the live multi-selection to the
+  // workspace shell (App.jsx -> <Workspace inspector>). Selection itself
+  // stays internal/uncontrolled here; this effect is notify-only so the
+  // drawer can follow selection without taking control of it. Stable
+  // parent callbacks (useCallback) keep this loop-free.
+  useEffect(() => {
+    if (typeof onSelectedIdsChange !== 'function') return;
+    try {
+      onSelectedIdsChange(Array.isArray(selectedIds) ? [...selectedIds] : []);
+    } catch {
+      // notify-only; never break canvas interaction
+    }
+  }, [selectedIds, onSelectedIdsChange]);
+
   // 3-dot popover availability mirrors the sidebar's own visibility gate.
   // The toggle only appears when there is something to customize.
   const panelAvailable = shouldShowPropertiesPanel({
@@ -426,6 +433,10 @@ export function Whiteboard({
     hasSelection: Boolean(selectedId),
   });
   const toggleCustomize = useCallback(() => setIsCustomizeOpen((v) => !v), []);
+  const openSelectedShapeProperties = useCallback(() => {
+    setShowSelectedShapeProperties(true);
+    setIsCustomizeOpen(true);
+  }, []);
   // Auto-close when the panel has nothing to show (e.g. switched to hand
   // or cleared the selection in select mode).
   useEffect(() => {
@@ -444,7 +455,9 @@ export function Whiteboard({
   // Inspector values: reflect the live selection when present (Excalidraw
   // parity), otherwise fall back to the next-shape tool defaults.
   const inspectorColor = selectedShape
-    ? (selectedShape.type === 'text' ? (selectedShape.fill ?? color) : (selectedShape.stroke ?? color))
+    ? (selectedShape.type === 'text' || selectedShape.type === 'sticky'
+        ? (selectedShape.fill ?? color)
+        : (selectedShape.stroke ?? color))
     : color;
   const inspectorFill = selectedShape ? (selectedShape.fill ?? fill) : fill;
   const inspectorWidth = selectedShape?.strokeWidth ?? strokeWidth;
@@ -472,7 +485,8 @@ export function Whiteboard({
     (next) => {
       handleColorChange(next);
       if (!selectedId || !selectedShape) return;
-      if (selectedShape.type === 'text') stylizeSelection({ fill: next });
+      // Day 4 sticky: stroke color means nothing on a note — paint the fill.
+      if (selectedShape.type === 'text' || selectedShape.type === 'sticky') stylizeSelection({ fill: next });
       else if (selectedShape.type === 'arrow') {
         stylizeSelection({ stroke: next, fill: next });
       } else stylizeSelection({ stroke: next });
@@ -747,7 +761,7 @@ export function Whiteboard({
     if (!sock || typeof sock.on !== 'function') return undefined;
     const KNOWN_TOOLS = new Set([
       'select', 'selection', 'rectangle', 'circle', 'diamond', 'arrow',
-      'line', 'freehand', 'pen', 'text', 'frame', 'eraser', 'pan',
+      'line', 'freehand', 'pen', 'text', 'sticky', 'frame', 'eraser', 'pan',
     ]);
     const onToolSync = (payload) => {
       if (!payload || payload.roomId !== streamRoomId) return;
@@ -1054,6 +1068,8 @@ export function Whiteboard({
               showPropertiesToggle={panelAvailable}
               isPropertiesOpen={isCustomizeOpen}
               onToggleProperties={toggleCustomize}
+              onStickyOptions={openSelectedShapeProperties}
+              onAllProperties={openSelectedShapeProperties}
               onInsertImage={handleInsertImage}
               autoDetect={autoDetect}
               onToggleAutoDetect={handleToggleAutoDetect}
@@ -1061,6 +1077,8 @@ export function Whiteboard({
               onExport={handleExport}
               hasSelection={Boolean(selectedId) || (Array.isArray(selectedIds) && selectedIds.length > 0)}
               selectedCount={Array.isArray(selectedIds) ? selectedIds.length : (selectedId ? 1 : 0)}
+              selectedShapeType={selectedShape?.type ?? null}
+              selectedShapeId={selectedId ?? null}
             />
             {isCustomizeOpen && panelAvailable && (
               <>
@@ -1111,6 +1129,17 @@ export function Whiteboard({
                   tool={tool}
                   hasSelection={Boolean(selectedId)}
                   selectedShape={selectedShape}
+                  showSelectedShapeProperties={showSelectedShapeProperties}
+                  onStickyTextChange={(value) => {
+                    if (selectedId && selectedShape?.type === 'sticky') {
+                      commitUpdate(selectedId, { text: value });
+                    }
+                  }}
+                  onRotationChange={(rotation) => {
+                    if (selectedId && selectedShape?.type === 'sticky') {
+                      commitUpdate(selectedId, { rotation });
+                    }
+                  }}
                   onColorChange={handleSidebarColor}
                   onFillChange={handleSidebarFill}
                   onStrokeWidthChange={handleSidebarWidth}

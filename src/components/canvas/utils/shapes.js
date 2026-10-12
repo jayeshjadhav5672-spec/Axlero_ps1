@@ -6,10 +6,74 @@ export const SHAPE_TYPES = [
   'line',
   'arrow',
   'text',
+  'sticky',
   'image',
   'frame',
   'group',
 ];
+
+/** Day 4 — Dedicated Sticky Note palette + defaults. */
+export const STICKY_COLORS = [
+  { value: '#FEF08A', label: 'Yellow' },
+  { value: '#FBCFE8', label: 'Pink' },
+  { value: '#BBF7D0', label: 'Green' },
+  { value: '#BFDBFE', label: 'Blue' },
+  { value: '#FED7AA', label: 'Orange' },
+  { value: '#E9D5FF', label: 'Purple' },
+];
+
+export const STICKY_DEFAULTS = {
+  width: 200,
+  height: 200,
+  fill: '#FEF08A',
+  text: 'Type your note here...',
+  fontSize: 16,
+  fontFamily: 'Inter, sans-serif',
+};
+
+export function createStickyId() {
+  const rand = () =>
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  return `sticky-${rand()}`;
+}
+
+/**
+ * Day 4 factory — plain serializable sticky note JSON per the spec:
+ * { id, type:'sticky', x, y, width, height, fill, text, fontSize, fontFamily, rotation }
+ */
+export function createStickyShape({
+  x = 200,
+  y = 200,
+  width = STICKY_DEFAULTS.width,
+  height = STICKY_DEFAULTS.height,
+  fill = STICKY_DEFAULTS.fill,
+  text = STICKY_DEFAULTS.text,
+  fontSize = STICKY_DEFAULTS.fontSize,
+  fontFamily = STICKY_DEFAULTS.fontFamily,
+  rotation = 0,
+  opacity = 1,
+  id,
+} = {}) {
+  if (!isFiniteNum(x) || !isFiniteNum(y)) return null;
+  const w = isFiniteNum(width) ? Math.max(40, width) : STICKY_DEFAULTS.width;
+  const h = isFiniteNum(height) ? Math.max(40, height) : STICKY_DEFAULTS.height;
+  return {
+    id: typeof id === 'string' && id.length > 0 ? id : createStickyId(),
+    type: 'sticky',
+    x,
+    y,
+    width: w,
+    height: h,
+    fill: typeof fill === 'string' && fill.length > 0 ? fill : STICKY_DEFAULTS.fill,
+    text: typeof text === 'string' ? text : STICKY_DEFAULTS.text,
+    fontSize: isFiniteNum(fontSize) ? Math.max(8, Math.round(fontSize)) : STICKY_DEFAULTS.fontSize,
+    fontFamily: typeof fontFamily === 'string' && fontFamily.length > 0 ? fontFamily : STICKY_DEFAULTS.fontFamily,
+    rotation: isFiniteNum(rotation) ? rotation : 0,
+    opacity: isFiniteNum(opacity) ? Math.min(1, Math.max(0, opacity)) : 1,
+  };
+}
 
 /** Excalidraw-parity option lists (shared by sidebar + defaults). */
 export const ROUGHNESS_CHOICES = [
@@ -322,6 +386,25 @@ export function createShape(
         opacity,
         rotation: 0,
       };
+    case 'sticky': {
+      // Day 4: dedicated sticky note — drag-to-size draft; mouseup commits
+      // via normalizeRect (see handleStageMouseUp), double-click edits text.
+      const stickyFill =
+        typeof fill === 'string' && fill !== 'transparent' ? fill : STICKY_DEFAULTS.fill;
+      return createStickyShape({
+        id,
+        x: worldPoint.x,
+        y: worldPoint.y,
+        width: 0,
+        height: 0,
+        fill: stickyFill,
+        text: STICKY_DEFAULTS.text,
+        fontSize: STICKY_DEFAULTS.fontSize,
+        fontFamily: STICKY_DEFAULTS.fontFamily,
+        rotation: 0,
+        opacity,
+      });
+    }
     default:
       return null;
   }
@@ -554,7 +637,8 @@ export function getShapeAnchors(shape) {
     shape.type === 'rectangle' ||
     shape.type === 'diamond' ||
     shape.type === 'frame' ||
-    shape.type === 'image'
+    shape.type === 'image' ||
+    shape.type === 'sticky'
   ) {
     if (
       !isFiniteNum(shape.x) ||
@@ -771,6 +855,7 @@ export function getShapeBounds(shape) {
     case 'diamond':
     case 'image':
     case 'frame':
+    case 'sticky':
       return { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
     case 'circle': {
       const { rx, ry } = circleRadii(shape);
@@ -852,7 +937,7 @@ export function normalizeShape(shape) {
     void radiusY;
     return normalizeShape(rest);
   }
-  if (shape.type === 'rectangle' || shape.type === 'diamond' || shape.type === 'image' || shape.type === 'frame') {
+  if (shape.type === 'rectangle' || shape.type === 'diamond' || shape.type === 'image' || shape.type === 'frame' || shape.type === 'sticky') {
     // Repair negatives AND non-finite geometry (NaN/Infinity from a
     // zero-distance pointer release) so Konva never sees bad attrs.
     const bad =
@@ -988,6 +1073,49 @@ export function normalizeShape(shape) {
     }
     return dirty ? out : shape;
   }
+  if (shape.type === 'sticky') {
+    const out = { ...shape };
+    let dirty = false;
+    if (typeof out.text !== 'string') {
+      out.text = typeof out.text === 'number' ? String(out.text) : STICKY_DEFAULTS.text;
+      dirty = true;
+    }
+    for (const k of ['x', 'y', 'width', 'height']) {
+      if (!isFiniteNum(out[k])) {
+        out[k] = k === 'width' ? STICKY_DEFAULTS.width : k === 'height' ? STICKY_DEFAULTS.height : 0;
+        dirty = true;
+      }
+    }
+    if (out.width < 40) {
+      out.width = 40;
+      dirty = true;
+    }
+    if (out.height < 40) {
+      out.height = 40;
+      dirty = true;
+    }
+    if (typeof out.fill !== 'string' || !out.fill) {
+      out.fill = STICKY_DEFAULTS.fill;
+      dirty = true;
+    }
+    if (!isFiniteNum(out.fontSize) || out.fontSize < 8) {
+      out.fontSize = isFiniteNum(out.fontSize) ? Math.max(8, Math.round(out.fontSize)) : STICKY_DEFAULTS.fontSize;
+      dirty = true;
+    }
+    if (typeof out.fontFamily !== 'string' || !out.fontFamily) {
+      out.fontFamily = STICKY_DEFAULTS.fontFamily;
+      dirty = true;
+    }
+    if (!isFiniteNum(out.rotation)) {
+      out.rotation = 0;
+      dirty = true;
+    }
+    if (out.opacity !== undefined && !isFiniteNum(out.opacity)) {
+      out.opacity = 1;
+      dirty = true;
+    }
+    return dirty ? out : shape;
+  }
   if (shape.type === 'text') {
     const out = { ...shape };
     if (typeof out.text !== 'string') out.text = String(out.text ?? '');
@@ -1058,7 +1186,7 @@ export function bakeTransform(shape, { scaleX, scaleY, rotation }) {
   const sy = isFiniteNum(scaleY) ? scaleY : 1;
   if (sx === 1 && sy === 1) return Object.keys(changes).length ? changes : null;
 
-  if (shape.type === 'rectangle' || shape.type === 'diamond' || shape.type === 'image' || shape.type === 'frame' || shape.type === 'group') {
+  if (shape.type === 'rectangle' || shape.type === 'diamond' || shape.type === 'image' || shape.type === 'frame' || shape.type === 'group' || shape.type === 'sticky') {
     const w = isFiniteNum(shape.width) ? shape.width : 0;
     const h = isFiniteNum(shape.height) ? shape.height : 0;
     const nw = Math.abs(w * sx);
@@ -1257,10 +1385,13 @@ export function serializeShapes(shapes) {
 
 export function isValidShape(shape) {
   if (!shape || typeof shape !== 'object') return false;
-  // Canonical `shape-<uuid>` plus Week-2 `img-*` / `frame-*` ids.
+  // Canonical `shape-<uuid>` plus Week-2 `img-*` / `frame-*` ids plus Day 4 `sticky-*` ids.
   if (typeof shape.id !== 'string' || !shape.id) return false;
   const okId =
-    shape.id.startsWith('shape-') || shape.id.startsWith('img-') || shape.id.startsWith('frame-');
+    shape.id.startsWith('shape-') ||
+    shape.id.startsWith('img-') ||
+    shape.id.startsWith('frame-') ||
+    shape.id.startsWith('sticky-');
   if (!okId) return false;
   if (!SHAPE_TYPES.includes(shape.type)) {
     // Back-compat: legacy freehand blobs were stored as type 'line',
@@ -1294,6 +1425,13 @@ export function shapeCenter(shape) {
     const b = getShapeBounds(shape);
     if (!b) return null;
     return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  }
+  if (shape.type === 'sticky') {
+    if (!isFiniteNum(shape.x) || !isFiniteNum(shape.y)) return null;
+    return {
+      x: shape.x + (isFiniteNum(shape.width) ? shape.width : 0) / 2,
+      y: shape.y + (isFiniteNum(shape.height) ? shape.height : 0) / 2,
+    };
   }
   // rectangle / diamond / image / frame: x/y is top-left.
   if (!isFiniteNum(shape.x) || !isFiniteNum(shape.y)) return null;
