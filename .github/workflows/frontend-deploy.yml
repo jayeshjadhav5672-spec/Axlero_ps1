@@ -58,6 +58,15 @@ jobs:
         env:
           VITE_BACKEND_URL: ${{ secrets.VITE_BACKEND_URL }}
           VITE_SYNCSPACE_SERVER_URL: ${{ secrets.VITE_BACKEND_URL }}
+          # Firebase client configuration baked at build time. Empty on
+          # PRs without secrets (build proceeds with fallbacks); required
+          # for production via the validate step in deploy-production.
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
         run: npm run build
 
       - uses: actions/upload-artifact@v4
@@ -80,10 +89,44 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT_NAME }}
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate production frontend config
+        # Fail-closed: missing/malformed/localhost backend URL or missing
+        # Firebase fields fail the job BEFORE anything publishes. Secrets
+        # are mapped to env (allowed); only `if` expressions forbid them.
+        # Never prints secret values — see scripts/validate-frontend-env.mjs.
+        env:
+          VITE_BACKEND_URL: ${{ secrets.VITE_BACKEND_URL }}
+          VITE_SYNCSPACE_SERVER_URL: ${{ secrets.VITE_BACKEND_URL }}
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+        run: node scripts/validate-frontend-env.mjs --production
+
       - uses: actions/download-artifact@v4
         with:
           name: frontend-dist
           path: dist
+
+      - name: Verify built backend URL
+        # Closes the loop: the bundle baked at build time must reference
+        # the intended public backend host (catches localhost baked into
+        # a production bundle). Fails loudly; prints hostnames, not secrets.
+        env:
+          EXPECTED_BACKEND_URL: ${{ secrets.VITE_BACKEND_URL }}
+        run: node scripts/verify-built-backend.mjs dist
+
+      - name: Verify built Firebase config
+        # The production bundle must contain the expected Firebase project
+        # ID baked at build time (a build without secrets ships broken
+        # auth). Fails loudly; reports found/missing only, never values.
+        env:
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+        run: node scripts/verify-built-firebase.mjs dist
 
       - name: Deploy to Cloudflare Pages (production)
         if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
