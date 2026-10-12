@@ -22,6 +22,10 @@ import {
   hostnameOf,
   resolveExpectedBackendUrl,
 } from '../scripts/verify-built-backend.mjs';
+import {
+  builtBundleContainsFirebaseProject,
+  resolveExpectedProjectId,
+} from '../scripts/verify-built-firebase.mjs';
 
 const FIREBASE_OK = {
   VITE_FIREBASE_API_KEY: 'key',
@@ -131,5 +135,28 @@ describe('verify-built-backend', () => {
     assert.equal(builtBundleContainsBackend(dir, 'https://other.example.com'), false);
     assert.equal(builtBundleContainsBackend(join(dir, 'missing'), 'https://api.example.com'), false);
     assert.equal(builtBundleContainsBackend(dir, 'not a url'), false);
+  });
+});
+
+describe('verify-built-firebase', () => {
+  it('resolves the expected project ID defensively', () => {
+    assert.equal(resolveExpectedProjectId({ VITE_FIREBASE_PROJECT_ID: '  my-app ' }), 'my-app');
+    assert.equal(resolveExpectedProjectId({ VITE_FIREBASE_PROJECT_ID: '' }), '');
+    assert.equal(resolveExpectedProjectId({}), '');
+  });
+
+  it('finds the project ID in emitted chunks, rejects incomplete builds', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'syncspace-verify-fb-'));
+    mkdirSync(join(dir, 'assets'), { recursive: true });
+    writeFileSync(
+      join(dir, 'assets', 'index-abc.js'),
+      'const cfg={projectId:"my-app",apiKey:"key"};console.log(cfg);',
+    );
+    writeFileSync(join(dir, 'index.html'), '<html></html>');
+    assert.equal(builtBundleContainsFirebaseProject(dir, 'my-app'), true);
+    assert.equal(builtBundleContainsFirebaseProject(dir, 'other-app'), false);
+    assert.equal(builtBundleContainsFirebaseProject(dir, ''), false);
+    assert.equal(builtBundleContainsFirebaseProject(dir, '   '), false);
+    assert.equal(builtBundleContainsFirebaseProject(join(dir, 'missing'), 'my-app'), false);
   });
 });
