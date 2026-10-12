@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Play, Loader2, Trash2, X } from 'lucide-react';
 import { ensureSharedNode } from '../../lib/projectSync.js';
+import { isRunnableLanguage, runUserCode } from '../../lib/codeRunner.js';
 import {
   SHARED_FILE_ID,
   ancestorIds,
@@ -607,9 +608,11 @@ export default function CodeEditorPanel({
   }, []);
 
   // Code-runner affordance: click-only (no keyboard shortcuts). Opens the
-  // output console, captures console.log output via a sandboxed runner, and
-  // populates `output`. Also forwards to the optional host `onRunCode`
-  // handler. Never touches tabs, Monaco sync, or collab hooks.
+  // output console and populates `output` via an isolated Web Worker
+  // (see src/lib/codeRunner.js for the threat model — user code NEVER runs
+  // in the application page context and NEVER touches the app console).
+  // Also forwards to the optional host `onRunCode` handler first. Never
+  // touches tabs, Monaco sync, or collab hooks.
   const [output, setOutput] = useState('');
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
@@ -622,15 +625,6 @@ export default function CodeEditorPanel({
 
     const activeCode = project?.fileTexts?.[activeId] ?? '';
     const activeLanguage = activeId ? languageForFileName(nodeById(activeId)?.name ?? '') : language;
-
-    const formatArg = (a) => {
-      if (typeof a === 'string') return a;
-      try {
-        return typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a);
-      } catch {
-        return String(a);
-      }
-    };
 
     try {
       // If a host execution handler is provided, give it first chance. When
@@ -650,7 +644,7 @@ export default function CodeEditorPanel({
             }
           }
           // Host handler without a usable return value: fall through to the
-          // client-side runner below unless it already handled output via
+          // isolated runner below unless it already handled output via
           // side effects. Only fall through when there is code to run.
           if (hostResult !== undefined && hostResult !== null) return;
         } catch (err) {
@@ -665,37 +659,19 @@ export default function CodeEditorPanel({
       // setOutput(data.output || data.error || 'Program finished with no output.');
       // return;
 
-      // Client-side quick runner fallback (for JS/TS). Other languages need
-      // a backend runner service.
-      const lang = String(activeLanguage ?? '').toLowerCase();
-      if (lang && !['javascript', 'typescript'].includes(lang)) {
-        setOutput(`Execution for "${activeLanguage}" requires a backend runner service. Client-side runner supports JavaScript/TypeScript only.`);
+      // Isolated client-side runner: JavaScript ONLY. Nothing here
+      // transpiles, so TypeScript (and every other language) honestly
+      // reports the backend-runner requirement instead of failing inside
+      // an AsyncFunction that cannot parse type annotations.
+      if (!isRunnableLanguage(activeLanguage)) {
+        setOutput(`Execution for "${activeLanguage || 'this file'}" requires a backend runner service. Client-side runner supports JavaScript only.`);
         return;
       }
 
-      const logs = [];
-      const originalLog = console.log;
-      const originalError = console.error;
-      const originalWarn = console.warn;
-      console.log = (...args) => { logs.push(args.map(formatArg).join(' ')); };
-      console.error = (...args) => { logs.push(`[ERROR] ${args.map(formatArg).join(' ')}`); };
-      console.warn = (...args) => { logs.push(`[WARN] ${args.map(formatArg).join(' ')}`); };
-
       try {
-        const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
-        const runFn = new AsyncFunction(activeCode);
-        const returned = await runFn();
-        if (returned !== undefined && logs.length === 0) {
-          logs.push(formatArg(returned));
-        }
-        setOutput(logs.join('\n') || 'Program executed successfully (no output).');
+        setOutput(await runUserCode(activeCode));
       } catch (err) {
-        const trailing = logs.length > 0 ? `${logs.join('\n')}\n` : '';
-        setOutput(`${trailing}Error: ${err?.message ?? String(err)}`);
-      } finally {
-        console.log = originalLog;
-        console.error = originalError;
-        console.warn = originalWarn;
+        setOutput(`Error: ${err?.message ?? String(err)}`);
       }
     } finally {
       setIsRunning(false);
