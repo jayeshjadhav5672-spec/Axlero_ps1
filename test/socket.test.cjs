@@ -244,24 +244,14 @@ test("code:update rejects a client outside the room and never broadcasts it", as
 });
 
 test("handshake JWT attributes presence; invalid token stays anonymous guest", async () => {
-  // Mirrors server/index.cjs: optional handshake token verified into
-  // socket.user for presence attribution; never rejects the transport.
+  // Exercises the REAL handshake middleware from server/auth/handshake.cjs
+  // (the same unit wired in server/index.cjs) — not a test-local copy.
   process.env.JWT_SECRET = "test-only-secret-0123456789abcdef";
   const { signToken, verifyToken } = require("../server/auth/tokens.cjs");
+  const { createHandshakeMiddleware } = require("../server/auth/handshake.cjs");
   const srv = http.createServer();
   const { io } = createSocketServer(srv);
-  io.use((socket, next) => {
-    try {
-      const token = socket?.handshake?.auth?.token;
-      if (typeof token === "string" && token.trim().length > 0) {
-        const payload = verifyToken(token);
-        socket.user = { id: String(payload.sub), displayName: payload.displayName || payload.email || "Guest" };
-      }
-    } catch {
-      // Invalid token: stay anonymous rather than refusing the connection.
-    }
-    return next();
-  });
+  io.use(createHandshakeMiddleware({ verifyToken }));
   srv.listen(0);
   await once(srv, "listening");
   const srvPort = srv.address().port;
@@ -304,6 +294,25 @@ test("handshake JWT attributes presence; invalid token stays anonymous guest", a
     await waitForEvent(guest, "connect");
     guest.emit("room:join", { roomId: "auth-room" });
     await waitForEvent(guest, "room:joined");
+
+    // An authenticated client passing a different userId cannot impersonate:
+    // server-side token identity wins over the self-asserted payload. A
+    // second authed socket joins spoofing userId "victim"; the peer-observed
+    // roster must still attribute it to the token identity, never "victim".
+    const authed2 = mk({ token });
+    await waitForEvent(authed2, "connect");
+    const peerSeesJoin = waitForEvent(guest, "presence:update");
+    authed2.emit("room:join", { roomId: "auth-room", userId: "victim", displayName: "Victim" });
+    await waitForEvent(authed2, "room:joined");
+    const [respoof] = await peerSeesJoin;
+    assert.ok(
+      respoof.users.some((u) => u.userId === "u-auth" && u.displayName === "Authed"),
+      "token identity attributed despite spoofed payload",
+    );
+    assert.ok(
+      !respoof.users.some((u) => u.userId === "victim"),
+      "self-asserted userId cannot override token identity",
+    );
   } finally {
     io.close();
     await new Promise((resolve) => srv.close(resolve));

@@ -76,21 +76,8 @@ const { io } = createSocketServer(httpServer, {
 // presence/room logic can attribute authenticated users. Guests (no
 // token, invalid token) connect exactly as before — authentication is
 // additive and never rejects the transport.
-io.use((socket, next) => {
-  try {
-    const token = socket && socket.handshake && socket.handshake.auth ? socket.handshake.auth.token : null;
-    if (typeof token === "string" && token.trim().length > 0) {
-      const payload = verifyToken(token);
-      socket.user = {
-        id: String(payload.sub),
-        displayName: payload.displayName || payload.email || "Guest",
-      };
-    }
-  } catch {
-    // Invalid token: stay anonymous rather than refusing the connection.
-  }
-  return next();
-});
+const { createHandshakeMiddleware } = require("./auth/handshake.cjs");
+io.use(createHandshakeMiddleware({ verifyToken }));
 
 // MongoDB Atlas (connection infrastructure only — no schemas/auth yet).
 // Non-fatal: the realtime service stays up even if the database is
