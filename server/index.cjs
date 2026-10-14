@@ -3,7 +3,7 @@ const express = require("express");
 const cors = require("cors");
 const http = require("node:http");
 const { createSocketServer } = require("./socket.cjs");
-const { connectMongo } = require("./db/mongodb.cjs");
+const { connectMongo, isConnected } = require("./db/mongodb.cjs");
 const { verifyToken } = require("./auth/tokens.cjs");
 const { createAuthRouter } = require("./auth/routes.cjs");
 
@@ -45,11 +45,32 @@ app.get("/", (_request, response) => {
   });
 });
 
+// Readiness probe: 200 only when the database handle is live, 503 while
+// degraded. Credential-free by construction (boolean status only).
+app.get("/ready", (_request, response) => {
+  let connected = false;
+  try {
+    connected = isConnected();
+  } catch {
+    connected = false;
+  }
+  response.status(connected ? 200 : 503).json({
+    status: connected ? "ready" : "degraded",
+    mongo: connected,
+  });
+});
+
 const httpServer = http.createServer(app);
 
 app.use("/api/auth", createAuthRouter());
 
-const { io } = createSocketServer(httpServer);
+// Socket.IO handshake CORS mirrors the HTTP policy above (explicit
+// allowlist, never a wildcard): same isOriginAllowed predicate, adapted
+// by createCorsDelegate to socket.io's (origin, callback) shape.
+// Requests without an Origin header remain allowed (native clients).
+const { io } = createSocketServer(httpServer, {
+  cors: { origin: createCorsDelegate(isOriginAllowed), credentials: true },
+});
 
 // Socket identity: verify an optional handshake JWT into socket.user so
 // presence/room logic can attribute authenticated users. Guests (no

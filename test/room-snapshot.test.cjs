@@ -275,4 +275,33 @@ describe("room snapshots over sockets", () => {
     await waitForEvent(late, "room:joined");
     assert.deepEqual((await syncInit)[0].shapes.map((s) => s.id), ["keep-1"]);
   });
+
+  test("reconnecting client converges on shapes drawn while it was gone", async () => {
+    const a = client();
+    await waitForEvent(a, "connect");
+    a.emit("room:join", { roomId: "recon-room", userId: "a" });
+    await waitForEvent(a, "room:joined");
+
+    const b = client();
+    await waitForEvent(b, "connect");
+    b.emit("room:join", { roomId: "recon-room", userId: "b" });
+    await waitForEvent(b, "room:joined");
+
+    // B drops mid-stream; A keeps drawing.
+    b.disconnect();
+    a.emit("shapes:commit", { roomId: "recon-room", data: { shapes: [{ id: "r1", type: "rectangle" }] } });
+    a.emit("shapes:commit", { roomId: "recon-room", data: { shapes: [{ id: "r2", type: "circle" }] } });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // B reconnects with a fresh socket and must converge on both shapes.
+    const b2 = client();
+    await waitForEvent(b2, "connect");
+    const syncInit = waitForEvent(b2, "canvas:sync-init");
+    b2.emit("room:join", { roomId: "recon-room", userId: "b" });
+    await waitForEvent(b2, "room:joined");
+    assert.deepEqual(
+      (await syncInit)[0].shapes.map((s) => s.id).sort(),
+      ["r1", "r2"],
+    );
+  });
 });

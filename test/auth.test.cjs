@@ -203,3 +203,45 @@ test("GET /api/auth/me requires a live user behind a valid token", async () => {
   const bad = await authedFetch("/api/auth/me", { headers: { Authorization: "Bearer deadbeef" } });
   assert.equal(bad.status, 401);
 });
+
+test("login is case-insensitive on email", async () => {
+  const mixed = await authedFetch("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email: "HTTP@Example.COM", password: "password-123" }),
+  });
+  assert.equal(mixed.status, 200);
+  assert.equal(mixed.body.user.email, "http@example.com");
+});
+
+test("token for a deleted user is rejected on /me", async () => {
+  const collection = fakeCollection();
+  const store = createUserStore(collection);
+  const app = express();
+  app.use("/api/auth", createAuthRouter({ getUserStore: () => store }));
+  const srv = http.createServer(app);
+  srv.listen(0);
+  await once(srv, "listening");
+  const port = srv.address().port;
+  const call = async (path, opts = {}) => {
+    const res = await fetch(`http://localhost:${port}${path}`, {
+      headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+      ...opts,
+    });
+    return { status: res.status, body: await res.json().catch(() => null) };
+  };
+  try {
+    const signup = await call("/api/auth/signup", {
+      method: "POST",
+      body: JSON.stringify({ email: "gone@example.com", password: "password-123", displayName: "Gone" }),
+    });
+    assert.equal(signup.status, 201);
+    // Delete the user directly behind the token's back.
+    collection.__docs.splice(0, collection.__docs.length);
+    const me = await call("/api/auth/me", {
+      headers: { Authorization: `Bearer ${signup.body.token}` },
+    });
+    assert.equal(me.status, 401);
+  } finally {
+    await new Promise((resolve) => srv.close(resolve));
+  }
+});

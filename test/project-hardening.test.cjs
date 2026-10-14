@@ -22,6 +22,9 @@ const {
   createSocketServer,
   DEFAULT_FILE_ID,
   MAX_ROOMS,
+  MAX_FILE_TEXT_BYTES,
+  MAX_PROJECT_TEXT_BYTES,
+  MAX_NODE_NAME,
 } = require("../server/socket.cjs");
 
 let httpServer;
@@ -300,4 +303,100 @@ test("project capacity: live rooms never evicted, full rooms fail loudly, idle e
     io.close();
     await new Promise((resolve) => srv.close(resolve));
   }
+});
+
+test("rapid burst: 50 sequential revs converge on rev 50 everywhere", async () => {
+  const roomId = "hard-burst";
+  const a = client();
+  const b = client();
+  await join(a, roomId, "a");
+  await join(b, roomId, "b");
+  for (let rev = 1; rev <= 50; rev += 1) {
+    const incoming = waitForEvent(b, "code:update");
+    a.emit("code:update", {
+      roomId,
+      data: { fileId: DEFAULT_FILE_ID, text: `text-${rev}`, rev, actorId: "a" },
+    });
+    const [payload] = await incoming;
+    assert.equal(payload.data.rev, rev);
+  }
+  const { snapshot } = await joinState(roomId, "late");
+  assert.equal(snapshot.data.files[DEFAULT_FILE_ID].text, "text-50");
+  assert.equal(snapshot.data.files[DEFAULT_FILE_ID].rev, 50);
+});
+
+test("concurrent same-rev collision converges on one writer for late joiners", async () => {
+  const roomId = "hard-race";
+  const a = client();
+  const b = client();
+  await join(a, roomId, "a");
+  await join(b, roomId, "b");
+  // Both writers emit rev 1 concurrently (same base rev 0): arrival order
+  // decides, the snapshot keeps exactly one text at rev 1.
+  await Promise.all([
+    (async () => {
+      a.emit("code:update", { roomId, data: { fileId: DEFAULT_FILE_ID, text: "from-a", rev: 1, actorId: "a" } });
+    })(),
+    (async () => {
+      b.emit("code:update", { roomId, data: { fileId: DEFAULT_FILE_ID, text: "from-b", rev: 1, actorId: "b" } });
+    })(),
+  ]);
+  // Settle: both emits flush before the late joiner connects, so exactly
+  // one writer's text survives at rev 1 for late joiners.
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  const { snapshot } = await joinState(roomId, "late");
+  assert.equal(snapshot.data.files[DEFAULT_FILE_ID].rev, 1);
+  assert.ok(["from-a", "from-b"].includes(snapshot.data.files[DEFAULT_FILE_ID].text));
+});
+
+test("oversized file text is rejected loudly, never relayed or stored", async () => {
+  const roomId = "hard-overcap";
+  const a = client();
+  const b = client();
+  await join(a, roomId, "a");
+  await join(b, roomId, "b");
+  const big = `x`.repeat(MAX_FILE_TEXT_BYTES + 1);
+  const err = waitForEvent(a, "connection:error");
+  a.emit("code:update", { roomId, data: { fileId: DEFAULT_FILE_ID, text: big, rev: 1, actorId: "a" } });
+  const [payload] = await err;
+  assert.equal(payload.event, "code:update");
+  await expectNoEvent(b, "code:update", 200);
+  const { snapshot } = await joinState(roomId, "late");
+  assert.notEqual(snapshot.data.files[DEFAULT_FILE_ID].text, big);
+});
+
+test("oversized project total is rejected loudly", async () => {
+  // NOTE: socket.io itself caps packets at 1MB, so the 2MB project total
+  // can only be reached with many under-cap writes, not one giant emit
+  // (a single >1MB emit never arrives — transport-level drop, no error).
+  const roomId = "hard-projcap";
+  const a = client();
+  await join(a, roomId, "a");
+  const chunkBytes = MAX_FILE_TEXT_BYTES; // at-cap writes are accepted (cap is strict >)
+  const filesNeeded = Math.floor(MAX_PROJECT_TEXT_BYTES / chunkBytes) + 1;
+  for (let i = 0; i < filesNeeded; i += 1) {
+    const id = `cap-file-${i}`;
+    const created = waitForEvent(a, "project:node-created");
+    a.emit("project:create-node", { roomId, data: { node: { id, name: `cap-${i}.txt`, type: "file", parentId: null } } });
+    await created;
+    a.emit("code:update", { roomId, data: { fileId: id, text: `z`.repeat(chunkBytes), rev: 1, actorId: "a" } });
+  }
+  const err = waitForEvent(a, "connection:error");
+  a.emit("code:update", { roomId, data: { fileId: DEFAULT_FILE_ID, text: "one more byte", rev: 1, actorId: "a" } });
+  const [payload] = await err;
+  assert.equal(payload.event, "code:update");
+  assert.match(payload.message, /storage limit/);
+});
+
+test("overlong node names are rejected loudly", async () => {
+  const roomId = "hard-longname";
+  const a = client();
+  await join(a, roomId, "a");
+  const err = waitForEvent(a, "connection:error");
+  a.emit("project:create-node", {
+    roomId,
+    data: { node: { id: "long-1", name: `n`.repeat(MAX_NODE_NAME + 1), type: "file", parentId: null } },
+  });
+  const [payload] = await err;
+  assert.equal(payload.event, "project:create-node");
 });

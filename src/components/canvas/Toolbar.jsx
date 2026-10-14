@@ -27,7 +27,8 @@ const SELECT_ICON = (
 // Excalidraw-order tools (selection, rectangle, diamond, ellipse, arrow,
 // line, pen, text, eraser). Diamond maps to the `diamond` shape type in
 // utils/shapes.js and renders as a closed 4-point polygon.
-// Tool switching is click-only: no keyboard shortcuts, no shortcut badges.
+// Tool switching is click-first (no shortcut badges shown), with optional
+// keyboard shortcuts wired separately in useCanvasHotkeys.js.
 const TOOLS = [
   {
     value: 'select',

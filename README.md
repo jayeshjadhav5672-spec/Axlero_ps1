@@ -266,6 +266,13 @@ keep-alive pings to avoid idle spin-down.
 - [ ] Open a nested client-side route directly and confirm it loads; verify
       authentication/API requests and Socket.IO connection in the browser.
 
+### Rollback & recovery
+
+- **Cloudflare Pages:** open the project → Deployments, find the last known-good production deployment, and use Promote to production (or Rollback). No code changes needed; keep the same `VITE_*` values.
+- **Render backend:** open the service → Deploys, select the last healthy deploy, and use Rollback/Redeploy. Alternatively redeploy from a pinned commit SHA. Verify `/health` (liveness) and `/ready` (200 only when MongoDB is connected) afterward.
+- **Secrets rotation:** rotating `JWT_SECRET`, Firebase, or MongoDB credentials requires rebuilding/redeploying both services (`VITE_*` values bake into the frontend bundle at build time; backend reads env at startup).
+- **Room state is in-memory:** a backend restart drops live rooms/snapshots (by design). Clients rejoin automatically; no data migration exists or is needed.
+
 ---
 
 ## Testing & Verification

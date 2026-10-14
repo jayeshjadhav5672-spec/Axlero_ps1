@@ -242,3 +242,70 @@ test("code:update rejects a client outside the room and never broadcasts it", as
     /not-leaked/,
   );
 });
+
+test("handshake JWT attributes presence; invalid token stays anonymous guest", async () => {
+  // Mirrors server/index.cjs: optional handshake token verified into
+  // socket.user for presence attribution; never rejects the transport.
+  process.env.JWT_SECRET = "test-only-secret-0123456789abcdef";
+  const { signToken, verifyToken } = require("../server/auth/tokens.cjs");
+  const srv = http.createServer();
+  const { io } = createSocketServer(srv);
+  io.use((socket, next) => {
+    try {
+      const token = socket?.handshake?.auth?.token;
+      if (typeof token === "string" && token.trim().length > 0) {
+        const payload = verifyToken(token);
+        socket.user = { id: String(payload.sub), displayName: payload.displayName || payload.email || "Guest" };
+      }
+    } catch {
+      // Invalid token: stay anonymous rather than refusing the connection.
+    }
+    return next();
+  });
+  srv.listen(0);
+  await once(srv, "listening");
+  const srvPort = srv.address().port;
+  const mk = (auth) => {
+    const s = connect(`http://localhost:${srvPort}`, { forceNew: true, auth });
+    sockets.push(s);
+    return s;
+  };
+  try {
+    const token = signToken({ id: "u-auth", email: "authed@example.com", displayName: "Authed" });
+    const authed = mk({ token });
+    await waitForEvent(authed, "connect");
+    const authedPresence = waitForEvent(authed, "presence:update");
+    authed.emit("room:join", { roomId: "auth-room" });
+    await waitForEvent(authed, "room:joined");
+    const [presence] = await authedPresence;
+    const entry = presence.users.find((u) => u.userId === "u-auth");
+    assert.ok(entry, "authenticated presence entry attributed to token identity");
+    assert.equal(entry.displayName, "Authed");
+
+    const forged = mk({ token: "forged-token" });
+    await waitForEvent(forged, "connect");
+    const afterForged = waitForEvent(authed, "presence:update");
+    forged.emit("room:join", { roomId: "auth-room", userId: "impostor", displayName: "Impostor" });
+    await waitForEvent(forged, "room:joined");
+    // Invalid token still joins (additive auth), but the fresh roster must
+    // not attribute anyone to the victim identity.
+    const [fresh] = await afterForged;
+    assert.equal(
+      fresh.users.filter((u) => u.userId === "u-auth").length,
+      1,
+      "exactly one entry carries the victim identity (the real owner)",
+    );
+    assert.ok(
+      fresh.users.some((u) => u.displayName === "Impostor" && u.userId !== "u-auth"),
+      "forged client appears only under its own self-asserted identity",
+    );
+
+    const guest = mk({});
+    await waitForEvent(guest, "connect");
+    guest.emit("room:join", { roomId: "auth-room" });
+    await waitForEvent(guest, "room:joined");
+  } finally {
+    io.close();
+    await new Promise((resolve) => srv.close(resolve));
+  }
+});
