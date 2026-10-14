@@ -24,8 +24,11 @@ import {
   resolveExpectedBackendUrl,
 } from '../scripts/verify-built-backend.mjs';
 import {
+  FIREBASE_BUNDLE_FIELDS,
   builtBundleContainsFirebaseProject,
+  resolveExpectedFirebaseConfig,
   resolveExpectedProjectId,
+  verifyBuiltFirebaseConfig,
 } from '../scripts/verify-built-firebase.mjs';
 
 const FIREBASE_OK = {
@@ -217,5 +220,36 @@ describe('verify-built-firebase', () => {
     assert.equal(builtBundleContainsFirebaseProject(dir, ''), false);
     assert.equal(builtBundleContainsFirebaseProject(dir, '   '), false);
     assert.equal(builtBundleContainsFirebaseProject(join(dir, 'missing'), 'my-app'), false);
+  });
+
+  it('requires all six configured values in the bundle, names missing fields', () => {
+    assert.equal(FIREBASE_BUNDLE_FIELDS.length, 6);
+    const full = {
+      VITE_FIREBASE_API_KEY: 'key-1',
+      VITE_FIREBASE_AUTH_DOMAIN: 'app.firebaseapp.com',
+      VITE_FIREBASE_PROJECT_ID: 'my-app',
+      VITE_FIREBASE_STORAGE_BUCKET: 'app.appspot.com',
+      VITE_FIREBASE_MESSAGING_SENDER_ID: '42',
+      VITE_FIREBASE_APP_ID: '1:42:web:99',
+    };
+    assert.deepEqual(Object.keys(resolveExpectedFirebaseConfig(full)).sort(), [...FIREBASE_BUNDLE_FIELDS].sort());
+    assert.deepEqual(resolveExpectedFirebaseConfig({ VITE_FIREBASE_PROJECT_ID: '  ' }), {});
+    const dir = mkdtempSync(join(tmpdir(), 'syncspace-verify-fb6-'));
+    mkdirSync(join(dir, 'assets'), { recursive: true });
+    writeFileSync(
+      join(dir, 'assets', 'index-abc.js'),
+      'const cfg={apiKey:"key-1",authDomain:"app.firebaseapp.com",projectId:"my-app",storageBucket:"app.appspot.com",messagingSenderId:"42",appId:"1:42:web:99"};',
+    );
+    assert.deepEqual(verifyBuiltFirebaseConfig(dir, full), { ok: true });
+    // Five of six baked: project ID alone must NOT satisfy the check.
+    const partial = { ...full };
+    delete partial.VITE_FIREBASE_APP_ID;
+    const dir2 = mkdtempSync(join(tmpdir(), 'syncspace-verify-fb5-'));
+    mkdirSync(join(dir2, 'assets'), { recursive: true });
+    writeFileSync(
+      join(dir2, 'assets', 'index-abc.js'),
+      'const cfg={apiKey:"key-1",authDomain:"app.firebaseapp.com",projectId:"my-app",storageBucket:"app.appspot.com",messagingSenderId:"42"};',
+    );
+    assert.deepEqual(verifyBuiltFirebaseConfig(dir2, full), { ok: false, missing: ['VITE_FIREBASE_APP_ID'] });
   });
 });

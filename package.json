@@ -12,7 +12,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "node server/index.cjs",
-    "test": "node --test test/*.test.cjs test/*.test.mjs"
+    "test": "node --test test/*.test.cjs test/*.test.mjs",
+    "test:e2e": "node scripts/run-e2e.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -35,6 +36,7 @@
     "yjs": "^13.6.32"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.0",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.5.5",
     "postcss": "^8.5.28",
