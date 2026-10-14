@@ -11,19 +11,27 @@
  * - `applyWorkerHardening()` neuters network, code-loading, storage, and
  *   string-to-code APIs on the worker global AND its prototype chain, so
  *   `Object.getPrototypeOf(self).fetch`-style bypasses fail too: fetch,
- *   XMLHttpRequest, WebSocket, WebSocketStream, EventSource, fetchLater,
- *   importScripts, eval, Function, WebAssembly, Worker, SharedWorker,
- *   indexedDB, caches, Notification, BroadcastChannel, navigator.sendBeacon,
- *   navigator.serviceWorker, navigator.locks, navigator.storage,
- *   navigator.clipboard.
- * - Dynamic `import()` (the one network path that is syntax, not an API,
- *   and therefore cannot be neutered) is rejected BEFORE any worker is
- *   spawned by a conservative lexical scan (`rejectsDynamicImport`): any
- *   `import(` token outside strings/comments/plain-template-text refuses
- *   the run. Fail-closed: ambiguous input is rejected, never executed.
- * - The host enforces a wall-clock timeout and ALWAYS terminates the
- *   worker, revokes the Blob URL, and detaches listeners — success,
- *   error, or timeout. No accumulation across runs.
+ *   XMLHttpRequest, WebSocket (+Stream), EventSource, fetchLater,
+ *   importScripts, eval, Function, WebAssembly, WebTransport,
+ *   RTCPeerConnection/DataChannel, Worker, SharedWorker, MessageChannel,
+ *   MessagePort, indexedDB, caches, Notification, BroadcastChannel, plus
+ *   navigator.sendBeacon/serviceWorker/locks/storage/clipboard/
+ *   mediaDevices/bluetooth/usb/hid (own props AND prototype chain).
+ * - Constructor recovery is closed: `Function.prototype.constructor`,
+ *   `AsyncFunction.prototype.constructor` and
+ *   `GeneratorFunction.prototype.constructor` are neutered, and the
+ *   runner's own `__AsyncFunction`/`__USER_CODE`/`__logs` live inside an
+ *   IIFE closure invisible to user code (constructed functions see the
+ *   global scope only). With no string-to-code primitive left, the only
+ *   dynamic-import path is a literal `import(` in source.
+ * - Dynamic `import()` is rejected BEFORE any worker is spawned by a
+ *   conservative lexical scan (`rejectsDynamicImport`): any `import(`
+ *   token outside strings/comments/plain-template-text refuses the run.
+ *   Fail-closed: ambiguous input is rejected, never executed.
+ * - The host enforces a wall-clock timeout (clamped to a sane positive
+ *   value) and ALWAYS terminates the worker, revokes the Blob URL, and
+ *   detaches listeners — success, error, or timeout (with terminate
+ *   fallback when a custom factory omits cleanup). No accumulation.
  * - Controlled console output only: the worker collects logs and posts
  *   `{ ok, output }`; the application console is never patched.
  *
@@ -35,6 +43,8 @@
  *   not blocked — they cannot reach application secrets or the network.
  * - The lexical import scan may reject exotic-but-harmless code (e.g. a
  *   regex literal containing the text `import(`); that direction is safe.
+ * - Future browser APIs unknown to the blocklists are not covered; the
+ *   lists must be reviewed when the runner changes, not assumed eternal.
  *
  * This is NOT a complete security sandbox. For untrusted code at scale,
  * use a backend runner. Only JavaScript is supported — nothing here
@@ -69,20 +79,36 @@ export function applyWorkerHardening(scope) {
     'XMLHttpRequest',
     'WebSocket',
     'WebSocketStream',
+    'MozWebSocket',
     'EventSource',
     'fetchLater',
     'importScripts',
     'eval',
     'Function',
     'WebAssembly',
+    'WebTransport',
+    'RTCPeerConnection',
+    'RTCDataChannel',
     'Worker',
     'SharedWorker',
+    'MessageChannel',
+    'MessagePort',
     'indexedDB',
     'caches',
     'Notification',
     'BroadcastChannel',
   ];
-  const NAV_KEYS = ['sendBeacon', 'serviceWorker', 'locks', 'storage', 'clipboard'];
+  const NAV_KEYS = [
+    'sendBeacon',
+    'serviceWorker',
+    'locks',
+    'storage',
+    'clipboard',
+    'mediaDevices',
+    'bluetooth',
+    'usb',
+    'hid',
+  ];
   const forgetOwn = (obj, key) => {
     try {
       if (obj === null || obj === undefined) return false;
@@ -126,22 +152,75 @@ export function applyWorkerHardening(scope) {
   } catch (e) {
     // Hardening is best-effort per object; failures below still apply.
   }
+  // Navigator: walk the prototype chain too, so
+  // Object.getPrototypeOf(navigator).sendBeacon-style escapes fail.
   try {
     const nav = scope.navigator;
     if (nav && (typeof nav === 'object' || typeof nav === 'function')) {
-      for (let k = 0; k < NAV_KEYS.length; k += 1) {
-        const key = NAV_KEYS[k];
-        let present = false;
-        try {
-          present = key in Object(nav);
-        } catch (e) {
-          present = false;
+      const seenNav = [];
+      let navObj = nav;
+      let navDepth = 0;
+      while (navObj !== null && navObj !== undefined && navObj !== Object.prototype && navDepth < 8) {
+        navDepth += 1;
+        let seenAlready = false;
+        for (let i = 0; i < seenNav.length; i += 1) {
+          if (seenNav[i] === navObj) {
+            seenAlready = true;
+            break;
+          }
         }
-        if (present && forgetOwn(nav, key)) neutralized.push('navigator.' + key);
+        if (seenAlready) break;
+        seenNav.push(navObj);
+        for (let k = 0; k < NAV_KEYS.length; k += 1) {
+          const key = NAV_KEYS[k];
+          let present = false;
+          try {
+            present = key in Object(navObj);
+          } catch (e) {
+            present = false;
+          }
+          if (present && forgetOwn(navObj, key)) neutralized.push('navigator.' + key);
+        }
+        try {
+          navObj = Object.getPrototypeOf(navObj);
+        } catch (e) {
+          navObj = null;
+        }
       }
     }
   } catch (e) {
     // Navigator hardening is additive; global neutering stands alone.
+  }
+  // Constructor recovery: user code must not be able to rebuild string-
+  // to-code primitives via (function(){}).constructor, (async()=>{}).
+  // constructor, or (function*(){}).constructor after eval/Function are
+  // neutered above. The prototypes are reached structurally (no reliance
+  // on the neutered globals themselves).
+  try {
+    const fnProto = Object.getPrototypeOf(function () {});
+    if (fnProto && fnProto !== Object.prototype) {
+      if (forgetOwn(fnProto, 'constructor')) neutralized.push('Function.prototype.constructor');
+    }
+  } catch (e) {
+    // Best-effort; direct eval/Function neutering already applied.
+  }
+  try {
+    const asyncCtor = Object.getPrototypeOf(async () => {}).constructor;
+    const asyncProto = asyncCtor && asyncCtor.prototype;
+    if (asyncProto && forgetOwn(asyncProto, 'constructor')) {
+      neutralized.push('AsyncFunction.prototype.constructor');
+    }
+  } catch (e) {
+    // Best-effort; see above.
+  }
+  try {
+    const genCtor = Object.getPrototypeOf(function* () {}).constructor;
+    const genProto = genCtor && genCtor.prototype;
+    if (genProto && forgetOwn(genProto, 'constructor')) {
+      neutralized.push('GeneratorFunction.prototype.constructor');
+    }
+  } catch (e) {
+    // Best-effort; see above.
   }
   return neutralized;
 }
@@ -285,7 +364,12 @@ export function rejectsDynamicImport(source) {
  */
 export function buildWorkerSource(userCode) {
   const code = typeof userCode === 'string' ? userCode : '';
+  // Everything bootstrap-related lives inside this IIFE: user code runs
+  // via `new __AsyncFunction(...)`, whose scope chain is the global scope
+  // ONLY — so __AsyncFunction, __USER_CODE, __logs and __fmt are invisible
+  // to it (no readable runner internals to repurpose for codegen/import).
   return `'use strict';
+(() => {
 const __AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
 (${applyWorkerHardening.toString()})(typeof self !== 'undefined' ? self : this);
 const __USER_CODE = ${JSON.stringify(code)};
@@ -309,6 +393,7 @@ self.onmessage = async (e) => {
     self.postMessage({ ok: false, output: __trailing + 'Error: ' + (err && err.message ? err.message : String(err)) });
   }
 };
+})();
 `;
 }
 
@@ -334,6 +419,17 @@ export function defaultCreateWorker(source) {
  * detached — success, failure, timeout.
  */
 export function runUserCode(code, { timeout = RUN_TIMEOUT_MS, createWorker = defaultCreateWorker } = {}) {
+  // Clamp degenerate timeouts to the documented default (Infinity/NaN/<=0
+  // would otherwise skew to immediate or never fire depending on engine).
+  const timeoutMs = Number.isFinite(timeout) && timeout > 0 ? timeout : RUN_TIMEOUT_MS;
+  const terminateHandle = (handle) => {
+    try {
+      if (handle && typeof handle.cleanup === 'function') handle.cleanup();
+      else if (handle && handle.worker && typeof handle.worker.terminate === 'function') {
+        handle.worker.terminate();
+      }
+    } catch { /* teardown — never throw */ }
+  };
   return new Promise((resolve, reject) => {
     let settled = false;
     let timer = null;
@@ -357,9 +453,7 @@ export function runUserCode(code, { timeout = RUN_TIMEOUT_MS, createWorker = def
           worker.removeEventListener('error', onError);
         }
       } catch { /* listener teardown — never throw */ }
-      try {
-        if (handle && typeof handle.cleanup === 'function') handle.cleanup();
-      } catch { /* teardown — never throw */ }
+      terminateHandle(handle);
       fn(value);
     };
     if (rejectsDynamicImport(code)) {
@@ -380,9 +474,7 @@ export function runUserCode(code, { timeout = RUN_TIMEOUT_MS, createWorker = def
       return;
     }
     if (!handle || !handle.worker || typeof handle.worker.postMessage !== 'function') {
-      try {
-        if (handle && typeof handle.cleanup === 'function') handle.cleanup();
-      } catch { /* ignore */ }
+      terminateHandle(handle);
       reject(new Error('Code runner unavailable: invalid worker handle'));
       return;
     }
@@ -400,8 +492,8 @@ export function runUserCode(code, { timeout = RUN_TIMEOUT_MS, createWorker = def
       return;
     }
     timer = setTimeout(() => {
-      finish(reject, new Error(`Execution timed out after ${timeout} ms`));
-    }, timeout);
+      finish(reject, new Error(`Execution timed out after ${timeoutMs} ms`));
+    }, timeoutMs);
     try {
       handle.worker.postMessage({ code: typeof code === 'string' ? code : '' });
     } catch (err) {

