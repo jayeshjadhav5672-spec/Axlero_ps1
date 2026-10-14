@@ -11,6 +11,8 @@ on:
         "vite.config.*",
         "package.json",
         "package-lock.json",
+        "scripts/**",
+        "test/**",
         ".github/workflows/frontend-deploy.yml",
       ]
   pull_request:
@@ -23,6 +25,8 @@ on:
         "vite.config.*",
         "package.json",
         "package-lock.json",
+        "scripts/**",
+        "test/**",
         ".github/workflows/frontend-deploy.yml",
       ]
   workflow_dispatch:
@@ -90,6 +94,9 @@ jobs:
       PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT_NAME }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
       - name: Validate production frontend config
         # Fail-closed: missing/malformed/localhost backend URL or missing
@@ -147,6 +154,9 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT_NAME }}
     steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - uses: actions/download-artifact@v4
         with:
           name: frontend-dist
@@ -154,7 +164,7 @@ jobs:
 
       - name: Deploy to Cloudflare Pages (preview)
         if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
-        run: npx -y wrangler@latest pages deploy dist --project-name="${PAGES_PROJECT:-syncspace}" --branch="pr-${{ github.event.pull_request.number }}"
+        run: npx -y wrangler@latest pages deploy dist --project-name="${PAGES_PROJECT:-syncspace-frontend}" --branch="pr-${{ github.event.pull_request.number }}"
 
       - name: Skip preview deployment (missing credentials)
         if: env.CLOUDFLARE_API_TOKEN == '' || env.CLOUDFLARE_ACCOUNT_ID == ''
