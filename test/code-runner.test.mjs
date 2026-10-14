@@ -17,6 +17,7 @@ import {
   buildWorkerSource,
   isRunnableLanguage,
   rejectsDynamicImport,
+  resolveTimeoutMs,
   runUserCode,
 } from '../src/lib/codeRunner.js';
 
@@ -282,8 +283,29 @@ describe('applyWorkerHardening (behavioral, vm-backed)', () => {
     assert.equal(vm.runInContext('typeof (function(){}).constructor', ctx), 'undefined');
     assert.equal(vm.runInContext('typeof (async()=>{}).constructor', ctx), 'undefined');
     assert.equal(vm.runInContext('typeof (function*(){}).constructor', ctx), 'undefined');
+    assert.equal(vm.runInContext('typeof (async function*(){}).constructor', ctx), 'undefined');
     assert.equal(vm.runInContext('typeof Function', ctx), 'undefined');
     assert.equal(vm.runInContext('typeof eval', ctx), 'undefined');
+  });
+
+  it('string-built imports cannot execute without a codegen primitive', () => {
+    const { scope } = workerLikeGlobal();
+    const ctx = vm.createContext(scope);
+    vm.runInContext(`(${applyWorkerHardening.toString()})(self)`, ctx);
+    // No literal import( anywhere, so the scanner passes; the run must
+    // still fail because every string-to-code primitive is neutered.
+    const throwsNamed = (fn) => {
+      try {
+        fn();
+      } catch (err) {
+        assert.ok(err && (err.name === 'TypeError' || err.name === 'ReferenceError' || err.name === 'SyntaxError'));
+        return;
+      }
+      assert.fail('expected a throw');
+    };
+    throwsNamed(() => vm.runInContext('const F = (async function*(){}).constructor; new F("return 1")', ctx));
+    throwsNamed(() => vm.runInContext('setTimeout("1+1", 0)', ctx));
+    throwsNamed(() => vm.runInContext('setInterval("1+1", 0)', ctx));
   });
 
   it('legitimate code keeps working in a hardened context', () => {
@@ -297,6 +319,36 @@ describe('applyWorkerHardening (behavioral, vm-backed)', () => {
     // Timers survive hardening (bounded by the host-side timeout instead).
     assert.equal(vm.runInContext('typeof setTimeout', ctx), 'function');
     assert.equal(vm.runInContext('x => x * 2', ctx)(21), 42);
+  });
+
+  it('function timer callbacks pass through, string code throws', () => {
+    const fired = [];
+    const scope = {
+      setTimeout: (fn) => {
+        fired.push(typeof fn);
+        return 1;
+      },
+      setInterval: (fn) => {
+        fired.push(typeof fn);
+        return 2;
+      },
+    };
+    scope.self = scope;
+    applyWorkerHardening(scope);
+    const ctx = vm.createContext(scope);
+    assert.equal(vm.runInContext('typeof setTimeout', ctx), 'function');
+    vm.runInContext('setTimeout(() => 1, 0)', ctx);
+    assert.deepEqual(fired, ['function']);
+    // NOTE: realm-safe message check (cross-realm instanceof/regex fail).
+    for (const snippet of ['setTimeout("1+1", 0)', 'setInterval("1+1", 0)']) {
+      try {
+        vm.runInContext(snippet, ctx);
+      } catch (err) {
+        assert.ok(String((err && err.message) || err).includes('string code is blocked'), snippet);
+        continue;
+      }
+      assert.fail(`${snippet} did not throw`);
+    }
   });
 
   it('the shipped worker source behaves end-to-end in a fake worker global', async () => {
@@ -453,17 +505,24 @@ describe('runUserCode', () => {
     assert.ok(Number.isFinite(RUN_TIMEOUT_MS) && RUN_TIMEOUT_MS > 0);
   });
 
-  it('clamps degenerate timeouts to the default instead of hanging', async () => {
-    for (const timeout of [Infinity, NaN, 0, -5]) {
-      const fake = fakeWorkerFactory(() => {
-        // Never responds; a clamped timeout must still fire.
-      });
-      await assert.rejects(
-        runUserCode('while(true){}', { timeout, createWorker: fake.createWorker }),
-        new RegExp(`timed out after ${RUN_TIMEOUT_MS} ms`),
-      );
-      assert.equal(fake.calls.terminate, 1);
-    }
+  it('clamps degenerate timeouts to the default (instant unit check)', () => {
+    assert.equal(resolveTimeoutMs(1000), 1000);
+    assert.equal(resolveTimeoutMs(Infinity), RUN_TIMEOUT_MS);
+    assert.equal(resolveTimeoutMs(NaN), RUN_TIMEOUT_MS);
+    assert.equal(resolveTimeoutMs(0), RUN_TIMEOUT_MS);
+    assert.equal(resolveTimeoutMs(-5), RUN_TIMEOUT_MS);
+    assert.equal(resolveTimeoutMs(undefined), RUN_TIMEOUT_MS);
+  });
+
+  it('a clamped default timeout still fires behaviorally', async () => {
+    const fake = fakeWorkerFactory(() => {
+      // Never responds; the clamped default must still fire.
+    });
+    await assert.rejects(
+      runUserCode('while(true){}', { timeout: Infinity, createWorker: fake.createWorker }),
+      new RegExp(`timed out after ${RUN_TIMEOUT_MS} ms`),
+    );
+    assert.equal(fake.calls.terminate, 1);
   });
 
   it('terminates the worker even without a cleanup callback', async () => {

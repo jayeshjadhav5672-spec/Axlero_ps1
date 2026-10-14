@@ -18,12 +18,15 @@
  *   navigator.sendBeacon/serviceWorker/locks/storage/clipboard/
  *   mediaDevices/bluetooth/usb/hid (own props AND prototype chain).
  * - Constructor recovery is closed: `Function.prototype.constructor`,
- *   `AsyncFunction.prototype.constructor` and
- *   `GeneratorFunction.prototype.constructor` are neutered, and the
+ *   `AsyncFunction.prototype.constructor`,
+ *   `GeneratorFunction.prototype.constructor` and
+ *   `AsyncGeneratorFunction.prototype.constructor` are neutered, and the
  *   runner's own `__AsyncFunction`/`__USER_CODE`/`__logs` live inside an
  *   IIFE closure invisible to user code (constructed functions see the
- *   global scope only). With no string-to-code primitive left, the only
- *   dynamic-import path is a literal `import(` in source.
+ *   global scope only). `setTimeout`/`setInterval` keep function callbacks
+ *   but throw on string code (wrapped at every chain level). With no
+ *   string-to-code primitive left, the only dynamic-import path is a
+ *   literal `import(` in source.
  * - Dynamic `import()` is rejected BEFORE any worker is spawned by a
  *   conservative lexical scan (`rejectsDynamicImport`): any `import(`
  *   token outside strings/comments/plain-template-text refuses the run.
@@ -56,6 +59,11 @@
  */
 
 export const RUN_TIMEOUT_MS = 5000;
+
+/** Clamp degenerate timeouts to the documented default (pure, instant). */
+export function resolveTimeoutMs(timeout) {
+  return Number.isFinite(timeout) && timeout > 0 ? timeout : RUN_TIMEOUT_MS;
+}
 
 /** Languages the isolated runner can actually execute. */
 export function isRunnableLanguage(language) {
@@ -222,6 +230,60 @@ export function applyWorkerHardening(scope) {
   } catch (e) {
     // Best-effort; see above.
   }
+  try {
+    const asyncGenCtor = Object.getPrototypeOf(async function* () {}).constructor;
+    const asyncGenProto = asyncGenCtor && asyncGenCtor.prototype;
+    if (asyncGenProto && forgetOwn(asyncGenProto, 'constructor')) {
+      neutralized.push('AsyncGeneratorFunction.prototype.constructor');
+    }
+  } catch (e) {
+    // Best-effort; see above.
+  }
+  // setTimeout/setInterval with string code compile like eval, so the
+  // function forms stay while string forms throw. Every chain level is
+  // wrapped (a proto-level raw copy would otherwise stay reachable via
+  // Object.getPrototypeOf). Originals are held only in closures unreachable
+  // from user code; legit timer use keeps working, bounded by host timeout.
+  const guardTimer = (key) => {
+    const seenTimers = [];
+    let timerObj = scope;
+    let timerDepth = 0;
+    while (timerObj !== null && timerObj !== undefined && timerObj !== Object.prototype && timerDepth < 8) {
+      timerDepth += 1;
+      let seenTimer = false;
+      for (let i = 0; i < seenTimers.length; i += 1) {
+        if (seenTimers[i] === timerObj) {
+          seenTimer = true;
+          break;
+        }
+      }
+      if (seenTimer) break;
+      seenTimers.push(timerObj);
+      try {
+        const own = Object.getOwnPropertyDescriptor(timerObj, key);
+        if (own && typeof own.value === 'function') {
+          const original = own.value;
+          const guarded = function guardedTimer() {
+            if (typeof arguments[0] === 'string') {
+              throw new TypeError(key + ' string code is blocked in the isolated runner');
+            }
+            return original.apply(this, arguments);
+          };
+          Object.defineProperty(timerObj, key, { value: guarded, writable: true, configurable: true });
+          neutralized.push(key + '(string)');
+        }
+      } catch (e) {
+        // Best-effort per level.
+      }
+      try {
+        timerObj = Object.getPrototypeOf(timerObj);
+      } catch (e) {
+        timerObj = null;
+      }
+    }
+  };
+  guardTimer('setTimeout');
+  guardTimer('setInterval');
   return neutralized;
 }
 
@@ -421,7 +483,7 @@ export function defaultCreateWorker(source) {
 export function runUserCode(code, { timeout = RUN_TIMEOUT_MS, createWorker = defaultCreateWorker } = {}) {
   // Clamp degenerate timeouts to the documented default (Infinity/NaN/<=0
   // would otherwise skew to immediate or never fire depending on engine).
-  const timeoutMs = Number.isFinite(timeout) && timeout > 0 ? timeout : RUN_TIMEOUT_MS;
+  const timeoutMs = resolveTimeoutMs(timeout);
   const terminateHandle = (handle) => {
     try {
       if (handle && typeof handle.cleanup === 'function') handle.cleanup();
