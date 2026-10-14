@@ -56,13 +56,22 @@ function collectJsFiles(dir, out = []) {
   return out;
 }
 
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
- * True when any emitted JS chunk contains the expected backend hostname.
- * Pure except for filesystem reads; never returns file contents.
+ * True when any emitted JS chunk references the expected backend hostname
+ * as a whole hostname — not as a substring of a longer attacker hostname
+ * (e.g. `evil-api.example.com` must NOT satisfy `api.example.com`).
+ * Boundary-aware on both sides; a trailing-dot FQDN form is conservatively
+ * treated as absent (fail-closed). Pure except for filesystem reads; never
+ * returns file contents.
  */
 export function builtBundleContainsBackend(distDir, expectedUrl) {
   const hostname = hostnameOf(expectedUrl);
   if (!hostname) return false;
+  const pattern = new RegExp(`(?:^|[^A-Za-z0-9.-])${escapeRegExp(hostname)}(?:[^A-Za-z0-9.-]|$)`);
   for (const file of collectJsFiles(distDir)) {
     let text;
     try {
@@ -70,7 +79,7 @@ export function builtBundleContainsBackend(distDir, expectedUrl) {
     } catch {
       continue;
     }
-    if (text.toLowerCase().includes(hostname)) return true;
+    if (pattern.test(text.toLowerCase())) return true;
   }
   return false;
 }

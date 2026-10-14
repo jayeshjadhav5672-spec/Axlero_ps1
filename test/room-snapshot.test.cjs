@@ -291,17 +291,22 @@ describe("room snapshots over sockets", () => {
     b.disconnect();
     a.emit("shapes:commit", { roomId: "recon-room", data: { shapes: [{ id: "r1", type: "rectangle" }] } });
     a.emit("shapes:commit", { roomId: "recon-room", data: { shapes: [{ id: "r2", type: "circle" }] } });
-    await new Promise((resolve) => setTimeout(resolve, 50));
 
     // B reconnects with a fresh socket and must converge on both shapes.
+    // Bounded poll instead of a fixed sleep: the server only snapshots what
+    // it actually received, so convergence itself proves processing.
     const b2 = client();
     await waitForEvent(b2, "connect");
-    const syncInit = waitForEvent(b2, "canvas:sync-init");
-    b2.emit("room:join", { roomId: "recon-room", userId: "b" });
-    await waitForEvent(b2, "room:joined");
-    assert.deepEqual(
-      (await syncInit)[0].shapes.map((s) => s.id).sort(),
-      ["r1", "r2"],
-    );
+    const deadline = Date.now() + 5000;
+    let ids = [];
+    while (Date.now() < deadline) {
+      const syncInit = waitForEvent(b2, "canvas:sync-init");
+      b2.emit("room:join", { roomId: "recon-room", userId: "b" });
+      await waitForEvent(b2, "room:joined");
+      ids = (await syncInit)[0].shapes.map((s) => s.id).sort();
+      if (ids.length === 2) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.deepEqual(ids, ["r1", "r2"]);
   });
 });

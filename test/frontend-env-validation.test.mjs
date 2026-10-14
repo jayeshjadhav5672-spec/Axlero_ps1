@@ -15,6 +15,7 @@ import {
   resolveBackendUrl,
   validateBackendUrl,
   validateFirebaseConfig,
+  validateOptionalOverrides,
   validateProductionEnv,
 } from '../scripts/validate-frontend-env.mjs';
 import {
@@ -68,7 +69,22 @@ describe('validateBackendUrl', () => {
   it('accepts public http(s) URLs', () => {
     assert.equal(validateBackendUrl('https://api.example.com').ok, true);
     assert.equal(validateBackendUrl('https://backend.up.railway.app:443/x').ok, true);
+    // Private LAN addresses are intentionally allowed (self-hosted teams
+    // run real backends there); only loopback is rejected for production.
     assert.equal(validateBackendUrl('http://192.168.1.10:3000').ok, true);
+  });
+
+  it('rejects lookalike hostnames that merely contain a good host', () => {
+    // Bundle verification is boundary-aware: attacker hosts that merely
+    // contain the expected hostname must NOT satisfy the check.
+    const dir = mkdtempSync(join(tmpdir(), 'syncspace-verify-evil-'));
+    mkdirSync(join(dir, 'assets'), { recursive: true });
+    writeFileSync(join(dir, 'assets', 'index-abc.js'), 'const u="https://evil-api.example.com/x";fetch(u);');
+    assert.equal(builtBundleContainsBackend(dir, 'https://api.example.com'), false);
+    writeFileSync(join(dir, 'assets', 'index-def.js'), 'const u="https://api.example.com.evil.example/x";fetch(u);');
+    assert.equal(builtBundleContainsBackend(dir, 'https://api.example.com'), false);
+    writeFileSync(join(dir, 'assets', 'index-ok.js'), 'const u="https://api.example.com/socket.io";fetch(u);');
+    assert.equal(builtBundleContainsBackend(dir, 'https://api.example.com'), true);
   });
 
   it('prefers VITE_BACKEND_URL over the legacy alias', () => {
@@ -92,6 +108,49 @@ describe('validateFirebaseConfig', () => {
     const result = validateFirebaseConfig({ ...rest, VITE_FIREBASE_APP_ID: '   ' });
     assert.equal(result.ok, false);
     assert.deepEqual(result.missing, ['VITE_FIREBASE_API_KEY', 'VITE_FIREBASE_APP_ID']);
+  });
+});
+
+describe('validateOptionalOverrides', () => {
+  it('ignores absent overrides (backend fallback applies)', () => {
+    assert.deepEqual(validateOptionalOverrides({}), []);
+    assert.deepEqual(validateOptionalOverrides({ VITE_WS_URL: '  ' }), []);
+  });
+
+  it('accepts valid public overrides including wss:// form', () => {
+    assert.deepEqual(
+      validateOptionalOverrides({ VITE_WS_URL: 'wss://ws.example.com', VITE_API_URL: 'https://api.example.com' }),
+      [],
+    );
+  });
+
+  it('rejects localhost or malformed overrides without echoing values', () => {
+    const errors = validateOptionalOverrides({
+      VITE_WS_URL: 'ws://localhost:3000',
+      VITE_API_URL: 'not a url',
+    });
+    assert.equal(errors.length, 2);
+    assert.ok(errors[0].startsWith('VITE_WS_URL:'));
+    assert.ok(errors[1].startsWith('VITE_API_URL:'));
+    assert.ok(!errors.join(' ').includes('localhost:3000'));
+    assert.ok(!errors.join(' ').includes('not a url'));
+  });
+
+  it('feeds into the production gate', () => {
+    const result = validateProductionEnv({
+      VITE_BACKEND_URL: 'https://api.example.com',
+      ...{
+        VITE_FIREBASE_API_KEY: 'k',
+        VITE_FIREBASE_AUTH_DOMAIN: 'd',
+        VITE_FIREBASE_PROJECT_ID: 'p',
+        VITE_FIREBASE_STORAGE_BUCKET: 'b',
+        VITE_FIREBASE_MESSAGING_SENDER_ID: 's',
+        VITE_FIREBASE_APP_ID: 'a',
+      },
+      VITE_WS_URL: 'ws://localhost:3000',
+    });
+    assert.equal(result.ok, false);
+    assert.ok(result.errors.some((e) => e.startsWith('VITE_WS_URL:')));
   });
 });
 

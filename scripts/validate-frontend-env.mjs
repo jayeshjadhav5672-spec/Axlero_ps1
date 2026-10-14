@@ -81,6 +81,28 @@ export function validateFirebaseConfig(env = {}) {
   return { ok: true };
 }
 
+/**
+ * Validate the optional split overrides when present. VITE_WS_URL feeds
+ * Socket.IO and VITE_API_URL feeds HTTP auth; a localhost override would
+ * silently redirect production traffic at runtime, so present values must
+ * be valid non-loopback URLs. Absent overrides are fine (callers fall
+ * back to the backend URL). Returns an array of error strings (possibly
+ * empty; never echoes values).
+ */
+export function validateOptionalOverrides(env = {}) {
+  const errors = [];
+  for (const key of ['VITE_WS_URL', 'VITE_API_URL']) {
+    const raw = typeof env[key] === 'string' ? env[key].trim() : '';
+    if (!raw) continue;
+    // Socket.IO accepts ws(s):// (normalized to http(s) at runtime);
+    // validate the mapped form so the README's wss:// advice passes.
+    const mapped = raw.replace(/^ws(s)?:\/\//i, (m) => (m.toLowerCase().startsWith('wss') ? 'https://' : 'http://'));
+    const checked = validateBackendUrl(mapped);
+    if (!checked.ok) errors.push(`${key}: ${checked.reason}`);
+  }
+  return errors;
+}
+
 /** Full production gate. Returns { ok, errors: [] } (no secret values). */
 export function validateProductionEnv(env = process.env) {
   const errors = [];
@@ -88,6 +110,7 @@ export function validateProductionEnv(env = process.env) {
   if (!backend.ok) errors.push(backend.reason);
   const firebase = validateFirebaseConfig(env);
   if (!firebase.ok) errors.push(`missing Firebase configuration: ${firebase.missing.join(', ')}`);
+  errors.push(...validateOptionalOverrides(env));
   return { ok: errors.length === 0, errors };
 }
 

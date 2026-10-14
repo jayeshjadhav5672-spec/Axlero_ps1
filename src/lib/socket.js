@@ -12,15 +12,25 @@
 
 import { io } from 'socket.io-client';
 
+function normalizeSocketUrl(url) {
+  // socket.io-client speaks http(s) (it upgrades to WebSocket itself), so
+  // map documented ws(s):// overrides to their http(s) equivalents.
+  if (typeof url !== 'string') return '';
+  const trimmed = url.trim();
+  if (/^wss:\/\//i.test(trimmed)) return `https://${trimmed.slice(6)}`;
+  if (/^ws:\/\//i.test(trimmed)) return `http://${trimmed.slice(5)}`;
+  return trimmed;
+}
+
 function resolveServerUrl() {
   try {
     const env = (typeof import.meta !== 'undefined' && import.meta.env) || {};
-    return (
+    const raw =
       env.VITE_WS_URL ||
       env.VITE_BACKEND_URL ||
       env.VITE_SYNCSPACE_SERVER_URL ||
-      'http://localhost:3000'
-    );
+      'http://localhost:3000';
+    return normalizeSocketUrl(raw) || 'http://localhost:3000';
   } catch {
     return 'http://localhost:3000';
   }
